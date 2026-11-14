@@ -7,6 +7,7 @@ to read new emails live.
 from __future__ import annotations
 
 import json
+import sys
 from datetime import date
 
 import pandas as pd
@@ -162,7 +163,7 @@ with st.sidebar:
                         help="Off = strict view: a factory that runs past its slack delivers nothing on time.")
     shocks = st.toggle("Correlated district/national shocks", True)
     st.caption(f"LLM mode: **{current_mode()}** · model `{C.LLM_MODEL}`. As-of date {C.AS_OF:%d %b %Y} (fixed). "
-               f"Delivery point: {C.DELIVERY_POINT_NAME}.")
+               f"Delivery point: {C.DELIVERY_POINT_NAME}. Python {sys.version.split()[0]}.")
     if st.button("↺ Restart the story"):
         for k in list(st.session_state):
             if k != "role":
@@ -335,7 +336,14 @@ st.write(f"Scripted scenario: on day {DAYS}, **{gone}**, the factory with the la
 if st.button(f"Simulate: {gone} declines on day {DAYS}", type="primary"):
     st.session_state["replan_for"] = args
 if st.session_state.get("replan_for") == args:
-    rp, rmemo, cands_late = run_replan(*args, DAYS)
+    try:
+        rp, rmemo, cands_late = run_replan(*args, DAYS)
+    except Exception:
+        import traceback
+        st.error("The re-plan failed. Nothing was changed or sent. Technical details below.")
+        with st.expander("Technical details"):
+            st.code(traceback.format_exc())
+        st.stop()
     n = rp.new
     d = st.columns(3)
     d[0].metric("New P(on-time full delivery)", f"{n.risk.p_meet_qty:.1%}" if n.risk else "—",

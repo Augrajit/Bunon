@@ -205,6 +205,11 @@ def solve_mip(cands: list[Candidate], Q: int, params: OptimizerParams, time_limi
     if params.unproven_cap_pct * target - sum(qty[i] for i in unproven) < lot:
         binding.append("unproven_cap")
     binding += [f"capacity:{i}" for i, q in qty.items() if q > 0 and q >= by_id[i].window_capacity_risk_adj - lot]
+    if params.max_district_share is not None and not naive and total:
+        per_d: dict[str, int] = {}
+        for i, q in qty.items():
+            per_d[by_id[i].district] = per_d.get(by_id[i].district, 0) + q
+        binding += [f"district:{d}" for d, q in per_d.items() if params.max_district_share * total - q < lot]
     return make_plan(method, qty, by_id, Q, b, params, binding_constraints=binding, solver_seconds=secs)
 
 

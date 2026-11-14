@@ -11,3 +11,6 @@ data/private/
 # Secrets
 .env
 .streamlit/secrets.toml
+
+# Local tooling
+.claude/

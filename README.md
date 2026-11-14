@@ -5,7 +5,7 @@
 
 When a Bangladeshi garment exporter can't make a whole buyer order in-house, Bunon picks the set of subcontract factories most likely to deliver on time. It adds a priced buffer, and re-plans when a factory declines. A human approves every decision, and nothing is sent automatically.
 
-Deployed demo: _coming Day 2_.
+**Live demo: https://buunon.streamlit.app/** (Streamlit Community Cloud. The first load after a quiet period can take a minute while the app wakes up.)
 
 ## Run locally
 
@@ -27,8 +27,10 @@ python -m bunon.data_gen
 | Module | State |
 |---|---|
 | `data_gen`: clean real export + synthetic history | done |
-| `reliability`, `optimizer`, `simulation` | Day 2 |
-| `agent` (LLM intake + memo) | Day 3 |
-| Streamlit UI | Day 2 (thin) → Day 4 (full) |
+| `reliability` (empirical Bayes), `optimizer` (PuLP/CBC), `simulation` (Monte Carlo with shocks) | done |
+| Streamlit UI: three plans, buffer curve, disruption re-plan | thin version live; full walk-through Day 4 |
+| `agent` (LLM intake + decision memo) | Day 3 |
+
+Design decisions and their before/after numbers are logged in [SPEC.md](SPEC.md). The latest results are in [CHECKPOINT_DAY2.md](CHECKPOINT_DAY2.md).
 
 See [PLAN.md](PLAN.md) for the full plan.

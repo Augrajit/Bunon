@@ -9,7 +9,7 @@ import hashlib
 import math
 import time
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -262,9 +262,10 @@ def evaluate(plan: AllocationPlan, cands: list[Candidate], world: World, shocks:
 
 def search_buffer(world: World, order: OrderConstraints, params: OptimizerParams,
                   target_p: float = C.TARGET_P_MEET, grid=C.BUFFER_GRID, shocks: bool = True,
-                  n_sims: int = C.N_SIMS, seed: int = C.SIM_SEED, partial_lots: bool = C.PARTIAL_LOTS_DEFAULT) -> PlanResult:
+                  n_sims: int = C.N_SIMS, seed: int = C.SIM_SEED, partial_lots: bool = C.PARTIAL_LOTS_DEFAULT,
+                  cands: list[Candidate] | None = None) -> PlanResult:
     """Solve for each buffer; recommend the cheapest plan with P(meet) >= target, else the most likely one."""
-    cands = build_candidates(world, order, params)
+    cands = cands if cands is not None else build_candidates(world, order, params)
     Q = order.subcontract_qty
     frontier = []
     for b in grid:
@@ -338,6 +339,34 @@ def replan_exclude(world: World, order: OrderConstraints, params: OptimizerParam
     diff = [{"factory_id": i, "old_qty": old_q.get(i, 0), "new_qty": new_q.get(i, 0)}
             for i in sorted(set(old_q) | set(new_q), key=lambda i: -max(old_q.get(i, 0), new_q.get(i, 0)))]
     return ReplanResult(excluded_id=excluded_id, reason=reason, old=old, new=new, diff=diff)
+
+
+def replan_locked(world: World, order: OrderConstraints, params: OptimizerParams, old: BufferPoint,
+                  excluded_id: str, days_elapsed: int = 3, reason: str | None = None,
+                  target_p: float = C.TARGET_P_MEET, shocks: bool = True,
+                  partial_lots: bool = C.PARTIAL_LOTS_DEFAULT, as_of: date = C.AS_OF) -> ReplanResult:
+    """Day 4 re-allocation (PLAN.md §5): a factory declines `days_elapsed` days after the plan.
+
+    - The decliner is excluded.
+    - Every other factory in the old plan has confirmed: its quantity is locked as a lower bound
+      (it may be asked for more, never less), and it keeps its original production window.
+    - New factories can only start now: their window shrinks by `days_elapsed`.
+    - The deadline does not move. Compliance is unchanged.
+    """
+    old_q = {ln.factory_id: ln.qty for ln in old.plan.lines}
+    if excluded_id not in old_q:
+        raise ValueError(f"{excluded_id} is not in the plan")
+    locked = {f: q for f, q in old_q.items() if f != excluded_id}
+    p2 = params.model_copy(update={"excluded_ids": [*params.excluded_ids, excluded_id], "locked_min_qty": locked})
+    original = {c.factory_id: c for c in build_candidates(world, order, p2, as_of=as_of)}
+    later = {c.factory_id: c for c in build_candidates(world, order, p2, as_of=as_of + timedelta(days=days_elapsed))}
+    cands = [original[f] for f in locked if f in original] + [c for f, c in later.items() if f not in locked]
+    new = search_buffer(world, order, p2, target_p, shocks=shocks, partial_lots=partial_lots, cands=cands).recommended
+    new_q = {ln.factory_id: ln.qty for ln in new.plan.lines}
+    diff = [{"factory_id": i, "old_qty": old_q.get(i, 0), "new_qty": new_q.get(i, 0)}
+            for i in sorted(set(old_q) | set(new_q), key=lambda i: -max(old_q.get(i, 0), new_q.get(i, 0)))]
+    return ReplanResult(excluded_id=excluded_id, reason=reason or f"declined on day {days_elapsed}",
+                        old=old, new=new, diff=diff)
 
 
 def largest_line(point: BufferPoint) -> str:

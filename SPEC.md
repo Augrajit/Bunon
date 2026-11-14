@@ -113,3 +113,10 @@ Frontier at S = 4 (ours / baseline + same buffer): 10% → 0.745 / 0.600; 12.5% 
 
 **Reading:** at the default setting, reliability-aware allocation saves 2.5 points of buffer and about 0.19M BDT (1.5%) for the same P(meet). The gap grows with tighter slack (0.62M at S ≤ 2) and is large under the strict "late = 0" view (1.9M). Most of the protection still comes from the buffer itself, and that is the honest pitch: **"we price the buffer and spend less of it"**, not "we pick magic factories".
 Every plan uses only Ashulia/Savar and Gazipur factories, because they are closest to the Gazipur delivery point. Re-allocation after the largest factory (F2184) declines: P 0.911, +27,548 BDT.
+
+### D4: 15 Nov 2026: LLM layer and the full walk-through (Days 3–4)
+
+- **LLM:** `gemini-3.5-flash-lite` via `google-genai` 3.3.0, chosen from the current docs (see PROMPTS.md). The project was not eligible for the free tier, so a paid key was used (about 10 calls in total). The public app runs **offline** and replays cached answers. A new email on the public app goes to the manual order form; live mode needs `BUNON_LLM_MODE=live` and a key.
+- **Locked re-plan:** when a factory declines on day k, factories that already confirmed keep their quantity as a **lower bound** (they may be asked for more, never less) and keep their original production window. New factories start on day k, so their window is k days shorter. The deadline does not move. On the demo order the locks do not bind: the re-plan matches exclude-and-re-solve exactly (P 0.911, +27,548 BDT, F1856 added).
+- **Human in the loop:** the order is confirmed by a human after intake. The plan and the re-plan each have Approve / Reject, logged in `data/runtime/decisions.db` (gitignored, ephemeral on the host) with the acting **role**, never a name. Approval unlocks a **draft** PO text download; nothing is ever sent.
+- **UI at narrow widths:** the funnel shows as two rows of three, and the approval buttons were widened. Checked at a 480 px content width: no metric or button is clipped.

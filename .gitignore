@@ -14,3 +14,6 @@ data/private/
 
 # Local tooling
 .claude/
+
+# Runtime approval log (ephemeral)
+data/runtime/

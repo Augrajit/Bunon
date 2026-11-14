@@ -28,8 +28,10 @@ python -m bunon.data_gen
 |---|---|
 | `data_gen`: clean real export + synthetic history | done |
 | `reliability` (empirical Bayes), `optimizer` (PuLP/CBC), `simulation` (Monte Carlo with shocks) | done |
-| Streamlit UI: three plans, buffer curve, disruption re-plan | thin version live; full walk-through Day 4 |
-| `agent` (LLM intake + decision memo) | Day 3 |
+| `agent`: LLM intake (verbatim-quote checks) + decision memo (placeholder-only numbers), cached | done |
+| Streamlit UI: email → confirmed order → three plans → memo → approve → day-3 decline → locked re-plan → approve; decision log; draft POs (download only) | done |
+
+**The 3-minute demo:** click **Read the email** → **Confirm order** → read the plans and the memo → **Approve** → **Simulate: F2184 declines on day 3** → **Approve** the re-plan → open the **Decision log**. On the public app, LLM answers are replayed from the cache, so it needs no API key.
 
 Design decisions and their before/after numbers are logged in [SPEC.md](SPEC.md). The latest results are in [CHECKPOINT_DAY2.md](CHECKPOINT_DAY2.md).
 

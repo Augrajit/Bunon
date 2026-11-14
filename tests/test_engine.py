@@ -117,6 +117,30 @@ def test_baseline_trusts_declared_capacity_and_is_cheaper(world, order):
     assert base.cost_total <= ours.cost_total
 
 
+def test_locked_replan_keeps_confirmed_quantities(world, order):
+    p = op.default_params(order)
+    rec = op.search_buffer(world, order, p, n_sims=2_000).recommended
+    gone = op.largest_line(rec)
+    rp = op.replan_locked(world, order, p, rec, gone, days_elapsed=3)
+    old = {ln.factory_id: ln.qty for ln in rec.plan.lines}
+    new = {ln.factory_id: ln.qty for ln in rp.new.plan.lines}
+    assert gone not in new
+    for f, q in old.items():
+        if f != gone:
+            assert new.get(f, 0) >= q            # confirmed factories never cut
+    assert rp.new.plan.total_allocated >= order.subcontract_qty
+    assert rp.reason == "declined on day 3"
+
+
+def test_late_start_shrinks_new_factories_window(world, order):
+    from datetime import timedelta
+    p = op.default_params(order)
+    now = {c.factory_id: c for c in op.build_candidates(world, order, p)}
+    later = {c.factory_id: c for c in op.build_candidates(world, order, p, as_of=C.AS_OF + timedelta(days=3))}
+    common = set(now) & set(later)
+    assert common and all(later[f].window_days == now[f].window_days - 3 for f in common)
+
+
 def test_replan_excludes_the_decliner(world, order):
     p = op.default_params(order)
     rec = op.search_buffer(world, order, p, n_sims=2_000).recommended

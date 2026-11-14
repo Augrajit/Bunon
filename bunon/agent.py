@@ -244,7 +244,7 @@ def factsheet_for_plan(order: OrderConstraints, comparison: dict, match, cands, 
         "funnel.candidates": Fact(len(cands), "int", "of those, with spare capacity that fits the deadline"),
         "plan.target_p": Fact(target_p, "prob", "target probability of on-time full delivery"),
         "plan.slack_days": Fact(slack, "days", "planned slack before the latest finish date"),
-        "plan.p_meet": Fact(rec.risk.p_meet_qty, "prob", "recommended plan: probability of on-time full delivery"),
+        "plan.p_meet": Fact(rec.risk.p_meet_qty, "prob", "recommended plan: probability that the subcontracted quantity (order.subcontract_qty) is delivered in full and on time"),
         "plan.buffer_pct": Fact(rec.buffer_pct, "pct", "recommended plan: over-allocation buffer"),
         "plan.pieces": Fact(rec.plan.total_allocated, "qty", "recommended plan: pieces allocated"),
         "plan.buffer_pieces": Fact(rec.plan.buffer_qty, "qty", "recommended plan: buffer pieces above Q"),
@@ -252,13 +252,13 @@ def factsheet_for_plan(order: OrderConstraints, comparison: dict, match, cands, 
         "plan.buffer_cost": Fact(rec.plan.cost_buffer, "bdt", "recommended plan: price of the buffer"),
         "plan.n_factories": Fact(len(rec.plan.lines), "int", "recommended plan: number of factories"),
         "plan.target_met": Fact("yes" if comparison["ours"].target_met else "no", "text", "does the plan reach the target"),
-        "base.p_meet": Fact(bl.risk.p_meet_qty if bl.risk else 0.0, "prob", "naive plan (declared capacity + lowest price): probability"),
+        "base.p_meet": Fact(bl.risk.p_meet_qty if bl.risk else 0.0, "prob", "naive plan (declared capacity + lowest price): probability that the subcontracted quantity is delivered in full and on time"),
         "base.cost_total": Fact(bl.plan.cost_total, "bdt", "naive plan: total cost"),
-        "basebuf.p_meet": Fact(bb.risk.p_meet_qty if bb.risk else 0.0, "prob", "naive plan with the same buffer: probability"),
+        "basebuf.p_meet": Fact(bb.risk.p_meet_qty if bb.risk else 0.0, "prob", "naive plan with the same buffer: probability that the subcontracted quantity is delivered in full and on time"),
         "basebuf.cost_total": Fact(bb.plan.cost_total, "bdt", "naive plan with the same buffer: total cost"),
     }
     if match is not None:
-        fs["match.buffer_pct"] = Fact(match.buffer_pct, "pct", "buffer the naive plan needs to match our probability")
+        fs["match.buffer_pct"] = Fact(match.buffer_pct, "pct", "buffer the naive plan needs to match our probability (search allowed beyond our ceiling)")
         fs["match.cost_total"] = Fact(match.plan.cost_total, "bdt", "naive plan at that buffer: total cost")
         fs["match.extra_cost"] = Fact(match.plan.cost_total - rec.plan.cost_total, "bdt_delta",
                                       "extra cost of the naive plan to match ours")
@@ -279,10 +279,10 @@ def factsheet_for_replan(base: FactSheet, rp) -> FactSheet:
     old, new = rp.old, rp.new
     fs: FactSheet = {k: v for k, v in base.items() if k.startswith(("order.", "plan.target_p", "plan.slack_days"))}
     fs.update({
-        "replan.reason": Fact(rp.reason, "text", "what happened"),
-        "old.p_meet": Fact(old.risk.p_meet_qty, "prob", "original plan: probability"),
+        "replan.reason": Fact(rp.reason, "text", "what happened to the declining factory, a complete phrase: write \"{{fac:ID}} {{replan.reason}}\""),
+        "old.p_meet": Fact(old.risk.p_meet_qty, "prob", "original plan: probability that the subcontracted quantity is delivered in full and on time"),
         "old.cost_total": Fact(old.plan.cost_total, "bdt", "original plan: total cost"),
-        "new.p_meet": Fact(new.risk.p_meet_qty if new.risk else 0.0, "prob", "new plan: probability"),
+        "new.p_meet": Fact(new.risk.p_meet_qty if new.risk else 0.0, "prob", "new plan: probability that the subcontracted quantity is delivered in full and on time"),
         "new.cost_total": Fact(new.plan.cost_total, "bdt", "new plan: total cost"),
         "new.cost_delta": Fact(new.plan.cost_total - old.plan.cost_total, "bdt_delta", "cost change"),
         "new.buffer_pct": Fact(new.buffer_pct, "pct", "new plan: buffer"),
@@ -306,6 +306,8 @@ def factory_ids(fs: FactSheet) -> set[str]:
 
 MEMO_VERSION = "memo_v1"
 _PH = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
+# A fact key written outside braces would print as raw text, e.g. "line.F0288.fail_share".
+_BARE_KEY = re.compile(r"\b(?:order|funnel|plan|base|basebuf|match|line|district|old|new|diff|replan)\.[A-Za-z0-9_.]+")
 
 
 class MemoLLM(BaseModel):
@@ -323,6 +325,7 @@ STRICT RULES (an automatic checker enforces them; violating output is discarded)
 2. Every number must be written as a placeholder with a key from the FACTS list, e.g. {{{{plan.p_meet}}}}.
    Use only keys from the list. The placeholder is replaced by the exact value shown, so write units
    that the value lacks yourself (e.g. "{{{{plan.pieces}}}} pieces"; percentages and BDT already carry theirs).
+   Always wrap the key in double braces: write {{{{line.F0123.fail_share}}}}, never line.F0123.fail_share.
 3. Refer to a factory only as {{{{fac:F0123}}}}, using IDs that appear in the FACTS keys.
 4. Do not compute or compare numbers yourself (no "higher by", no sums). Cite facts and explain them.
 5. A human approves every decision. Nothing is sent to any factory automatically; say so where relevant.
@@ -362,6 +365,11 @@ def validate_memo(memo: MemoLLM, fs: FactSheet) -> list[str]:
             elif key not in fs:
                 errors.append(f"{where}: unknown fact key '{key}'")
         bare = _PH.sub(" ", t)
+        naked = _BARE_KEY.findall(bare)
+        if naked:
+            errors.append(f"{where}: fact key(s) {sorted(set(naked))[:3]} written without double braces; "
+                          "write {{key}}")
+            bare = _BARE_KEY.sub(" ", bare)
         lits = tn.literal_numbers(bare)
         if lits:
             errors.append(f"{where}: literal number(s) {sorted(set(lits))[:5]} outside placeholders")

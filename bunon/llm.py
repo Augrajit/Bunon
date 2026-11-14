@@ -75,20 +75,29 @@ class GeminiProvider:
         from google import genai  # lazy: offline runs never need the SDK
         self._client = genai.Client(api_key=key)
 
+    RETRY_WAITS = (5, 20)  # seconds; only for temporary server errors (503 "high demand", 500)
+
     def generate_json(self, prompt: str, json_schema: dict) -> str:
-        try:
-            resp = self._client.models.generate_content(
-                model=self.model,
-                contents=prompt,
-                config={
-                    "response_mime_type": "application/json",
-                    "response_json_schema": json_schema,
-                    "temperature": C.LLM_TEMPERATURE,
-                    "seed": C.LLM_SEED,
-                },
-            )
-        except Exception as e:  # network, quota, auth: surface as one error type
-            raise LLMError(f"{type(e).__name__}: {e}") from e
+        import time
+        for attempt in range(len(self.RETRY_WAITS) + 1):
+            try:
+                resp = self._client.models.generate_content(
+                    model=self.model,
+                    contents=prompt,
+                    config={
+                        "response_mime_type": "application/json",
+                        "response_json_schema": json_schema,
+                        "temperature": C.LLM_TEMPERATURE,
+                        "seed": C.LLM_SEED,
+                    },
+                )
+                break
+            except Exception as e:  # network, quota, auth: surface as one error type
+                temporary = type(e).__name__ == "ServerError" or " 503 " in f" {e} " or "UNAVAILABLE" in str(e)
+                if temporary and attempt < len(self.RETRY_WAITS):
+                    time.sleep(self.RETRY_WAITS[attempt])
+                    continue
+                raise LLMError(f"{type(e).__name__}: {e}") from e
         if not resp.text:
             raise LLMError("empty response")
         return resp.text

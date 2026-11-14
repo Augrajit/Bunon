@@ -60,6 +60,7 @@ STRICT RULES (an automatic checker enforces them; violating output is discarded)
 2. Every number must be written as a placeholder with a key from the FACTS list, e.g. {{plan.p_meet}}.
    Use only keys from the list. The placeholder is replaced by the exact value shown, so write units
    that the value lacks yourself (e.g. "{{plan.pieces}} pieces"; percentages and BDT already carry theirs).
+   Always wrap the key in double braces: write {{line.F0123.fail_share}}, never line.F0123.fail_share.
 3. Refer to a factory only as {{fac:F0123}}, using IDs that appear in the FACTS keys.
 4. Do not compute or compare numbers yourself (no "higher by", no sums). Cite facts and explain them.
 5. A human approves every decision. Nothing is sent to any factory automatically; say so where relevant.
@@ -77,7 +78,7 @@ plan.p_meet = 91.4%: recommended plan: probability of on-time full delivery
 
 **How "no invented numbers" is enforced (code, `validate_memo` + `render_text`):**
 - The fact sheet is built **only from tool outputs**: optimiser, simulation and data funnel (`factsheet_for_plan`, `factsheet_for_replan`).
-- The validator rejects any digit (ASCII or Bangla) or number word outside placeholders, any unknown fact key, and any unknown factory ID.
+- The validator rejects any digit (ASCII or Bangla) or number word outside placeholders, any fact key written without braces, any unknown fact key, and any unknown factory ID.
 - The renderer substitutes values with fixed formatting, so **every number a reader sees comes from the fact sheet by construction**. A property test checks that every number token in a rendered memo occurs in the rendered facts.
 - If validation fails, there is **one retry**, with the checker's errors appended to the prompt. If that also fails, or the LLM is unavailable, a **deterministic template memo** built from the same placeholders is used instead. The UI labels the source: `LLM (cached)`, `LLM (live)` or `template`.
 
@@ -88,6 +89,15 @@ plan.p_meet = 91.4%: recommended plan: probability of on-time full delivery
 | Version | Date | Change |
 |---|---|---|
 | `intake_v1`, `memo_v1` | 15 Nov 2026 | First versions |
+| `memo_v1`, revised before release | 15 Nov 2026 | After the first live run: fact labels say explicitly that probabilities refer to the **subcontracted** quantity (the model had attached one to the 150,000-piece order); the re-plan reason label asks for a complete phrase (the model had written "declined on declined on day 3"); a new rule: always wrap keys in braces |
+
+### First live run (15 Nov 2026, `gemini-3.5-flash-lite`)
+
+- **Intake:** all 10 fields passed validation, each with a verbatim quote. The distractor numbers in the email ("4 colours", "PO NB-2611", "100% cotton") were not used. The extracted order equals the hand-built demo order.
+- **Initial memo, first prompt:** **rejected twice** by the validator. The model wrote fact keys without braces (`line.F2184.fail_share`), which would have printed raw keys; the deterministic template was used. This led to the bare-key check and the brace rule above.
+- **After the revision:** both memos were valid on the first attempt. A free-tier 503 ("high demand") also occurred once, so temporary server errors now get two retries (after 5 s and 20 s).
+- **Cost:** about 10 calls in total on the paid tier (the free tier was not available for the project).
+- **The cached answers in `data/llm_cache/` are the ones the deployed demo replays.**
 
 ---
 

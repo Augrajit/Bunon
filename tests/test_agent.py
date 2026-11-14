@@ -172,6 +172,13 @@ def test_validator_rejects_number_word_and_unknown_key(facts):
     assert any("unknown factory" in e for e in ag.validate_memo(ag.MemoLLM(**_memo(summary="{{fac:F9999}}")), fs))
 
 
+def test_validator_rejects_bare_fact_keys(facts):
+    """Seen live on 15 Nov 2026: Gemini wrote keys without braces, which would print as raw text."""
+    fs, _ = facts
+    m = ag.MemoLLM(**_memo(risks=["Concentration: district.gazipur.share of pieces are in gazipur."]))
+    assert any("without double braces" in e for e in ag.validate_memo(m, fs))
+
+
 def _numbers(text: str) -> list[str]:
     return re.findall(r"[+-]?\d[\d,]*(?:\.\d+)?", text)
 

@@ -443,6 +443,9 @@ if st.session_state.get("replan_for") == args:
     d[1].metric("New cost", bdt_m(n.plan.cost_total), delta=bdt(n.plan.cost_total - rec.plan.cost_total),
                 delta_color="inverse")
     d[2].metric("New buffer", f"{n.buffer_pct:.1%}")
+    if n.risk and n.risk.p_meet_qty < target:
+        st.error(f"The re-plan does not reach the {target:.0%} target (best found: {n.risk.p_meet_qty:.1%}). "
+                 "The deadline is fixed: escalate to the buyer early, or add capacity outside this plan.")
     st.dataframe(pd.DataFrame([{
         "Factory": x["factory_id"], "Before": x["old_qty"], "After": x["new_qty"], "Change": x["new_qty"] - x["old_qty"],
         "Note": ("declined" if x["factory_id"] == rp.excluded_id else

@@ -117,6 +117,17 @@ DEMO_PENALTY_PCT_PER_WEEK = 5.0  # ASSUMPTION (research ask 5)
 DELIVERY_POINT_NAME = "Exporter consolidation point, Gazipur (district point, not a real factory)"
 DELIVERY_POINT_LATLNG = (24.00, 90.42)  # ASSUMPTION: approximate Gazipur point, to confirm
 
+# --- LLM (PLAN.md §7) ------------------------------------------------------
+# Verified 15 Nov 2026 at aistudio.google.com/docs: gemini-3.5-flash-lite is "Stable" and has a
+# free tier (free-tier content may be used to improve Google products; we send only fictional
+# emails, pseudonymous IDs and synthetic numbers). SDK: google-genai 3.3.0, generateContent.
+LLM_PROVIDER = "gemini"
+LLM_MODEL = "gemini-3.5-flash-lite"
+LLM_TEMPERATURE = 0.0
+LLM_SEED = 42
+LLM_MODE_ENV = "BUNON_LLM_MODE"  # "offline" (default: cache only) or "live"
+DEMO_EMAIL_PATH = ROOT / "data" / "demo" / "buyer_email_en.txt"
+
 # --- Optimiser defaults (PLAN.md §5) --------------------------------------
 QC_DAYS = 3
 PLANNED_SLACK_DAYS = 4

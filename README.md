@@ -33,7 +33,7 @@ python -m bunon.data_gen
 | `agent`: LLM intake (verbatim-quote checks) + decision memo (placeholder-only numbers), cached | done |
 | Streamlit UI: email → confirmed order → three plans → memo → approve → day-3 decline → locked re-plan → approve; decision log; draft POs (download only) | done |
 
-**The 3-minute demo:** click **Read the email** → **Confirm order** → read the plans and the memo → **Approve** → **Simulate: F2184 declines on day 3** → **Approve** the re-plan → open the **Decision log**. On the public app, LLM answers are replayed from the cache, so it needs no API key.
+**The 3-minute demo:** click **Read the email** → **Confirm order** → read the plans and the memo → **Approve** → **Simulate: F2184 declines on day 3** → **Approve** the re-plan → open the **Decision log**. Optional: under "Ask for a change", click an example instruction → **Interpret** → **Apply these changes**. On the public app, LLM answers are replayed from the cache, so it needs no API key.
 
 Design decisions and their before/after numbers are logged in [SPEC.md](SPEC.md). The latest results are in [CHECKPOINT_DAY2.md](CHECKPOINT_DAY2.md).
 

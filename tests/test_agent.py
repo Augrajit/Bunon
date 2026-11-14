@@ -224,6 +224,41 @@ def test_offline_without_cache_uses_template(facts, tmp_path):
     assert out.source == "template"
 
 
+# --- steering -------------------------------------------------------------------------------------
+
+INSTR = "Use no more than three factories, keep new factories under 10%, and don't use F2184. Also move the deadline to 27 December."
+IDS = {"F2184", "F0288"}
+
+
+def test_steer_accepts_quoted_changes(tmp_path):
+    out = {"changes": [
+        {"field": "max_factories", "new_value": 3, "source_span": "no more than three factories"},
+        {"field": "unproven_cap_pct", "new_value": 0.10, "source_span": "keep new factories under 10%"},
+        {"field": "excluded_ids", "factory_ids": ["F2184"], "source_span": "don't use F2184"}],
+        "unsupported": ["move the deadline to 27 December"]}
+    r = ag.steer(INSTR, IDS, client(tmp_path, out))
+    assert {a["field"]: a["value"] for a in r.accepted} == {"max_factories": 3, "unproven_cap_pct": 0.10,
+                                                             "excluded_ids": ["F2184"]}
+    assert not r.rejected and r.unsupported == ["move the deadline to 27 December"]
+
+
+@pytest.mark.parametrize("change, why", [
+    ({"field": "max_factories", "new_value": 4, "source_span": "no more than three factories"}, "does not state"),
+    ({"field": "unproven_cap_pct", "new_value": 10, "source_span": "keep new factories under 10%"}, "does not state"),
+    ({"field": "max_district_share", "new_value": 0.10, "source_span": "keep new factories under 10%"}, "outside"),
+    ({"field": "excluded_ids", "factory_ids": ["F9999"], "source_span": "don't use F2184"}, "unknown"),
+    ({"field": "max_factories", "new_value": 3, "source_span": "at most 3 suppliers"}, "not in the instruction"),
+])
+def test_steer_rejects_invented_or_out_of_range(tmp_path, change, why):
+    r = ag.steer(INSTR, IDS, client(tmp_path, {"changes": [change], "unsupported": []}))
+    assert not r.accepted and any(why in x for x in r.rejected)
+
+
+def test_steer_schema_cannot_touch_deadline():
+    with pytest.raises(Exception):
+        ag.SteerChange(field="deadline", new_value=27, source_span="27 December")
+
+
 # --- pseudonymisation -----------------------------------------------------------------------------
 
 @pytest.mark.skipif(not C.PRIVATE_MAPPING.exists(), reason="mapping is local-only")

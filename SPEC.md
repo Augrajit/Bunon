@@ -119,4 +119,13 @@ Every plan uses only Ashulia/Savar and Gazipur factories, because they are close
 - **LLM:** `gemini-3.5-flash-lite` via `google-genai` 3.3.0, chosen from the current docs (see PROMPTS.md). The project was not eligible for the free tier, so a paid key was used (about 10 calls in total). The public app runs **offline** and replays cached answers. A new email on the public app goes to the manual order form; live mode needs `BUNON_LLM_MODE=live` and a key.
 - **Locked re-plan:** when a factory declines on day k, factories that already confirmed keep their quantity as a **lower bound** (they may be asked for more, never less) and keep their original production window. New factories start on day k, so their window is k days shorter. The deadline does not move. On the demo order the locks do not bind: the re-plan matches exclude-and-re-solve exactly (P 0.911, +27,548 BDT, F1856 added).
 - **Human in the loop:** the order is confirmed by a human after intake. The plan and the re-plan each have Approve / Reject, logged in `data/runtime/decisions.db` (gitignored, ephemeral on the host) with the acting **role**, never a name. Approval unlocks a **draft** PO text download; nothing is ever sent.
-- **UI at narrow widths:** the funnel shows as two rows of three, and the approval buttons were widened. Checked at a 480 px content width: no metric or button is clipped.
+- **UI at narrow widths:** the funnel shows as two rows of three, and the approval buttons were widened.
+
+### D5: 15 Nov 2026: natural-language steering (Day 5 stretch 1)
+
+- **What:** "Ask for a change" turns a manager's sentence into changes to the sidebar settings only: target, slack, max factories, unproven cap, district cap, excluded factories. The human sees "now → proposed" with their own words quoted, and applies the change or not. Every applied change is logged.
+- **Guardrails:** the deadline, quantity and compliance are not in the schema, so a request like "move the deadline" is shown as "Not changed". Values must be quoted from the instruction and inside the slider ranges (tests in `tests/test_agent.py`).
+- **What it showed (demo order, synthetic data):**
+  - "No more than three factories, new factories under 10%" → no plan within the 25% buffer ceiling reaches 90%; the best is 17.5%. The app says so instead of hiding it. That shows the trade-off a manager is asking for.
+  - "Don't use F2184, plan 6 days of slack" → ours 92.7%; the naive rule needs a 25% buffer (+380,636 BDT) to match.
+- New controls: a max-factories slider and a district-cap slider (100% = no cap) replace the on/off toggle. The defaults are unchanged, so the cached memos still apply. Checked at a 480 px content width: no metric or button is clipped.

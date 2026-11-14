@@ -30,8 +30,14 @@ def contains(haystack: str, needle: str) -> bool:
     return bool(needle) and normalise(needle) in normalise(haystack)
 
 
+_WORD_NUMS = {w: i for i, w in enumerate(
+    "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen "
+    "sixteen seventeen eighteen nineteen twenty".split())}
+_WORD_RE = re.compile(r"\b(" + "|".join(_WORD_NUMS) + r")\b", re.IGNORECASE)
+
+
 def numbers_in(text: str) -> list[float]:
-    out = []
+    out = [float(_WORD_NUMS[m.group(1).lower()]) for m in _WORD_RE.finditer(text)]
     for m in _NUM.finditer(text.translate(_BANGLA)):
         n = float(m.group(1).replace(",", ""))
         if m.group(2):

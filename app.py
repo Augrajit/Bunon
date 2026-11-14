@@ -51,10 +51,12 @@ def read_email(email: str):
 
 
 @st.cache_data(show_spinner="Solving the allocation and simulating 20,000 outcomes per plan…")
-def run_plans(order_json: str, slack, target, unproven, district_cap, partial, shocks):
+def run_plans(order_json: str, slack, target, unproven, district_cap, partial, shocks, max_f=C.MAX_FACTORIES,
+              excluded: tuple = ()):
     w = world()
     order = OrderConstraints.model_validate_json(order_json)
-    p = op.default_params(order, planned_slack_days=slack, unproven_cap_pct=unproven, max_district_share=district_cap)
+    p = op.default_params(order, planned_slack_days=slack, unproven_cap_pct=unproven, max_district_share=district_cap,
+                          max_factories=max_f, excluded_ids=list(excluded))
     cands = op.build_candidates(w, order, p)
     comp = op.compare_three(w, order, p, target_p=target, shocks=shocks, partial_lots=partial)
     rec = comp["ours"].recommended
@@ -72,14 +74,15 @@ def run_plans(order_json: str, slack, target, unproven, district_cap, partial, s
 
 
 @st.cache_data(show_spinner="Writing the decision memo…")
-def memo_for(order_json: str, slack, target, unproven, district_cap, partial, shocks):
-    out = run_plans(order_json, slack, target, unproven, district_cap, partial, shocks)
+def memo_for(*args):
+    out = run_plans(*args)
     return ag.write_memo(out["facts"], "initial", LLMClient()) if out["facts"] else None
 
 
 @st.cache_data(show_spinner="Re-planning: confirmed factories locked, new ones start late…")
-def run_replan(order_json: str, slack, target, unproven, district_cap, partial, shocks, days: int):
-    out = run_plans(order_json, slack, target, unproven, district_cap, partial, shocks)
+def run_replan(args: tuple, days: int):
+    out = run_plans(*args)
+    target, shocks, partial = args[2], args[6], args[5]
     rec = out["comp"]["ours"].recommended
     rp = op.replan_locked(world(), out["order"], out["params"], rec, op.largest_line(rec), days_elapsed=days,
                           target_p=target, shocks=shocks, partial_lots=partial)
@@ -155,10 +158,19 @@ st.warning(
 with st.sidebar:
     st.selectbox("Acting as (recorded in the decision log)", dl.ROLES, key="role")
     st.header("Planning controls")
-    slack = st.slider("Planned slack before latest finish (days)", 0, 10, C.PLANNED_SLACK_DAYS)
-    target = st.slider("Target P(on-time full delivery)", 0.50, 0.99, C.TARGET_P_MEET, 0.01)
-    unproven = st.slider("Cap on unproven factories (share of pieces)", 0.0, 0.30, C.UNPROVEN_CAP_PCT, 0.05)
-    use_cap = st.toggle(f"Max {C.DISTRICT_CAP_SHARE:.0%} of pieces per district", True)
+    for k, v in (("slack", C.PLANNED_SLACK_DAYS), ("target", C.TARGET_P_MEET), ("unproven", C.UNPROVEN_CAP_PCT),
+                 ("dcap", C.DISTRICT_CAP_SHARE), ("max_f", C.MAX_FACTORIES), ("excluded", [])):
+        st.session_state.setdefault(k, v)
+    slack = st.slider("Planned slack before latest finish (days)", 0, 10, key="slack")
+    target = st.slider("Target P(on-time full delivery)", 0.50, 0.99, step=0.01, key="target")
+    max_f = st.slider("Max number of factories", 1, 5, key="max_f")
+    unproven = st.slider("Cap on unproven factories (share of pieces)", 0.0, 0.30, step=0.05, key="unproven")
+    dcap = st.slider("Max share of pieces per district (100% = no cap)", 0.30, 1.0, step=0.05, key="dcap")
+    if st.session_state["excluded"]:
+        st.caption("Excluded factories: " + ", ".join(st.session_state["excluded"]))
+        if st.button("Clear exclusions"):
+            st.session_state["excluded"] = []
+            st.rerun()
     partial = st.toggle("Partial lots count (work finished by the ship date ships)", C.PARTIAL_LOTS_DEFAULT,
                         help="Off = strict view: a factory that runs past its slack delivers nothing on time.")
     shocks = st.toggle("Correlated district/national shocks", True)
@@ -232,8 +244,9 @@ if "order_json" not in st.session_state:
     st.info("Read the email and confirm the order to continue.")
     st.stop()
 
-args = (st.session_state["order_json"], int(slack), float(target), float(unproven),
-        C.DISTRICT_CAP_SHARE if use_cap else None, bool(partial), bool(shocks))
+args = (st.session_state["order_json"], int(slack), round(float(target), 2), round(float(unproven), 2),
+        round(float(dcap), 2) if dcap < 1.0 else None, bool(partial), bool(shocks), int(max_f),
+        tuple(sorted(st.session_state["excluded"])))
 out = run_plans(*args)
 order, cands, comp, match = out["order"], out["cands"], out["comp"], out["match"]
 ours, rec = comp["ours"], comp["ours"].recommended
@@ -316,6 +329,60 @@ st.caption(f"Costs: CM price + material ({C.MATERIAL_COST_BDT_PER_PIECE:.0f} BDT
            f"{bdt(C.FIXED_COST_PER_FACTORY_BDT)} per factory. Binding constraints: "
            f"{', '.join(rec.plan.binding_constraints) or 'none'}.")
 
+# --- steering ---------------------------------------------------------------------------------------------
+STEER_EXAMPLES = (
+    "Use no more than three factories and keep new factories under 10%.",
+    "Don't use F2184 and plan 6 days of slack. Also move the deadline to 27 December.",  # cached; F2184 is a demo candidate
+)
+_KEY = {"target_p": "target", "planned_slack_days": "slack", "max_factories": "max_f",
+        "unproven_cap_pct": "unproven", "max_district_share": "dcap"}
+
+
+def _apply_steer(accepted: list[dict], instruction: str):
+    for a in accepted:
+        if a["field"] == "excluded_ids":
+            st.session_state["excluded"] = sorted(set(st.session_state["excluded"]) | set(a["value"]))
+        else:
+            st.session_state[_KEY[a["field"]]] = a["value"]
+    dl.log_decision("steer", "confirmed", st.session_state["role"], None,
+                    f"{instruction} -> " + "; ".join(f"{a['field']}={a['value']}" for a in accepted))
+    st.session_state.pop("steer", None)
+
+
+st.subheader("Ask for a change")
+st.caption("Describe a change in plain language. The LLM may only change the planning settings in the sidebar "
+           "(never the deadline, quantity or compliance), every value must be quoted from your words, and "
+           "nothing changes until you apply it.")
+ex = st.columns(len(STEER_EXAMPLES))
+for i, e in enumerate(STEER_EXAMPLES):
+    if ex[i].button(e, key=f"steer_ex_{i}"):
+        st.session_state["steer_text"] = e
+instruction = st.text_input("Instruction", key="steer_text", placeholder="e.g. at most four factories")
+if st.button("Interpret") and instruction.strip():
+    st.session_state["steer"] = (instruction, ag.steer(instruction, {c.factory_id for c in cands}, LLMClient()))
+if "steer" in st.session_state:
+    instr, sr = st.session_state["steer"]
+    if sr.meta:
+        st.caption(SOURCE_BADGE[sr.meta.source])
+    current = {"target_p": target, "planned_slack_days": slack, "max_factories": max_f,
+               "unproven_cap_pct": unproven, "max_district_share": dcap,
+               "excluded_ids": st.session_state["excluded"] or "none"}
+    if sr.accepted:
+        st.dataframe(pd.DataFrame([{"Setting": a["label"], "Now": str(current[a["field"]]), "Proposed": str(a["value"]),
+                                    "Your words": a["source_span"]} for a in sr.accepted]),
+                     hide_index=True, width="stretch")
+        st.button("Apply these changes", type="primary", on_click=_apply_steer, args=(sr.accepted, instr))
+    for u in sr.unsupported:
+        st.warning(f"Not changed: “{u}”. Only planning settings can be changed here; the deadline, "
+                   "quantity and compliance rules are fixed.")
+    for r in sr.rejected:
+        st.error(f"Not applied: {r}")
+    if not (sr.accepted or sr.unsupported or sr.rejected):
+        st.info("No change found in the instruction.")
+if current_mode() == "offline":
+    st.caption("On the public demo, answers are replayed from a cache: the two example instructions work; other "
+               "wording falls back to the sidebar controls.")
+
 # --- 6 · memo + approval --------------------------------------------------------------------------------
 st.header("6 · Decision memo")
 memo = memo_for(*args)
@@ -337,7 +404,7 @@ if st.button(f"Simulate: {gone} declines on day {DAYS}", type="primary"):
     st.session_state["replan_for"] = args
 if st.session_state.get("replan_for") == args:
     try:
-        rp, rmemo, cands_late = run_replan(*args, DAYS)
+        rp, rmemo, cands_late = run_replan(args, DAYS)
     except Exception:
         import traceback
         st.error("The re-plan failed. Nothing was changed or sent. Technical details below.")

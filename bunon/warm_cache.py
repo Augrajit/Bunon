@@ -44,6 +44,13 @@ def main() -> None:
     rp = op.replan_exclude(w, order, p, rec, op.largest_line(rec), reason="declined on day 3")
     memo2 = ag.write_memo(ag.factsheet_for_replan(fs, rp), "replan", client)
     print(f"\nmemo (replan): {memo2.source}, attempts {memo2.attempts}, errors {memo2.errors or 'none'}\n{memo2.rendered_md}")
+    examples = ("Use no more than three factories and keep new factories under 10%.",
+                "Don't use F2184 and plan 6 days of slack. Also move the deadline to 27 December.")
+    ids = {c.factory_id for c in cands}
+    for e in examples:
+        sr = ag.steer(e, ids, client)
+        print(f"\nsteer: {e}\n  source {sr.meta.source if sr.meta else 'failed'}; accepted {sr.accepted}; "
+              f"rejected {sr.rejected}; unsupported {sr.unsupported}")
     print(f"\nlive calls made: {client.calls}")
 
 

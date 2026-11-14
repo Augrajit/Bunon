@@ -131,6 +131,36 @@ class ReliabilityForecast(_Strict):
     model_version: str
 
 
+class BucketEval(_Strict):
+    bucket: str
+    n_jobs: int
+    mae_model: float
+    mae_naive: float
+    coverage_p10_p90: float
+
+
+class ReliabilityEval(_Strict):
+    holdout_start: date
+    n_train_jobs: int
+    n_holdout_jobs: int
+    mae_model: float
+    mae_naive: float           # naive = "declared is delivered" (fill = 1)
+    coverage_p10_p90: float
+    brier_late_model: float
+    brier_late_naive: float    # naive = never late
+    by_bucket: list[BucketEval]
+
+
+class ShockParams(_Strict):
+    """Correlated-shock model estimated from history (PLAN.md §6)."""
+    p_national: float
+    national_fill_mult: float
+    national_extra_delay: float
+    p_district: dict[str, float]
+    district_fill_mult: float
+    district_extra_delay: float
+
+
 # --- optimizer --------------------------------------------------------------
 
 class Candidate(_Strict):
@@ -181,8 +211,8 @@ class AllocationPlan(_Strict):
     cost_production: float
     cost_transport: float
     cost_fixed: float
-    cost_risk_penalty: float
-    cost_total: float
+    cost_risk_penalty: float   # model shadow cost used in the objective; not cash
+    cost_total: float          # cash cost = production + transport + fixed
     binding_constraints: list[str] = []
     max_feasible_qty: int | None = None
     solver_seconds: float = 0.0
@@ -203,3 +233,25 @@ class BundleRisk(_Strict):
     histogram: list[tuple[int, int]]
     fail_contribution: dict[str, float]
     correlation_mode: Literal["independent", "shocks"]
+
+
+class BufferPoint(_Strict):
+    buffer_pct: float
+    plan: AllocationPlan
+    risk: BundleRisk | None
+
+
+class PlanResult(_Strict):
+    """Output of the buffer search: the recommended plan plus the whole frontier."""
+    recommended: BufferPoint
+    frontier: list[BufferPoint]
+    target_p: float
+    target_met: bool
+
+
+class ReplanResult(_Strict):
+    excluded_id: str
+    reason: str
+    old: BufferPoint
+    new: BufferPoint
+    diff: list[dict]           # factory_id, old_qty, new_qty

@@ -1,13 +1,13 @@
 """Monte Carlo bundle risk: P(total on-time delivery >= Q) (PLAN.md §6).
 
 Per draw:
-  - model uncertainty: theta_i ~ N(fill_mu, fill_sd_param^2)
-  - job noise:         fill_i = sigmoid(theta_i + N(0, fill_sd_noise^2))
+  - full delivery:     w.p. p_full_i ~ Beta(p_full_a, p_full_b), fill_i = 1
+  - else short:        theta_i ~ N(fill_mu, fill_sd_param^2); fill_i = sigmoid(theta_i + N(0, fill_sd_noise^2))
   - catastrophe:       with p_catastrophe_i, fill_i ~ U(0, 0.4)
   - lateness:          late with p_late_i, days ~ Gamma(shape, scale_i)
   - shocks (mode "shocks"): one national shock and per-district shocks, shared by
     every factory they hit -> correlated failures
-  - on time if delay <= slack_i; late goods count as 0 (conservative)
+  - on time if delay <= slack_i; otherwise partial lots (default) or 0 ("late = 0" toggle)
 """
 from __future__ import annotations
 
@@ -21,9 +21,9 @@ def simulate(plan: AllocationPlan, forecasts: dict[str, ReliabilityForecast], sl
              districts: dict[str, str], shocks: ShockParams | None = None,
              n_sims: int = C.N_SIMS, seed: int = C.SIM_SEED,
              window_days: dict[str, int] | None = None) -> BundleRisk:
-    """window_days given -> "partial lots" variant (NOT in the approved plan; checkpoint option only):
-    a factory running d days late on a W-day job has finished (W + slack) / (W + d) of it by the
-    latest ship date, and that part counts. Without it, any lateness beyond slack counts as 0."""
+    """window_days given -> "partial lots" (the DEFAULT since SPEC.md D2): a factory running d days
+    late on a W-day job has finished (W + slack) / (W + d) of it by the latest ship date, and that
+    part counts. window_days=None -> the "late = 0" comparison toggle."""
     rng = np.random.default_rng(seed)
     ids = [ln.factory_id for ln in plan.lines]
     k = len(ids)
@@ -44,8 +44,13 @@ def simulate(plan: AllocationPlan, forecasts: dict[str, ReliabilityForecast], sl
     scale = np.array([x.late_days_scale for x in f])
     sl = np.array([slack[i] for i in ids], float)
 
+    # Two-part fill: full delivery w.p. p_full (drawn from its Beta posterior = model uncertainty),
+    # otherwise a short delivery from the logit-normal.
+    p_full = rng.beta(np.array([x.p_full_a for x in f]), np.array([x.p_full_b for x in f]), (n_sims, k))
+    full = rng.random((n_sims, k)) < p_full
     theta = mu + sd_p * rng.standard_normal((n_sims, k))
-    fill = 1.0 / (1.0 + np.exp(-(theta + sd_n * rng.standard_normal((n_sims, k)))))
+    short = 1.0 / (1.0 + np.exp(-(theta + sd_n * rng.standard_normal((n_sims, k)))))
+    fill = np.where(full, 1.0, short)
     cat = rng.random((n_sims, k)) < p_cat
     fill = np.where(cat, rng.uniform(*C.CATASTROPHE_FILL, (n_sims, k)), fill)
     late = rng.random((n_sims, k)) < p_late

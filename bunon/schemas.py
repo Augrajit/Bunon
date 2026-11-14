@@ -116,8 +116,11 @@ class ReliabilityForecast(_Strict):
     factory_id: str
     n_jobs: int
     thin_history: bool
-    fill_mu: float            # posterior mean of logit fill
-    fill_sd_param: float      # posterior sd of logit fill (model uncertainty)
+    p_full: float             # P(job delivered in full), posterior mean
+    p_full_a: float           # Beta posterior for p_full (model uncertainty in simulation)
+    p_full_b: float
+    fill_mu: float            # posterior mean of logit fill, for SHORT deliveries
+    fill_sd_param: float      # posterior sd of that mean (model uncertainty)
     fill_sd_noise: float      # per-job sd on logit scale
     fill_mean: float
     fill_p10: float
@@ -134,8 +137,8 @@ class ReliabilityForecast(_Strict):
 class BucketEval(_Strict):
     bucket: str
     n_jobs: int
-    mae_model: float
-    mae_naive: float
+    rmse_model: float
+    rmse_naive: float
     coverage_p10_p90: float
 
 
@@ -143,9 +146,12 @@ class ReliabilityEval(_Strict):
     holdout_start: date
     n_train_jobs: int
     n_holdout_jobs: int
-    mae_model: float
-    mae_naive: float           # naive = "declared is delivered" (fill = 1)
+    rmse_model: float
+    rmse_naive: float          # naive = "declared is delivered" (fill = 1)
     coverage_p10_p90: float
+    below_p10_rate: float      # calibration with a point mass at "full": target ~0.10
+    full_rate_pred: float      # mean predicted P(full delivery)
+    full_rate_obs: float       # observed share of full deliveries
     brier_late_model: float
     brier_late_naive: float    # naive = never late
     by_bucket: list[BucketEval]
@@ -183,7 +189,8 @@ class OptimizerParams(_Strict):
     planned_slack_days: int = Field(4, ge=0, le=15)
     max_factories: int = Field(5, ge=1, le=10)
     min_factories: int = Field(1, ge=1, le=10)
-    unproven_cap_pct: float = Field(0.15, ge=0.0, le=0.5)
+    unproven_cap_pct: float = Field(0.15, ge=0.0, le=1.0)
+    max_district_share: float | None = Field(0.60, gt=0.0, le=1.0)  # None = no district cap
     lot_size: int = Field(100, gt=0)
     missing_piece_cost_bdt: float = Field(0.0, ge=0.0)
     fixed_cost_per_factory_bdt: float = Field(0.0, ge=0.0)
@@ -208,11 +215,13 @@ class AllocationPlan(_Strict):
     target_qty: int
     total_allocated: int
     buffer_qty: int
-    cost_production: float
+    cost_production: float     # CM (cut-make) price paid to subcontractors
+    cost_material: float       # fabric + trims supplied by the exporter, on every piece
     cost_transport: float
     cost_fixed: float
+    cost_buffer: float         # price of the pieces above Q (avg piece cost - salvage)
     cost_risk_penalty: float   # model shadow cost used in the objective; not cash
-    cost_total: float          # cash cost = production + transport + fixed
+    cost_total: float          # cash cost = production + material + transport + fixed
     binding_constraints: list[str] = []
     max_feasible_qty: int | None = None
     solver_seconds: float = 0.0

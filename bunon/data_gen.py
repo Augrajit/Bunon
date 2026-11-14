@@ -206,7 +206,10 @@ def generate_synthetic(factories: pd.DataFrame, seed: int = C.SYNTH_SEED
     hidden = pd.DataFrame({
         "factory_id": f["factory_id"], "theta": theta, "p_late": p_late, "late_scale": late_scale,
         "accept_prob": accept_prob, "overdeclare": overdeclare, "true_daily": true_daily,
-        "true_fill_mean": _sigmoid(theta), "booked": booked,
+        "true_fill_mean": _sigmoid(theta) + (1 - _sigmoid(theta)) * _sigmoid(
+            (C.SHORT_FILL_LOGIT + C.SHORT_FILL_THETA_COEF * z_theta)
+            / np.sqrt(1 + np.pi * C.SHORT_FILL_NOISE_SD ** 2 / 8)),
+        "booked": booked,
     })
 
     # Shock calendar
@@ -233,14 +236,17 @@ def generate_synthetic(factories: pd.DataFrame, seed: int = C.SYNTH_SEED
     util = rng.uniform(*C.UTILISATION_RANGE, m)
     committed = np.maximum(100, np.round(util * cap_at_time / 100) * 100).astype(int)
 
-    fill = _sigmoid(theta[idx] + rng.normal(0, C.JOB_FILL_NOISE_SD, m))
+    # Two-part fill (SPEC.md D2): delivered in full with p_full = sigmoid(theta), else short.
+    full = rng.random(m) < _sigmoid(theta[idx])
+    short = _sigmoid(C.SHORT_FILL_LOGIT + C.SHORT_FILL_THETA_COEF * z_theta[idx]
+                     + rng.normal(0, C.SHORT_FILL_NOISE_SD, m))
+    fill = np.where(full, 1.0, short)
     stretched = committed / (cap_at_time / overdeclare[idx]) > C.OVERSTRETCH_THRESHOLD
     fill = np.where(stretched, fill * rng.uniform(*C.OVERSTRETCH_RANGE, m), fill)
 
     pm = [(p.year, p.month) for p in promised]
     eid = np.array([k in C.EID_MONTHS for k in pm])
     monsoon = np.array([k[1] in C.MONSOON_MONTHS for k in pm])
-    fill = np.where(eid, fill * C.EID_FILL_FACTOR, fill)
 
     dist = f["district"].to_numpy()[idx]
     is_nat = np.array([k in national for k in pm])
@@ -253,6 +259,8 @@ def generate_synthetic(factories: pd.DataFrame, seed: int = C.SYNTH_SEED
     late = rng.random(m) < np.clip(p_late[idx] + C.MONSOON_LATE_BUMP * monsoon, 0, 1)
     delay = np.where(late, np.ceil(rng.gamma(C.LATE_GAMMA_SHAPE, late_scale[idx])), 0)
     delay = delay + np.where(late & monsoon, C.MONSOON_EXTRA_DAYS, 0)
+    # Eid is planned around: it lengthens a slip by a few days, it doesn't create one (SPEC.md D3).
+    delay = delay + np.where(late & eid, rng.integers(C.EID_DELAY_DAYS[0], C.EID_DELAY_DAYS[1] + 1, m), 0)
     delay = delay + np.where(is_dist, rng.integers(C.DISTRICT_SHOCK_DELAY[0], C.DISTRICT_SHOCK_DELAY[1] + 1, m), 0)
     delay = delay + np.where(is_nat, rng.integers(C.NATIONAL_SHOCK_DELAY[0], C.NATIONAL_SHOCK_DELAY[1] + 1, m), 0)
     delay = delay.astype(int)

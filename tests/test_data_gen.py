@@ -212,9 +212,11 @@ def test_declared_vs_delivered_is_realistic(synthetic):
     ok = history[history["accepted"] & ~dg.flag_bad_history_rows(history)]
     fill = ok["delivered_qty"].astype(float) / ok["committed_qty"].astype(float)
     late = ok["delay_days"].astype(float) > 0
-    assert 0.78 <= fill.mean() <= 0.92, fill.mean()
-    assert 0.15 <= late.mean() <= 0.45, late.mean()
-    assert (fill < 0.5).mean() > 0.01          # outliers exist
+    # Realism bounds from SPEC.md D2 (set before re-running): most jobs in full, ~1 in 5 late.
+    assert 0.90 <= fill.mean() <= 0.98, fill.mean()
+    assert 0.45 <= (fill >= 0.995).mean() <= 0.85, (fill >= 0.995).mean()
+    assert 0.10 <= late.mean() <= 0.30, late.mean()
+    assert (fill < 0.5).mean() > 0.005         # outliers exist
     assert ok["shock_tag"].notna().mean() > 0.02  # correlated shocks exist
 
 

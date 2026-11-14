@@ -62,7 +62,7 @@ def missing_piece_cost_bdt(order: OrderConstraints) -> float:
 
 def default_params(order: OrderConstraints, **kw) -> OptimizerParams:
     base = dict(planned_slack_days=C.PLANNED_SLACK_DAYS, max_factories=C.MAX_FACTORIES,
-                unproven_cap_pct=C.UNPROVEN_CAP_PCT, lot_size=C.LOT_SIZE,
+                unproven_cap_pct=C.UNPROVEN_CAP_PCT, max_district_share=C.DISTRICT_CAP_SHARE, lot_size=C.LOT_SIZE,
                 missing_piece_cost_bdt=missing_piece_cost_bdt(order),
                 fixed_cost_per_factory_bdt=C.FIXED_COST_PER_FACTORY_BDT)
     base.update(kw)
@@ -128,18 +128,22 @@ def make_plan(method: str, qty: dict[str, int], cands: dict[str, Candidate], Q: 
     ) for i, q in sorted(qty.items(), key=lambda kv: -kv[1])]
     prod = sum(ln.unit_price_bdt * ln.qty for ln in lines)
     trans = sum(ln.transport_bdt for ln in lines)
+    mat = C.MATERIAL_COST_BDT_PER_PIECE * total
     fixed = params.fixed_cost_per_factory_bdt * len(lines)
+    buffer_qty = max(0, total - Q)
+    avg_piece = (prod + trans + mat) / total if total else 0.0
     return AllocationPlan(
         plan_id=_plan_id(method, b, params, qty), method=method, status=status, lines=lines,
-        target_qty=Q, total_allocated=total, buffer_qty=max(0, total - Q),
-        cost_production=prod, cost_transport=trans, cost_fixed=fixed,
+        target_qty=Q, total_allocated=total, buffer_qty=buffer_qty,
+        cost_production=prod, cost_material=mat, cost_transport=trans, cost_fixed=fixed,
+        cost_buffer=buffer_qty * (avg_piece - C.SURPLUS_SALVAGE_BDT_PER_PIECE),
         cost_risk_penalty=sum(ln.risk_penalty_bdt for ln in lines),
-        cost_total=prod + trans + fixed, **extra)
+        cost_total=prod + mat + trans + fixed, **extra)
 
 
 def solve_mip(cands: list[Candidate], Q: int, params: OptimizerParams, time_limit: int = 30,
               naive: bool = False) -> AllocationPlan:
-    """min sum (price + transport + risk) x + F sum y, subject to PLAN.md §5 constraints 1-8.
+    """min sum (CM price + material + transport + risk) x + F sum y, subject to PLAN.md §5 constraints 1-8.
 
     naive=True is the baseline: DECLARED capacity, no risk penalty, no unproven cap.
     It is the cheapest plan that covers the order on paper.
@@ -161,7 +165,8 @@ def solve_mip(cands: list[Candidate], Q: int, params: OptimizerParams, time_limi
          for c in cands}
     y = {c.factory_id: pulp.LpVariable(f"y_{c.factory_id}", cat="Binary") for c in cands}
     x = {i: lot * z[i] for i in z}
-    unit = {c.factory_id: c.unit_price_bdt + c.transport_bdt_per_piece + L * (1 - c.q_effective) for c in cands}
+    unit = {c.factory_id: c.unit_price_bdt + C.MATERIAL_COST_BDT_PER_PIECE + c.transport_bdt_per_piece
+            + L * (1 - c.q_effective) for c in cands}
     prob += pulp.lpSum(unit[i] * x[i] for i in x) + params.fixed_cost_per_factory_bdt * pulp.lpSum(y.values())
 
     for c in cands:
@@ -175,6 +180,11 @@ def solve_mip(cands: list[Candidate], Q: int, params: OptimizerParams, time_limi
     prob += pulp.lpSum(y.values()) >= params.min_factories, "min_factories"
     unproven = [c.factory_id for c in cands if not c.proven]
     prob += pulp.lpSum(x[i] for i in unproven) <= params.unproven_cap_pct * target, "unproven_cap"  # 5
+    if params.max_district_share is not None and not naive:                     # 9 district cap (SPEC.md D3)
+        for d in sorted({c.district for c in cands}):
+            members = [c.factory_id for c in cands if c.district == d]
+            prob += (pulp.lpSum(x[i] for i in members)
+                     <= params.max_district_share * pulp.lpSum(x.values())), f"district_{d}"
     # 6 deadline and 7 compliance are enforced by build_candidates (never relaxed).
 
     prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=time_limit))
@@ -212,6 +222,10 @@ def max_feasible_qty(cands: list[Candidate], params: OptimizerParams) -> int:
         prob += x[c.factory_id] >= c.min_batch * y[c.factory_id]
     prob += pulp.lpSum(y.values()) <= params.max_factories
     prob += pulp.lpSum(x[c.factory_id] for c in cands if not c.proven) <= params.unproven_cap_pct * pulp.lpSum(x.values())
+    if params.max_district_share is not None:
+        for d in sorted({c.district for c in cands}):
+            prob += (pulp.lpSum(x[c.factory_id] for c in cands if c.district == d)
+                     <= params.max_district_share * pulp.lpSum(x.values()))
     prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=30))
     return int(pulp.value(prob.objective) or 0)
 
@@ -223,7 +237,7 @@ def solve_baseline(cands: list[Candidate], Q: int, params: OptimizerParams, buff
     capacity and ignores reliability. Costs are reported with the real candidates' figures.
     """
     p = params.model_copy(update={"buffer_pct": buffer_pct, "missing_piece_cost_bdt": 0.0,
-                                  "unproven_cap_pct": 1.0, "locked_min_qty": {}})
+                                  "unproven_cap_pct": 1.0, "max_district_share": None, "locked_min_qty": {}})
     plan = solve_mip(cands, Q, p, naive=True)
     by_id = {c.factory_id: c for c in cands}
     qty = {ln.factory_id: ln.qty for ln in plan.lines}
@@ -234,7 +248,7 @@ def solve_baseline(cands: list[Candidate], Q: int, params: OptimizerParams, buff
 # --- buffer search, comparison, re-allocation --------------------------------------
 
 def evaluate(plan: AllocationPlan, cands: list[Candidate], world: World, shocks: bool,
-             n_sims: int = C.N_SIMS, seed: int = C.SIM_SEED, partial_lots: bool = False) -> BundleRisk:
+             n_sims: int = C.N_SIMS, seed: int = C.SIM_SEED, partial_lots: bool = C.PARTIAL_LOTS_DEFAULT) -> BundleRisk:
     slack = {c.factory_id: c.slack_days for c in cands}
     dist = {c.factory_id: c.district for c in cands}
     win = {c.factory_id: c.window_days for c in cands} if partial_lots else None
@@ -243,7 +257,7 @@ def evaluate(plan: AllocationPlan, cands: list[Candidate], world: World, shocks:
 
 def search_buffer(world: World, order: OrderConstraints, params: OptimizerParams,
                   target_p: float = C.TARGET_P_MEET, grid=C.BUFFER_GRID, shocks: bool = True,
-                  n_sims: int = C.N_SIMS, seed: int = C.SIM_SEED, partial_lots: bool = False) -> PlanResult:
+                  n_sims: int = C.N_SIMS, seed: int = C.SIM_SEED, partial_lots: bool = C.PARTIAL_LOTS_DEFAULT) -> PlanResult:
     """Solve for each buffer; recommend the cheapest plan with P(meet) >= target, else the most likely one."""
     cands = build_candidates(world, order, params)
     Q = order.subcontract_qty
@@ -265,7 +279,7 @@ def search_buffer(world: World, order: OrderConstraints, params: OptimizerParams
 
 def compare_three(world: World, order: OrderConstraints, params: OptimizerParams,
                   target_p: float = C.TARGET_P_MEET, shocks: bool = True,
-                  partial_lots: bool = False) -> dict[str, BufferPoint | PlanResult]:
+                  partial_lots: bool = C.PARTIAL_LOTS_DEFAULT) -> dict[str, BufferPoint | PlanResult]:
     """Baseline, baseline + our buffer, and ours, all scored by the same simulation (v2 change 1)."""
     cands = build_candidates(world, order, params)
     Q = order.subcontract_qty
@@ -279,9 +293,38 @@ def compare_three(world: World, order: OrderConstraints, params: OptimizerParams
     return out
 
 
+def baseline_to_match(world: World, order: OrderConstraints, params: OptimizerParams, p_target: float,
+                      step: float = 0.025, max_buffer: float = 0.60, shocks: bool = True,
+                      partial_lots: bool = C.PARTIAL_LOTS_DEFAULT) -> BufferPoint | None:
+    """Equal-reliability comparison: the smallest buffer at which the naive baseline reaches p_target.
+
+    The search may go past our 25% ceiling, because the point is to price what the naive rule needs.
+    Returns None if no buffer up to max_buffer gets there.
+    """
+    cands = build_candidates(world, order, params)
+    Q = order.subcontract_qty
+    for k in range(int(round(max_buffer / step)) + 1):
+        b = round(k * step, 4)
+        plan = solve_baseline(cands, Q, params, b)
+        if plan.status != "optimal":
+            return None
+        risk = evaluate(plan, cands, world, shocks, partial_lots=partial_lots)
+        if risk.p_meet_qty >= p_target:
+            return BufferPoint(buffer_pct=b, plan=plan, risk=risk)
+    return None
+
+
+def district_shares(plan: AllocationPlan, cands: list[Candidate]) -> dict[str, float]:
+    dist = {c.factory_id: c.district for c in cands}
+    out: dict[str, float] = {}
+    for ln in plan.lines:
+        out[dist[ln.factory_id]] = out.get(dist[ln.factory_id], 0.0) + ln.share
+    return dict(sorted(out.items(), key=lambda kv: -kv[1]))
+
+
 def replan_exclude(world: World, order: OrderConstraints, params: OptimizerParams, old: BufferPoint,
                    excluded_id: str, reason: str = "declined", target_p: float = C.TARGET_P_MEET,
-                   shocks: bool = True, partial_lots: bool = False) -> ReplanResult:
+                   shocks: bool = True, partial_lots: bool = C.PARTIAL_LOTS_DEFAULT) -> ReplanResult:
     """Day 2 re-allocation: drop one factory and re-solve from scratch (locks come on Day 4)."""
     p2 = params.model_copy(update={"excluded_ids": [*params.excluded_ids, excluded_id]})
     new = search_buffer(world, order, p2, target_p, shocks=shocks, partial_lots=partial_lots).recommended

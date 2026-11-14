@@ -1,7 +1,8 @@
 """Reliability forecast per factory: empirical Bayes, no ML (PLAN.md §4, v2 change 4).
 
-Model, per factory i:
-  logit(fill_ij) ~ N(theta_i, sigma^2)      on untagged accepted jobs
+Model, per factory i (untagged accepted jobs):
+  full_ij        ~ Bernoulli(p_full_i),     p_full_i ~ Beta prior (pooled)
+  if short: logit(fill_ij) ~ N(theta_i, sigma^2)
   theta_i        ~ N(mu, tau^2)             population prior, method of moments
   late_ij        ~ Bernoulli(p_late_i),     p_late_i ~ Beta prior (pooled)
   late days      ~ Gamma(shape, scale_i),   scale shrunk to the pooled scale
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import math
 from datetime import date
+from statistics import NormalDist
 
 import numpy as np
 import pandas as pd
@@ -23,7 +25,7 @@ from bunon import config as C
 from bunon.data_gen import flag_bad_history_rows
 from bunon.schemas import BucketEval, ReliabilityEval, ReliabilityForecast, ShockParams
 
-MODEL_VERSION = "eb-1"
+MODEL_VERSION = "eb-2"  # eb-2: two-part fill (full / short), SPEC.md D2
 _Z90 = 1.2815515655446004
 _EPS = 0.01
 
@@ -97,8 +99,17 @@ def fit(history: pd.DataFrame, factory_ids: list[str], until: date | None = None
         offers = offers[offers["offered_date"] < pd.Timestamp(until)]
 
     base = jobs[jobs["tag"] == ""].copy()
-    base["y"] = _logit(base["fill"].to_numpy())
-    g = base.groupby("factory_id")["y"]
+    base["full"] = base["fill"] >= C.FULL_FILL_THRESHOLD
+
+    # Part 1: P(delivered in full), Beta-Binomial.
+    gf = base.groupby("factory_id")["full"]
+    full_k, full_n = gf.sum(), gf.size()
+    a_full, b_full = _beta_prior(full_k, full_n)
+
+    # Part 2: fill of SHORT deliveries, normal-normal on the logit scale.
+    short = base[~base["full"]].copy()
+    short["y"] = _logit(short["fill"].to_numpy())
+    g = short.groupby("factory_id")["y"]
     n_i, ybar, var_i = g.size(), g.mean(), g.var(ddof=1)
 
     sigma2 = float(np.average(var_i[n_i >= 2], weights=n_i[n_i >= 2] - 1))
@@ -141,18 +152,29 @@ def fit(history: pd.DataFrame, factory_ids: list[str], until: date | None = None
         p_cat = (a_cat + c_k) / (a_cat + b_cat + c_n)
         o_k, o_n = (int(acc.loc[fid, "sum"]), int(acc.loc[fid, "size"])) if fid in acc.index else (0, 0)
 
-        base_mean = float(logitnormal_mean(post_mean, sd_pred))
+        pa = a_full + int(full_k.get(fid, 0))
+        pb = b_full + int(full_n.get(fid, 0)) - int(full_k.get(fid, 0))
+        p_full = pa / (pa + pb)
+        short_mean = float(logitnormal_mean(post_mean, sd_pred))
+
+        def q(level: float) -> float:
+            """Quantile of the two-part mixture (catastrophes excluded)."""
+            if level >= 1 - p_full:
+                return 1.0
+            return float(_sigmoid(post_mean + sd_pred * NormalDist().inv_cdf(level / (1 - p_full))))
+
         out[fid] = ReliabilityForecast(
             factory_id=fid,
             n_jobs=int(n_all.get(fid, 0)),
             thin_history=int(n_all.get(fid, 0)) < C.THIN_HISTORY_JOBS,
+            p_full=p_full, p_full_a=pa, p_full_b=pb,
             fill_mu=post_mean,
             fill_sd_param=sd_param,
             fill_sd_noise=math.sqrt(sigma2),
-            fill_mean=(1 - p_cat) * base_mean + p_cat * 0.2,
-            fill_p10=float(_sigmoid(post_mean - _Z90 * sd_pred)),
-            fill_p50=float(_sigmoid(post_mean)),
-            fill_p90=float(_sigmoid(post_mean + _Z90 * sd_pred)),
+            fill_mean=(1 - p_cat) * (p_full + (1 - p_full) * short_mean) + p_cat * 0.2,
+            fill_p10=q(0.10),
+            fill_p50=q(0.50),
+            fill_p90=q(0.90),
             p_late=p_late,
             late_days_shape=shape,
             late_days_scale=mean_late / shape,
@@ -203,25 +225,32 @@ def evaluate(history: pd.DataFrame, factory_ids: list[str], holdout_start: date 
     n_train = train.groupby("factory_id").size()
 
     def score(t: pd.DataFrame) -> tuple[float, float, float]:
+        # RMSE, not MAE: with a point mass at "full", MAE rewards always predicting 1.0.
         mean = t["factory_id"].map(lambda f: fc[f].fill_mean)
         lo = t["factory_id"].map(lambda f: fc[f].fill_p10)
         hi = t["factory_id"].map(lambda f: fc[f].fill_p90)
-        return (float((t["fill"] - mean).abs().mean()), float((t["fill"] - 1).abs().mean()),
-                float(((t["fill"] >= lo) & (t["fill"] <= hi)).mean()))
+        return (float(np.sqrt(((t["fill"] - mean) ** 2).mean())), float(np.sqrt(((t["fill"] - 1) ** 2).mean())),
+                float(((t["fill"] >= lo - 1e-9) & (t["fill"] <= hi + 1e-9)).mean()))
 
     buckets = []
     hist_n = test["factory_id"].map(lambda f: int(n_train.get(f, 0)))
     for label, lo_n, hi_n in (("0-2", 0, 2), ("3-10", 3, 10), ("11+", 11, 10 ** 6)):
         t = test[(hist_n >= lo_n) & (hist_n <= hi_n)]
         if len(t):
-            mae, mae_n, cov = score(t)
-            buckets.append(BucketEval(bucket=label, n_jobs=len(t), mae_model=mae, mae_naive=mae_n, coverage_p10_p90=cov))
-    mae, mae_n, cov = score(test)
+            rmse, rmse_n, cov = score(t)
+            buckets.append(BucketEval(bucket=label, n_jobs=len(t), rmse_model=rmse, rmse_naive=rmse_n,
+                                      coverage_p10_p90=cov))
+    rmse, rmse_n, cov = score(test)
+    p10 = test["factory_id"].map(lambda f: fc[f].fill_p10)
+    below = float((test["fill"] < p10 - 1e-9).mean())
+    full_pred = float(test["factory_id"].map(lambda f: fc[f].p_full).mean())
+    full_obs = float((test["fill"] >= C.FULL_FILL_THRESHOLD).mean())
     late = (test["delay_days"] > 0).astype(float)
     p = test["factory_id"].map(lambda f: fc[f].p_late)
     return ReliabilityEval(
         holdout_start=holdout_start, n_train_jobs=len(train), n_holdout_jobs=len(test),
-        mae_model=mae, mae_naive=mae_n, coverage_p10_p90=cov,
+        rmse_model=rmse, rmse_naive=rmse_n, coverage_p10_p90=cov,
+        below_p10_rate=below, full_rate_pred=full_pred, full_rate_obs=full_obs,
         brier_late_model=float(((p - late) ** 2).mean()), brier_late_naive=float((late ** 2).mean()),
         by_bucket=buckets,
     )

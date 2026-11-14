@@ -1,56 +1,64 @@
-# Day 2 checkpoint: is P(meet) ≥ 0.90 reachable?
+# Day 2 checkpoint (re-run after SPEC.md D3)
 
-Demo order: 150,000 tees, own capacity 100,000, **subcontract Q = 50,000**, deadline 2026-12-20, as-of 2026-11-20. Max 5 factories, unproven cap 15%, 20,000 simulations per plan, seed 7. **All performance data is synthetic.**
+Demo order: 150,000 tees, own capacity 100,000, **subcontract Q = 50,000**, deadline 2026-12-20, as-of 2026-11-20. Max 5 factories, unproven cap 15%, **district cap 60% (ours only)**, buffer grid ceiling 25%, target P ≥ 0.9, 20,000 simulations per plan, seed 7, shocks on. Costs in BDT: CM + material (180/piece) + transport + fixed per factory. **All performance data is synthetic; fill and lateness are placeholders pending research.**
 
-P(meet) = probability that on-time delivered pieces ≥ Q. Buffer b* = cheapest buffer on the grid [0.0, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2] reaching 0.90, else the buffer with the highest P.
+b* = cheapest buffer on our grid reaching the target, else the one with the highest P. "Baseline to match" = smallest buffer (2.5% steps, up to 60%) at which the naive baseline reaches our P.
 
-## A. As planned: late beyond slack counts as 0
+## A. Partial lots (default)
 
-| Slack S (days) | Candidates | Ours: best P (shocks) | b* | Ours cost (BDT) | Ours P (independent) | Baseline P | Baseline + b* P | Baseline cost (BDT) |
+| S | Baseline P | cost | Baseline + b* P | cost | **Ours P** | b* | cost | buffer price | Baseline to match ours: buffer | its cost | Ours saves |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 0 | 0.046 | 10.24M | 0.853 | 12.82M | **0.912** | 25.0% | 12.99M | 2.58M | 32.5% | 13.61M | +0.62M |
+| 2 | 0.057 | 10.25M | 0.847 | 12.32M | **0.905** | 20.0% | 12.48M | 2.06M | 27.5% | 13.10M | +0.62M |
+| 4 | 0.046 | 10.27M | 0.895 | 12.33M | **0.914** | 20.0% | 12.42M | 2.05M | 22.5% | 12.61M | +0.19M |
+| 6 | 0.059 | 10.29M | 0.913 | 12.36M | **0.921** | 20.0% | 12.45M | 2.06M | 22.5% | 12.63M | +0.18M |
+| 8 | 0.030 | 10.32M | 0.917 | 12.45M | **0.932** | 20.0% | 12.56M | 2.08M | 22.5% | 12.74M | +0.18M |
+
+## B. "Late = 0" toggle (comparison)
+
+| S | Baseline P | cost | Baseline + b* P | cost | **Ours P** | b* | cost | buffer price | Baseline to match ours: buffer | its cost | Ours saves |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 0 | 0.046 | 10.24M | 0.370 | 12.82M | **0.559** | 25.0% | 12.99M | 2.58M | 45.0% | 14.88M | +1.89M |
+| 2 | 0.057 | 10.25M | 0.416 | 12.84M | **0.586** | 25.0% | 13.01M | 2.58M | 40.0% | 14.39M | +1.38M |
+| 4 | 0.046 | 10.27M | 0.547 | 11.82M | **0.665** | 15.0% | 11.98M | 1.55M | 35.0% | 13.89M | +1.91M |
+| 6 | 0.059 | 10.29M | 0.704 | 12.87M | **0.784** | 25.0% | 12.99M | 2.58M | 32.5% | 13.70M | +0.71M |
+| 8 | 0.030 | 10.32M | 0.807 | 12.99M | **0.865** | 25.0% | 13.22M | 2.62M | 30.0% | 13.57M | +0.36M |
+
+## District shares at S = 4 (partial lots)
+
+| Plan | P(meet) | Buffer | Factories | District shares |
+|---|---|---|---|---|
+| Baseline | 0.046 | 0.0% | 4 | ashulia_savar 62%, gazipur 38% |
+| Baseline + b* | 0.895 | 20.0% | 4 | ashulia_savar 77%, gazipur 23% |
+| Ours | 0.914 | 20.0% | 5 | ashulia_savar 60%, gazipur 40% |
+| Baseline to match ours | 0.918 | 22.5% | 5 | ashulia_savar 70%, gazipur 30% |
+
+## Buffer frontier at S = 4 (partial lots)
+
+| Buffer | Ours P | Ours cost | Baseline + same buffer P | its cost |
+|---|---|---|---|---|
+| 0.0% | 0.095 | 10.37M | 0.046 | 10.27M |
+| 2.5% | 0.273 | 10.64M | 0.131 | 10.55M |
+| 5.0% | 0.438 | 10.88M | 0.293 | 10.79M |
+| 7.5% | 0.630 | 11.14M | 0.479 | 11.06M |
+| 10.0% | 0.751 | 11.39M | 0.628 | 11.30M |
+| 12.5% | 0.860 | 11.73M | 0.744 | 11.57M |
+| 15.0% | 0.892 | 11.98M | 0.818 | 11.82M |
+| 20.0% | 0.914 | 12.42M | 0.895 | 12.33M |
+| 25.0% | 0.937 | 12.93M | 0.932 | 12.86M |
+
+## Recommended plan at S = 4
+
+Buffer 20.0%, 5 factories, 60,000 pieces, P(meet) 0.914, cost 12,417,585 BDT (buffer price 2,052,931).
+
+| Factory | District | Qty | Share | P(full) | Mean fill | P(late) | P(on time within S) | Thin history |
 |---|---|---|---|---|---|---|---|---|
-| 0 | 244 | **0.324** | 20.0% | 1,934,237 | 0.348 | 0.000 | 0.027 | 1,243,075 |
-| 2 | 239 | **0.357** | 20.0% | 1,877,883 | 0.379 | 0.000 | 0.044 | 1,249,246 |
-| 4 | 231 | **0.389** | 20.0% | 1,860,061 | 0.412 | 0.000 | 0.090 | 1,272,064 |
-| 6 | 222 | **0.487** | 20.0% | 1,907,039 | 0.519 | 0.000 | 0.118 | 1,285,424 |
-| 8 | 207 | **0.463** | 15.0% | 1,893,144 | 0.489 | 0.000 | 0.037 | 1,314,609 |
-
-## B. Variant (not in plan): partial lots: work finished by the latest ship date counts
-
-| Slack S (days) | Candidates | Ours: best P (shocks) | b* | Ours cost (BDT) | Ours P (independent) | Baseline P | Baseline + b* P | Baseline cost (BDT) |
-|---|---|---|---|---|---|---|---|---|
-| 0 | 244 | **0.655** | 20.0% | 1,934,237 | 0.700 | 0.000 | 0.047 | 1,243,075 |
-| 2 | 239 | **0.707** | 20.0% | 1,877,883 | 0.745 | 0.000 | 0.082 | 1,249,246 |
-| 4 | 231 | **0.763** | 20.0% | 1,860,061 | 0.801 | 0.000 | 0.153 | 1,272,064 |
-| 6 | 222 | **0.798** | 20.0% | 1,907,039 | 0.845 | 0.000 | 0.189 | 1,285,424 |
-| 8 | 207 | **0.592** | 15.0% | 1,893,144 | 0.626 | 0.000 | 0.045 | 1,314,609 |
-
-## C. Beyond the plan's 20% buffer ceiling
-
-Ours / baseline + same buffer, with shocks on. "infeasible" = more than 5 factories' risk-adjusted capacity.
-
-| Lot model | S | b = 20% | b = 30% | b = 40% | b = 50% | b = 60% |
-|---|---|---|---|---|---|---|
-| as planned | 2 | 0.357 / 0.044 (1.88M BDT) | 0.421 / 0.102 (2.10M BDT) | 0.524 / 0.125 (2.20M BDT) | 0.667 / 0.181 (2.35M BDT) | 0.705 / 0.282 (2.64M BDT) |
-| as planned | 4 | 0.389 / 0.090 (1.86M BDT) | 0.481 / 0.178 (2.05M BDT) | 0.632 / 0.202 (2.20M BDT) | 0.725 / 0.319 (2.40M BDT) | infeasible |
-| as planned | 6 | 0.487 / 0.118 (1.91M BDT) | 0.552 / 0.246 (2.19M BDT) | infeasible | infeasible | infeasible |
-| partial lots | 2 | 0.707 / 0.082 (1.88M BDT) | 0.894 / 0.343 (2.10M BDT) | 0.941 / 0.624 (2.20M BDT) | 0.967 / 0.799 (2.35M BDT) | 0.981 / 0.893 (2.64M BDT) |
-| partial lots | 4 | 0.763 / 0.153 (1.86M BDT) | 0.896 / 0.500 (2.05M BDT) | 0.952 / 0.724 (2.20M BDT) | 0.975 / 0.859 (2.40M BDT) | infeasible |
-| partial lots | 6 | 0.798 / 0.189 (1.91M BDT) | 0.925 / 0.553 (2.19M BDT) | infeasible | infeasible | infeasible |
-
-## Why: the recommended plan at S = 4 (as planned)
-
-Buffer 20.0%, 5 factories, 60,000 pieces, P(meet) 0.389.
-
-| Factory | Qty | Share | Mean fill | P(late) | P(on time within S) | Thin history | Share of failures where it was short |
-|---|---|---|---|---|---|---|---|
-| F0657 | 14,500 | 24% | 0.90 | 0.21 | 0.86 | no | 27% |
-| F0620 | 14,000 | 23% | 0.88 | 0.18 | 0.89 | no | 22% |
-| F1658 | 13,700 | 23% | 0.92 | 0.28 | 0.84 | no | 31% |
-| F0637 | 9,100 | 15% | 0.89 | 0.28 | 0.81 | no | 35% |
-| F2427 | 8,700 | 14% | 0.86 | 0.23 | 0.85 | no | 30% |
-
-Across all 1,748 T-shirt factories, the median P(on time within 4 days) is 0.78. Late jobs in history run 1.73-shape Gamma, about 7 days late on average.
+| F2184 | ashulia_savar | 14,300 | 24% | 0.69 | 0.955 | 0.15 | 0.93 | no |
+| F0288 | gazipur | 13,300 | 22% | 0.69 | 0.957 | 0.15 | 0.93 | no |
+| F1064 | ashulia_savar | 12,200 | 20% | 0.56 | 0.938 | 0.17 | 0.92 | no |
+| F2214 | gazipur | 10,700 | 18% | 0.41 | 0.922 | 0.21 | 0.90 | no |
+| F2427 | ashulia_savar | 9,500 | 16% | 0.63 | 0.949 | 0.14 | 0.94 | no |
 
 ## Re-allocation smoke test (Day 2: exclude + re-solve)
 
-F0657 (largest line) declines → new plan: 5 factories, 60,000 pieces, cost 1,835,961 BDT (Δ -24,101), P(meet) 0.376 (was 0.389).
+F2184 (largest line) declines → 5 factories, 60,000 pieces, buffer 20.0%, cost 12,445,134 BDT (Δ +27,548), P(meet) 0.911 (was 0.914).

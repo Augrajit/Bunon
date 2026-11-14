@@ -33,11 +33,16 @@ def test_gamma_cdf_matches_exponential():
     assert rl.gamma_cdf(0, 1.5, 2) == 0.0
 
 
-def test_thin_history_has_wider_intervals(world):
+def test_thin_history_has_more_uncertainty(world):
+    """Wider uncertainty for thin history = wider posteriors (p_full and short-fill mean)."""
+    def beta_sd(f):
+        a, b = f.p_full_a, f.p_full_b
+        return np.sqrt(a * b / ((a + b) ** 2 * (a + b + 1)))
     fc = list(world.forecasts.values())
-    w_thin = np.mean([f.fill_p90 - f.fill_p10 for f in fc if f.thin_history])
-    w_thick = np.mean([f.fill_p90 - f.fill_p10 for f in fc if f.n_jobs >= 15])
-    assert w_thin > w_thick
+    thin = [f for f in fc if f.thin_history]
+    thick = [f for f in fc if f.n_jobs >= 15]
+    assert np.mean([beta_sd(f) for f in thin]) > np.mean([beta_sd(f) for f in thick])
+    assert np.mean([f.fill_sd_param for f in thin]) > np.mean([f.fill_sd_param for f in thick])
 
 
 def test_no_history_gets_the_prior(world):
@@ -45,15 +50,16 @@ def test_no_history_gets_the_prior(world):
     h = load_public()["history"]
     fc = rl.fit(h, ["F9999"])["F9999"]
     assert fc.n_jobs == 0 and fc.thin_history
-    assert 0.5 < fc.fill_mean < 0.95
+    assert 0.5 < fc.fill_mean < 0.99
 
 
 def test_holdout_calibration(world):
     from bunon.data_gen import load_public
     d = load_public()
     e = rl.evaluate(d["history"], d["factory_synth"]["factory_id"].tolist())
-    assert 0.72 <= e.coverage_p10_p90 <= 0.88      # target 80%
-    assert e.mae_model < e.mae_naive
+    assert 0.05 <= e.below_p10_rate <= 0.15          # target 10% below p10
+    assert abs(e.full_rate_pred - e.full_rate_obs) < 0.05
+    assert e.rmse_model < e.rmse_naive
     assert e.brier_late_model < e.brier_late_naive
 
 
@@ -86,6 +92,8 @@ def test_mip_respects_all_constraints(world, order, b):
         c = cands[ln.factory_id]
         assert c.min_batch <= ln.qty <= c.window_capacity_risk_adj
         assert ln.qty % p.lot_size == 0
+    for share in op.district_shares(plan, list(cands.values())).values():
+        assert share <= p.max_district_share + 1e-9
 
 
 def test_infeasible_order_reports_max_quantity(world, order):
@@ -123,7 +131,7 @@ def test_replan_excludes_the_decliner(world, order):
 
 def _fc(fid, mu=8.0, p_late=0.0, p_cat=0.0):
     return ReliabilityForecast(
-        factory_id=fid, n_jobs=50, thin_history=False, fill_mu=mu, fill_sd_param=0.0, fill_sd_noise=1e-6,
+        factory_id=fid, n_jobs=50, thin_history=False, p_full=0.999, p_full_a=1e4, p_full_b=1.0, fill_mu=mu, fill_sd_param=0.0, fill_sd_noise=1e-6,
         fill_mean=0.99, fill_p10=0.99, fill_p50=0.99, fill_p90=0.99, p_late=p_late,
         late_days_shape=1.0, late_days_scale=100.0, p_catastrophe=p_cat, accept_prob=1.0, model_version="t")
 
@@ -133,7 +141,7 @@ def _plan(qty: dict[str, int], target: int) -> AllocationPlan:
     lines = [AllocationLine(factory_id=i, qty=q, unit_price_bdt=1, transport_bdt=0, risk_penalty_bdt=0, share=q / tot)
              for i, q in qty.items()]
     return AllocationPlan(plan_id="t", method="optimised", status="optimal", lines=lines, target_qty=target,
-                          total_allocated=tot, buffer_qty=tot - target, cost_production=0, cost_transport=0,
+                          total_allocated=tot, buffer_qty=tot - target, cost_production=0, cost_material=0, cost_transport=0, cost_buffer=0,
                           cost_fixed=0, cost_risk_penalty=0, cost_total=0)
 
 

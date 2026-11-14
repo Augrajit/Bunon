@@ -1,0 +1,125 @@
+"""All constants and assumptions in one place.
+
+Anything marked ASSUMPTION is a placeholder until the team's research comes in
+(see RESEARCH_ASKS.md). The UI shows these as "assumed".
+"""
+from __future__ import annotations
+
+from datetime import date
+from pathlib import Path
+
+# --- Paths ---------------------------------------------------------------
+ROOT = Path(__file__).resolve().parent.parent
+RAW_CSV = ROOT / "data" / "raw" / "factories.csv"          # gitignored
+PUBLIC_DB = ROOT / "data" / "processed" / "bunon.db"       # committed
+PRIVATE_MAPPING = ROOT / "data" / "private" / "mapping.csv"  # gitignored
+LLM_CACHE_DIR = ROOT / "data" / "llm_cache"
+
+# --- Reproducibility -----------------------------------------------------
+AS_OF = date(2026, 11, 20)      # fixed demo date, so the demo is reproducible later
+SYNTH_SEED = 42                 # fixed before the first run (PLAN.md §3)
+ID_SEED = 20261114              # separate seed: pseudonym IDs never change with SYNTH_SEED
+
+# --- Cleaning ------------------------------------------------------------
+COORD_DECIMALS = 2              # public DB coordinates rounded to ~1.1 km
+WORKERS_ROUND_TO = 50           # public DB worker counts rounded (PLAN.md §12 open Q2, default yes)
+
+# Area labels by address keyword, first match wins. Specific areas before "dhaka",
+# because "Dhaka" also appears as the division name in many addresses.
+DISTRICT_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
+    ("ashulia_savar", ("ashulia", "savar")),
+    ("gazipur", ("gazipur", "tongi", "kaliakoir", "sreepur", "konabari", "kashimpur")),
+    ("narayanganj", ("narayanganj", "fatullah", "siddhirganj", "rupganj")),
+    ("narsingdi", ("narsingdi",)),
+    ("manikganj", ("manikganj",)),
+    ("mymensingh", ("mymensingh", "valuka", "bhaluka")),
+    ("cumilla", ("cumilla", "comilla")),
+    ("chattogram", ("chattogram", "chittagong")),  # needs lat < 23.0 (see data_gen)
+    ("dhaka_city", ("mirpur", "dhaka")),
+]
+CHATTOGRAM_MAX_LAT = 23.0       # "Dhaka-Chittagong Highway" appears in Narayanganj/Cumilla addresses
+
+TEE_REGEX = r"t[\s-]?shirt|tee\b"
+
+# --- Synthetic data (PLAN.md §3) -----------------------------------------
+HISTORY_START = date(2023, 11, 1)
+HISTORY_END = date(2026, 10, 31)
+
+PCS_PER_OPERATOR_DAY = 40.0     # ASSUMPTION (research ask 1)
+SEWING_SHARE_RANGE = (0.55, 0.70)  # ASSUMPTION (research ask 2)
+OVERDECLARE_LOGMEAN, OVERDECLARE_LOGSD = 0.10, 0.12
+
+FULLY_BOOKED_SHARE = 0.35       # ASSUMPTION (research ask 3)
+# ASSUMPTION, calibrated once to the PLAN.md §3 rule (median feasible candidate = 8-15% of Q):
+# Beta(2, 200) -> mean ~1% of declared capacity; median candidate 13.8% of Q; top 5 cover 1.67 Q.
+SPARE_SHARE_BETA = (2.0, 200.0)
+SPARE_DAILY_CAP = 1_000         # ASSUMPTION: at most about one line offered to outside work
+
+BASE_CM_PRICE_BDT = 30.0        # ASSUMPTION (research ask 4)
+PRICE_LOGSD = 0.12
+PRICE_THETA_CORR = 0.20         # cheaper -> slightly less reliable
+
+THETA_MEAN, THETA_SD = 2.2, 0.9
+THETA_COMPLIANT_BONUS = 0.3
+THETA_SIZE_COEF = 0.15
+JOB_FILL_NOISE_SD = 0.35
+OVERSTRETCH_THRESHOLD = 0.9
+OVERSTRETCH_RANGE = (0.75, 0.95)
+
+LATE_BASE_LOGIT, LATE_THETA_COEF, LATE_NOISE_SD = -1.0, -0.6, 0.5
+LATE_SCALE_RANGE = (2.0, 6.0)
+LATE_GAMMA_SHAPE = 1.5
+
+ACCEPT_BETA = (6.0, 2.0)
+
+# History length mixture: (weight, poisson mean)
+HISTORY_MIX: list[tuple[float, float]] = [(0.20, 1.0), (0.30, 6.0), (0.50, 18.0)]
+JOB_DAYS_RANGE = (10, 30)
+UTILISATION_RANGE = (0.3, 1.1)
+SEASONAL_CAPACITY_RANGE = (0.7, 1.6)   # spare capacity varies through the year
+
+# Eid months, approximate (year, month). Labelled approximate in DATA_PROVENANCE.
+EID_MONTHS = {(2024, 4), (2024, 6), (2025, 3), (2025, 6), (2026, 3), (2026, 5)}
+EID_FILL_FACTOR = 0.9
+MONSOON_MONTHS = {6, 7, 8, 9}
+MONSOON_LATE_BUMP = 0.10
+MONSOON_EXTRA_DAYS = 2
+
+DISTRICT_SHOCK_PROB = 0.03      # per (district, month)
+NATIONAL_SHOCK_PROB = 0.02      # per month
+DISTRICT_SHOCK_FILL = (0.5, 0.8)
+DISTRICT_SHOCK_DELAY = (5, 15)
+NATIONAL_SHOCK_FILL = (0.85, 0.95)
+NATIONAL_SHOCK_DELAY = (2, 5)
+
+CATASTROPHE_PROB = 0.02
+CATASTROPHE_FILL = (0.0, 0.4)
+DATA_ERROR_PROB = 0.01
+
+MIN_BATCH_CHOICES = (500, 1_000, 2_000, 3_000)  # ASSUMPTION (research ask 9)
+SETUP_DAYS_RANGE = (3, 7)
+
+# --- Demo order (fictional; PLAN.md §8) -----------------------------------
+DEMO_TOTAL_QTY = 150_000
+DEMO_OWN_CAPACITY = 100_000
+DEMO_SUBCONTRACT_QTY = DEMO_TOTAL_QTY - DEMO_OWN_CAPACITY
+DEMO_DEADLINE = date(2026, 12, 20)
+DEMO_FOB_USD = 2.40             # ASSUMPTION (research ask 8)
+DEMO_PENALTY_PCT_PER_WEEK = 5.0  # ASSUMPTION (research ask 5)
+DELIVERY_POINT_NAME = "Exporter consolidation point, Gazipur (district point, not a real factory)"
+DELIVERY_POINT_LATLNG = (24.00, 90.42)  # ASSUMPTION: approximate Gazipur point, to confirm
+
+# --- Optimiser defaults (PLAN.md §5) --------------------------------------
+QC_DAYS = 3
+PLANNED_SLACK_DAYS = 4
+ROAD_CIRCUITY = 1.35            # ASSUMPTION
+ROAD_KM_PER_DAY = 200           # ASSUMPTION
+TRUCK_BDT_PER_KM = 60.0         # ASSUMPTION (research ask 6)
+PCS_PER_TRUCK = 12_000          # ASSUMPTION (research ask 6)
+MAX_FACTORIES = 5
+UNPROVEN_CAP_PCT = 0.15
+THIN_HISTORY_JOBS = 3
+LOT_SIZE = 100
+TARGET_P_MEET = 0.90
+BUFFER_GRID = (0.0, 0.025, 0.05, 0.075, 0.10, 0.15, 0.20)
+MAX_SINGLE_FACTORY_SHARE_OF_Q = 0.40  # "no hero" check on the demo order (PLAN.md §3)

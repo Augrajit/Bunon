@@ -7,7 +7,7 @@ When a Bangladeshi garment exporter can't make a whole buyer order in-house, Bun
 
 **Live demo: https://buunon.streamlit.app/** (Streamlit Community Cloud. The first load after a quiet period can take a minute while the app wakes up.)
 
-**Hosting note:** after a push that changes files in `bunon/`, open the live app and run the full story once. If any step shows an error, use Manage app → ⋮ → Reboot app (Streamlit Cloud can keep old modules loaded), then check again. The sidebar shows the server's Python version.
+**Hosting note:** Streamlit Cloud reruns `app.py` after a push but keeps already-imported modules in memory. `app.py` therefore hashes `bunon/*.py` on every run and reloads the package when it changed. After a push, still run the story once; if anything errors, Manage app → ⋮ → Reboot app. The sidebar shows the server's Python version.
 
 ## Run locally
 

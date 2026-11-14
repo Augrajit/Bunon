@@ -14,8 +14,33 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from bunon import agent as ag
-from bunon import config as C
+
+def _reload_bunon_if_changed() -> None:
+    """Streamlit reruns this script on every change, but keeps already-imported `bunon` modules in
+    memory. After a push, the host then runs new app code against old modules (seen 15 Nov 2026:
+    AttributeError on newly added functions). Fix: hash the sources; if they differ from what this
+    process loaded, reload the package in dependency order and drop caches built from old classes."""
+    import hashlib
+    import importlib
+    from pathlib import Path
+
+    import bunon
+    order = ["config", "schemas", "textnum", "llm", "data_gen", "reliability", "simulation",
+             "optimizer", "agent", "decisions"]
+    src = Path(bunon.__file__).parent
+    digest = hashlib.sha1(b"".join((src / f"{m}.py").read_bytes() for m in order)).hexdigest()
+    if getattr(bunon, "_source_digest", None) != digest:
+        for m in order:
+            importlib.reload(importlib.import_module(f"bunon.{m}"))
+        st.cache_data.clear()
+        st.cache_resource.clear()
+        bunon._source_digest = digest
+
+
+_reload_bunon_if_changed()
+
+from bunon import agent as ag  # noqa: E402  (after the reload check, so names bind to current code)
+from bunon import config as C  # noqa: E402
 from bunon import decisions as dl
 from bunon import optimizer as op
 from bunon import reliability as rl

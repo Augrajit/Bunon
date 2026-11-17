@@ -1,8 +1,8 @@
 """Bunon: Streamlit UI walking through the scripted story (PLAN.md §8).
 
 Run:  streamlit run app.py
-LLM answers are replayed from data/llm_cache (offline). Set BUNON_LLM_MODE=live and GEMINI_API_KEY
-to read new emails live.
+LLM answers are replayed from data/llm_cache first. With BUNON_LLM_MODE=live and GEMINI_API_KEY (in .env
+locally, or in the host's secrets) new text goes to the LLM, within the live-call caps in bunon/config.py.
 """
 from __future__ import annotations
 
@@ -46,11 +46,30 @@ from bunon import decisions as dl
 from bunon import optimizer as op
 from bunon import reliability as rl
 from bunon.data_gen import load_public
-from bunon.llm import LLMClient, current_mode
-from bunon.schemas import OrderConstraints
+from bunon.llm import LLMClient, budget_status, current_mode, set_visitor
+from bunon.schemas import OrderConstraints, ReplanResult
 from bunon.textnum import literal_numbers
 
 st.set_page_config(page_title="Bunon: subcontract allocation", page_icon="🧵", layout="wide")
+
+
+def _secrets_to_env() -> None:
+    """Hosted: settings live in Streamlit secrets. Copy the few we use into the environment (never printed)."""
+    import os
+    try:
+        sec = dict(st.secrets)
+    except Exception:  # no secrets file (local run): .env is used instead
+        return
+    for k in ("GEMINI_API_KEY", C.LLM_MODE_ENV, "BUNON_LIVE_CALLS_PER_VISITOR", "BUNON_LIVE_CALLS_PER_DAY"):
+        if k in sec and not os.environ.get(k):
+            os.environ[k] = str(sec[k])
+
+
+_secrets_to_env()
+if "visitor" not in st.session_state:  # anonymous per-browser-session id, used only for the live-call cap
+    import uuid
+    st.session_state["visitor"] = uuid.uuid4().hex
+set_visitor(st.session_state["visitor"])
 
 SYNTH = "🧪 synthetic"
 SOURCE_BADGE = {"cache": "🤖 LLM (cached answer)", "live": "🤖 LLM (live)",
@@ -72,9 +91,24 @@ def report() -> dict:
     return json.loads(meta.loc[meta["key"] == "report", "value"].iloc[0])
 
 
-@st.cache_data(show_spinner="Reading the email…")
-def read_email(email: str):
+def llm_once(spinner: str, fn, *a):
+    """Run an LLM step once per input for this visitor. Not st.cache_data on purpose: a failed or
+    capped attempt must not be served to every later visitor. Repeats across visitors are cheap
+    anyway, because successful answers sit in the disk cache (data/llm_cache)."""
+    store = st.session_state.setdefault("_llm_results", {})
+    k = (fn.__name__, *a)
+    if k not in store:
+        with st.spinner(spinner):
+            store[k] = fn(*a)
+    return store[k]
+
+
+def _read_email(email: str):
     return ag.parse_order(email, C.DEMO_OWN_CAPACITY, LLMClient())
+
+
+def read_email(email: str):
+    return llm_once("Reading the email…", _read_email, email)
 
 
 @st.cache_data(show_spinner="Solving the allocation and simulating 20,000 outcomes per plan…")
@@ -100,48 +134,70 @@ def run_plans(order_json: str, slack, target, unproven, district_cap, partial, s
     return dict(order=order, params=p, cands=cands, comp=comp, match=match, frontier=frontier, facts=facts)
 
 
-@st.cache_data(show_spinner="Writing the decision memo…")
-def memo_for(*args):
+def _memo_for(args: tuple):
     out = run_plans(*args)
     return ag.write_memo(out["facts"], "initial", LLMClient()) if out["facts"] else None
 
 
+def memo_for(*args):
+    return llm_once("Writing the decision memo…", _memo_for, args)
+
+
+def _replan_memo(args: tuple, rp_json: str):
+    rp = ReplanResult.model_validate_json(rp_json)
+    return ag.write_memo(ag.factsheet_for_replan(run_plans(*args)["facts"], rp), "replan", LLMClient())
+
+
 @st.cache_data(show_spinner="Re-planning: confirmed factories locked, new ones start late…")
-def run_replan(args: tuple, days: int):
+def _replan_numbers(args: tuple, days: int):
     out = run_plans(*args)
     target, shocks, partial = args[2], args[6], args[5]
     rec = out["comp"]["ours"].recommended
     rp = op.replan_locked(world(), out["order"], out["params"], rec, op.largest_line(rec), days_elapsed=days,
                           target_p=target, shocks=shocks, partial_lots=partial)
-    memo = ag.write_memo(ag.factsheet_for_replan(out["facts"], rp), "replan", LLMClient())
     p_late = out["params"].model_copy(update={"excluded_ids": [rp.excluded_id]})
     from datetime import timedelta
     cands_late = op.build_candidates(world(), out["order"], p_late, as_of=C.AS_OF + timedelta(days=days))
-    return rp, memo, cands_late
+    return rp, cands_late
 
 
-@st.cache_data(show_spinner="Reading the reply…")
-def read_reply(text: str, planned_qty: int):
+def run_replan(args: tuple, days: int):
+    rp, cands_late = _replan_numbers(args, days)
+    return rp, llm_once("Writing the re-plan memo…", _replan_memo, args, rp.model_dump_json()), cands_late
+
+
+def _read_reply(text: str, planned_qty: int):
     return ag.parse_reply(text, planned_qty, LLMClient())
 
 
+def read_reply(text: str, planned_qty: int):
+    return llm_once("Reading the reply…", _read_reply, text, planned_qty)
+
+
 @st.cache_data(show_spinner="Re-planning with the factory's reply…")
-def run_reply_replan(args: tuple, factory_id: str, decision: str, qty, delay, days: int):
+def _reply_replan_numbers(args: tuple, factory_id: str, decision: str, qty, delay, days: int):
     from datetime import timedelta
     out = run_plans(*args)
     target, shocks, partial = args[2], args[6], args[5]
     rec = out["comp"]["ours"].recommended
     rp = op.replan_from_reply(world(), out["order"], out["params"], rec, factory_id, decision, qty, delay,
                               days_elapsed=days, target_p=target, shocks=shocks, partial_lots=partial)
-    memo = ag.write_memo(ag.factsheet_for_replan(out["facts"], rp), "replan", LLMClient())
     p_late = out["params"].model_copy(update={"excluded_ids": [rp.excluded_id]})
     cands_late = op.build_candidates(world(), out["order"], p_late, as_of=C.AS_OF + timedelta(days=days))
-    return rp, memo, cands_late
+    return rp, cands_late
 
 
-@st.cache_data(show_spinner="Reading the news…")
-def read_news(text: str):
+def run_reply_replan(args: tuple, factory_id: str, decision: str, qty, delay, days: int):
+    rp, cands_late = _reply_replan_numbers(args, factory_id, decision, qty, delay, days)
+    return rp, llm_once("Writing the re-plan memo…", _replan_memo, args, rp.model_dump_json()), cands_late
+
+
+def _read_news(text: str):
     return ag.parse_news(text, LLMClient())
+
+
+def read_news(text: str):
+    return llm_once("Reading the news…", _read_news, text)
 
 
 @st.cache_data(show_spinner="Simulating the disruption and re-planning around it…")
@@ -154,12 +210,15 @@ def run_news(args: tuple, area: str, severity: str, duration):
                           partial_lots=partial)
 
 
-@st.cache_data(show_spinner="The analyst is choosing and running tools…")
-def run_question(args: tuple, question: str):
+def _run_question(args: tuple, question: str):
     out = run_plans(*args)
     target, shocks, partial = args[2], args[6], args[5]
     tb = analyst.Toolbox(world(), out["order"], out["params"], out["comp"], out["facts"], target, shocks, partial)
     return analyst.answer(question, tb, LLMClient())
+
+
+def run_question(args: tuple, question: str):
+    return llm_once("The analyst is choosing and running tools…", _run_question, args, question)
 
 
 # =============================================================================
@@ -243,6 +302,10 @@ with st.sidebar:
     partial = st.toggle("Partial lots count (work finished by the ship date ships)", C.PARTIAL_LOTS_DEFAULT,
                         help="Off = strict view: a factory that runs past its slack delivers nothing on time.")
     shocks = st.toggle("Correlated district/national shocks", True)
+    if current_mode() == "live":
+        b = budget_status()
+        st.caption(f"Live LLM calls: {b['visitor_used']}/{b['visitor_cap']} for you, {b['day_used']}/{b['day_cap']} "
+                   "today for the whole demo. Cached answers are free and unlimited.")
     st.caption(f"LLM mode: **{current_mode()}** · model `{C.LLM_MODEL}`. As-of date {C.AS_OF:%d %b %Y} (fixed). "
                f"Delivery point: {C.DELIVERY_POINT_NAME}. Python {sys.version.split()[0]}.")
     if st.button("↺ Restart the story"):
@@ -428,7 +491,8 @@ for i, e in enumerate(STEER_EXAMPLES):
         st.session_state["steer_text"] = e
 instruction = st.text_input("Instruction", key="steer_text", placeholder="e.g. at most four factories")
 if st.button("Interpret") and instruction.strip():
-    st.session_state["steer"] = (instruction, ag.steer(instruction, {c.factory_id for c in cands}, LLMClient()))
+    with st.spinner("Interpreting…"):
+        st.session_state["steer"] = (instruction, ag.steer(instruction, {c.factory_id for c in cands}, LLMClient()))
 if "steer" in st.session_state:
     instr, sr = st.session_state["steer"]
     if sr.meta:
@@ -651,7 +715,7 @@ if st.button("Ask", type="primary") and question.strip():
     st.session_state["whatif"] = (question.strip(), args)
 if st.session_state.get("whatif", (None, None))[1] == args:
     run = _run_safely(run_question, args, st.session_state["whatif"][0])
-    badge = {**SOURCE_BADGE, "unavailable": "⚠️ Not available offline: this question is not in the cache"}
+    badge = {**SOURCE_BADGE, "unavailable": "⚠️ LLM not available for this question"}
     st.caption(badge[run.source] + (f" · {len(run.calls)} tool call(s)" if run.calls else ""))
     for c in run.calls:
         head = (f"Step {c.step} · `{c.call_id}` · **{c.name}**("
@@ -668,8 +732,9 @@ if st.session_state.get("whatif", (None, None))[1] == args:
         with st.expander("Checker messages"):
             st.write(run.errors)
     if run.source == "unavailable":
-        st.info("On the public demo, answers are replayed from a cache: the three example questions work. "
-                "Use the sidebar controls and the tabs above for anything else.")
+        st.info(("The live-call limit is used up. " if current_mode() == "live" else
+                 "The app is offline and this question is not in the cache. ")
+                + "The three example questions (with default sidebar settings) always work.")
 
 
 # --- log ------------------------------------------------------------------------------------------------------

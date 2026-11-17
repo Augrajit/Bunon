@@ -20,8 +20,18 @@ from pydantic import BaseModel, Field
 
 from bunon import config as C
 from bunon import textnum as tn
-from bunon.llm import CacheMiss, CallMeta, LLMClient, LLMError
+from bunon.llm import BudgetExceeded, CacheMiss, CallMeta, LLMClient, LLMError
 from bunon.schemas import OrderConstraints
+
+
+def why_no_llm(e: Exception) -> str:
+    """Plain reason shown to the user when the LLM step could not run."""
+    if isinstance(e, BudgetExceeded):
+        return f"{e}; cached examples still work"
+    if isinstance(e, CacheMiss):
+        return "offline mode, and this exact text is not in the cache"
+    return "the LLM service failed"
+
 
 # =============================================================================
 # Intake
@@ -169,7 +179,7 @@ def parse_order(email: str, own_capacity_qty: int, client: LLMClient | None = No
     try:
         out, meta, _ = client.complete_json("intake", INTAKE_VERSION, prompt, IntakeLLM)
     except (CacheMiss, LLMError) as e:
-        return IntakeResult(None, {}, [f"LLM intake unavailable ({e}). Please fill the order form by hand."], None,
+        return IntakeResult(None, {}, [f"LLM intake unavailable ({why_no_llm(e)}). Please fill the order form by hand."], None,
                             ["total_qty", "deadline"])
     checks, issues = validate_intake(email, out)
     missing = [k for k in ("total_qty", "deadline") if checks[k].status != "ok"]
@@ -608,7 +618,7 @@ def parse_reply(reply: str, planned_qty: int, client: LLMClient | None = None) -
     except (CacheMiss, LLMError) as e:
         miss = FieldCheck(None, None, "missing")
         return ReplyResult(None, None, None, miss, miss, [],
-                           [f"LLM unavailable ({type(e).__name__}). Read the reply and decide by hand."], None)
+                           [f"LLM unavailable ({why_no_llm(e)}). Read the reply and decide by hand."], None)
     res = validate_reply(reply, out, planned_qty)
     res.meta = meta
     return res
@@ -725,7 +735,7 @@ def parse_news(news: str, client: LLMClient | None = None) -> NewsResult:
     except (CacheMiss, LLMError) as e:
         miss = FieldCheck(None, None, "missing")
         return NewsResult(None, None, None, None, miss, None, None, None,
-                          [f"LLM unavailable ({type(e).__name__}). Choose district and severity by hand."], None)
+                          [f"LLM unavailable ({why_no_llm(e)}). Choose district and severity by hand."], None)
     res = validate_news(news, out)
     res.meta = meta
     return res
@@ -835,7 +845,7 @@ def steer(instruction: str, known_ids: set[str], client: LLMClient | None = None
     try:
         out, meta, _ = client.complete_json("steer", STEER_VERSION, prompt, SteerLLM)
     except (CacheMiss, LLMError) as e:
-        return SteerResult([], [f"LLM unavailable ({type(e).__name__}). Use the sidebar controls instead."], [], None)
+        return SteerResult([], [f"LLM unavailable ({why_no_llm(e)}). Use the sidebar controls instead."], [], None)
     accepted, rejected = validate_steer(instruction, out, known_ids)
     unsupported = [u for u in out.unsupported if tn.contains(instruction, u)]
     return SteerResult(accepted, rejected, unsupported, meta)

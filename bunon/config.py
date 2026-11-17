@@ -148,6 +148,12 @@ LLM_MODEL = "gemini-3.5-flash-lite"
 LLM_TEMPERATURE = 0.0
 LLM_SEED = 42
 LLM_MODE_ENV = "BUNON_LLM_MODE"  # "offline" (default: cache only) or "live"
+# Live-call caps for the public demo (one "call" = one request to the provider; a what-if question
+# can take up to ~10, a memo up to 2). Cached answers never count. Override with the env vars /
+# Streamlit secrets BUNON_LIVE_CALLS_PER_VISITOR and BUNON_LIVE_CALLS_PER_DAY (read at call time).
+LIVE_CALLS_PER_VISITOR = 40
+LIVE_CALLS_PER_DAY = 400
+LLM_BUDGET_PATH = ROOT / "data" / "runtime" / "llm_budget.json"  # gitignored; daily counter
 DEMO_EMAIL_PATH = ROOT / "data" / "demo" / "buyer_email_en.txt"
 
 # --- Optimiser defaults (PLAN.md §5) --------------------------------------

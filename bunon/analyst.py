@@ -18,7 +18,7 @@ from datetime import timedelta
 from bunon import agent as ag
 from bunon import config as C
 from bunon import optimizer as op
-from bunon.llm import CacheMiss, LLMClient, LLMError
+from bunon.llm import BudgetExceeded, CacheMiss, LLMClient, LLMError
 
 ANALYST_VERSION = "analyst_v1"
 MAX_TOOL_CALLS = 6
@@ -273,7 +273,13 @@ def answer(question: str, toolbox: Toolbox, client: LLMClient | None = None) -> 
                     if len(convo) > 1:  # cached prefix but a later step is missing: re-run everything live
                         return _live_from_scratch(question, toolbox, client)
                     session = client.tool_session(system, question, DECLARATIONS)
+                client.spend()
                 out = session.step(pending_results, user_text, force_text)
+            except BudgetExceeded as e:
+                if not calls:  # nothing ran yet: same as offline
+                    return AnalystRun(question, calls, "", "unavailable", [f"{e}."], toolbox.facts)
+                errors.append(str(e))
+                break
             except LLMError as e:
                 errors.append(str(e))
                 break
@@ -337,6 +343,7 @@ class _NoCacheClient(LLMClient):
     def __init__(self, base: LLMClient):
         super().__init__(provider=base._provider, mode="live", cache_dir=base.cache_dir,
                          provider_name=base.provider_name, model=base.model)
+        self.budget_path = base.budget_path
 
     def cache_get(self, key):
         return None

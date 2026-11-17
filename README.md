@@ -7,6 +7,8 @@ When a Bangladeshi garment exporter can't make a whole buyer order in-house, Bun
 
 **Live demo: https://buunon.streamlit.app/** (Streamlit Community Cloud. The first load after a quiet period can take a minute while the app wakes up.)
 
+**LLM on the live demo:** cached answers are replayed first (the scripted story never needs the network). New text, such as your own factory reply, headline or what-if question, goes live to Gemini, capped at 40 calls per visitor session and 400 per day for the whole demo; past a cap, that step falls back to hand entry and says so. Locally, add `BUNON_LLM_MODE=live` and `GEMINI_API_KEY` to `.env` (gitignored).
+
 **Hosting note:** Streamlit Cloud reruns `app.py` after a push but keeps already-imported modules in memory. `app.py` therefore hashes `bunon/*.py` on every run and reloads the package when it changed. After a push, still run the story once; if anything errors, Manage app → ⋮ → Reboot app. The sidebar shows the server's Python version.
 
 ## Run locally

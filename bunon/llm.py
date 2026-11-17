@@ -12,6 +12,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +33,63 @@ class CacheMiss(Exception):
 
 class LLMError(Exception):
     """The provider failed or returned something that does not match the schema."""
+
+
+class BudgetExceeded(CacheMiss):
+    """Live mode, but the per-visitor or daily live-call cap is used up. Treated like a cache miss."""
+
+
+# --- live-call budget (public demo guard) ------------------------------------------------------
+# The app sets the visitor id for the current script run; library code and tests leave it None
+# (no per-visitor cap). The daily total is kept in a small gitignored JSON file.
+_visitor: ContextVar[str | None] = ContextVar("bunon_visitor", default=None)
+_visitor_calls: dict[str, int] = {}
+_budget_lock = threading.Lock()
+
+
+def set_visitor(visitor_id: str | None) -> None:
+    _visitor.set(visitor_id)
+
+
+def _cap(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except ValueError:
+        return default
+
+
+def budget_status(path: Path | None = None) -> dict:
+    """Calls used/allowed today and for the current visitor (for the UI)."""
+    path = path or C.LLM_BUDGET_PATH
+    day = datetime.now(timezone.utc).date().isoformat()
+    used_day = 0
+    if path.exists():
+        try:
+            d = json.loads(path.read_text(encoding="utf-8"))
+            used_day = d.get("count", 0) if d.get("day") == day else 0
+        except (ValueError, OSError):
+            used_day = 0
+    v = _visitor.get()
+    return {"day_used": used_day, "day_cap": _cap("BUNON_LIVE_CALLS_PER_DAY", C.LIVE_CALLS_PER_DAY),
+            "visitor_used": _visitor_calls.get(v, 0) if v else 0,
+            "visitor_cap": _cap("BUNON_LIVE_CALLS_PER_VISITOR", C.LIVE_CALLS_PER_VISITOR)}
+
+
+def spend_live_call(path: Path | None = None) -> None:
+    """Reserve one live call or raise BudgetExceeded. Called just before every provider request."""
+    path = path or C.LLM_BUDGET_PATH
+    with _budget_lock:
+        s = budget_status(path)
+        v = _visitor.get()
+        if v and s["visitor_used"] >= s["visitor_cap"]:
+            raise BudgetExceeded("live-call limit for this visitor reached")
+        if s["day_used"] >= s["day_cap"]:
+            raise BudgetExceeded("daily live-call limit for the demo reached")
+        if v:
+            _visitor_calls[v] = s["visitor_used"] + 1
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"day": datetime.now(timezone.utc).date().isoformat(),
+                                    "count": s["day_used"] + 1}), encoding="utf-8")
 
 
 @dataclass(frozen=True)
@@ -170,9 +229,11 @@ def current_mode() -> Mode:
 class LLMClient:
     def __init__(self, provider: Provider | None = None, mode: Mode | None = None,
                  cache_dir: Path = C.LLM_CACHE_DIR, provider_name: str = C.LLM_PROVIDER,
-                 model: str = C.LLM_MODEL):
+                 model: str = C.LLM_MODEL, budget_path: Path | None = None):
         self.mode: Mode = mode or current_mode()
         self._provider = provider
+        # Caps apply to the real provider; tests inject a fake provider and pass budget_path to opt in.
+        self.budget_path = budget_path if budget_path is not None else (C.LLM_BUDGET_PATH if provider is None else None)
         self.provider_name = provider.name if provider else provider_name
         self.model = provider.model if provider else model
         self.cache_dir = cache_dir
@@ -206,6 +267,11 @@ class LLMClient:
             "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "conversation": conversation, "step": step}, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
 
+    def spend(self) -> None:
+        """Reserve one live call against the caps (raises BudgetExceeded). No-op without a budget."""
+        if self.budget_path is not None:
+            spend_live_call(self.budget_path)
+
     def tool_session(self, system: str, question: str, declarations: list[dict]):
         return self._provider_or_create().start_tools(system, question, declarations)
 
@@ -222,6 +288,7 @@ class LLMClient:
         if self.mode == "offline":
             raise CacheMiss(f"{task}/{prompt_version}: no cached answer for this input")
 
+        self.spend()
         raw = self._provider_or_create().generate_json(prompt, schema.model_json_schema())
         self.calls += 1
         try:

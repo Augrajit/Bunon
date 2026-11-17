@@ -87,6 +87,17 @@ def test_tool_loop_answer_uses_only_tool_facts(ctx, tmp_path):
     assert sent["ok"] and "c1.p_meet" in sent["facts"]
 
 
+def test_capped_analyst_reports_unavailable(ctx, tmp_path, monkeypatch):
+    from bunon import llm
+    monkeypatch.setenv("BUNON_LIVE_CALLS_PER_DAY", "0")
+    prov = FakeToolProvider(GOOD)
+    c = LLMClient(provider=prov, mode="live", cache_dir=tmp_path / "c", budget_path=tmp_path / "b.json")
+    run = an.answer("What if Ashulia stops?", toolbox(ctx), c)
+    assert run.source == "unavailable" and not run.calls and "daily" in run.errors[0]
+    assert not prov.sessions or not prov.sessions[0].received  # no request reached the provider
+    llm.set_visitor(None)
+
+
 def test_cached_question_replays_offline(ctx, tmp_path):
     an.answer("What if Ashulia stops?", toolbox(ctx), LLMClient(provider=FakeToolProvider(GOOD), mode="live", cache_dir=tmp_path))
     off = LLMClient(mode="offline", cache_dir=tmp_path, provider_name="fake", model="fake-tools-1")

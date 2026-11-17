@@ -169,3 +169,12 @@ Every plan uses only Ashulia/Savar and Gazipur factories, because they are close
 - **Worth showing judges:** for "can *any* plan reach the target during a nationwide hartal?", the model loosened all limits on its own initiative to test the claim, then reported that none does (about 49% at best).
 - **Item 4 (steering into OptimizerParams)** already exists (D5); not rebuilt.
 - Tests: 113 (6 new, `tests/test_analyst.py`, scripted fake provider): answer facts only; offline replay; 6-call limit; retry then template; bad arguments reported to the model; exclusion and cap respected.
+
+### D9: 17 Nov 2026: live LLM on the public demo, with caps
+
+- **Why:** offline-only meant any text that was not an exact cached example (or any example after a sidebar change) gave "LLM unavailable (CacheMiss)" in the reply, news, steering and what-if steps. Judges will type their own text.
+- **What:** the hosted app runs with `BUNON_LLM_MODE=live`. The cache is still read first, so the scripted story costs nothing and works if Gemini is down. New text goes to Gemini within two caps (placeholders in `bunon/config.py`, overridable as secrets): **40 live calls per visitor session** and **400 per day for the whole demo** (UTC day, counter in gitignored `data/runtime/llm_budget.json`). One call = one provider request; a what-if question uses up to about 10, a memo up to 2. When a cap is hit, the step falls back exactly as offline (hand entry or template) and says why.
+- **Limits of the guard:** the visitor count is per browser session, so a reload resets it; the daily cap is the real ceiling. The counter file resets when Streamlit Cloud restarts the container. Set a budget alert in Google Cloud as the backstop.
+- **Caching change:** LLM steps are no longer in `st.cache_data`, which would have served one visitor's failed or capped attempt to everyone. They are kept per session; successful answers are shared through the disk cache. Plan and re-plan numbers stay in `st.cache_data`.
+- **Secrets:** the key and settings go in Streamlit Cloud → app settings → Secrets; `app.py` copies the four names it uses into the environment. Never committed.
+- Tests: 118 (5 new: `tests/test_budget.py`, one in `tests/test_analyst.py`): per-visitor cap, daily cap across visitors, cached answers never counted, capped analyst does not reach the provider, fake providers uncapped unless asked.

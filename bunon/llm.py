@@ -103,6 +103,65 @@ class GeminiProvider:
         return resp.text
 
 
+class GeminiToolSession:
+    """One live tool-calling conversation (manual function calling, generateContent).
+
+    Verified 17 Nov 2026 against the docs and the installed SDK (google-genai 3.3.0): tools as dict
+    declarations in types.Tool; automatic calling disabled; read response.function_calls; append the
+    model's own Content (it carries thought signatures) and a user-role Content with FunctionResponse
+    parts echoing each call's id. Part.from_function_response has no `id` argument in 3.3.0, so the
+    FunctionResponse is built directly.
+    """
+
+    RETRY_WAITS = (5, 20)
+
+    def __init__(self, client, model: str, system: str, question: str, declarations: list[dict]):
+        from google.genai import types
+        self._t = types
+        self._client, self._model = client, model
+        self.contents = [types.Content(role="user", parts=[types.Part(text=question)])]
+        base = dict(system_instruction=system, temperature=C.LLM_TEMPERATURE, seed=C.LLM_SEED,
+                    tools=[types.Tool(function_declarations=declarations)],
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True))
+        self._config = types.GenerateContentConfig(**base)
+        self._config_no_tools = types.GenerateContentConfig(
+            **base, tool_config=types.ToolConfig(function_calling_config=types.FunctionCallingConfig(mode="NONE")))
+
+    def step(self, tool_results: list[dict] | None = None, user_text: str | None = None,
+             force_text: bool = False) -> dict:
+        import time
+        t = self._t
+        if tool_results:
+            self.contents.append(t.Content(role="user", parts=[
+                t.Part(function_response=t.FunctionResponse(id=r["id"], name=r["name"], response=r["response"]))
+                for r in tool_results]))
+        if user_text:
+            self.contents.append(t.Content(role="user", parts=[t.Part(text=user_text)]))
+        for attempt in range(len(self.RETRY_WAITS) + 1):
+            try:
+                resp = self._client.models.generate_content(
+                    model=self._model, contents=self.contents,
+                    config=self._config_no_tools if force_text else self._config)
+                break
+            except Exception as e:
+                temporary = type(e).__name__ == "ServerError" or "UNAVAILABLE" in str(e)
+                if temporary and attempt < len(self.RETRY_WAITS):
+                    time.sleep(self.RETRY_WAITS[attempt])
+                    continue
+                raise LLMError(f"{type(e).__name__}: {e}") from e
+        self.contents.append(resp.candidates[0].content)
+        calls = [{"id": fc.id or f"call{i}", "name": fc.name, "args": dict(fc.args or {})}
+                 for i, fc in enumerate(resp.function_calls or [])]
+        return {"calls": calls} if calls else {"text": resp.text or ""}
+
+
+def _gemini_tool_session(self, system: str, question: str, declarations: list[dict]) -> GeminiToolSession:
+    return GeminiToolSession(self._client, self.model, system, question, declarations)
+
+
+GeminiProvider.start_tools = _gemini_tool_session
+
+
 def current_mode() -> Mode:
     _load_dotenv()
     return "live" if os.environ.get(C.LLM_MODE_ENV, "offline").lower() == "live" else "offline"
@@ -128,6 +187,27 @@ class LLMClient:
         blob = json.dumps({"provider": self.provider_name, "model": self.model, "task": task,
                            "prompt_version": prompt_version, "prompt": prompt}, sort_keys=True)
         return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+    # --- step cache for multi-turn tool use (analyst.py) ----------------------------------------
+    def step_key(self, task: str, prompt_version: str, conversation: object) -> str:
+        blob = json.dumps({"provider": self.provider_name, "model": self.model, "task": task,
+                           "prompt_version": prompt_version, "conversation": conversation},
+                          sort_keys=True, ensure_ascii=False, default=str)
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+    def cache_get(self, key: str) -> dict | None:
+        path = self.cache_dir / f"{key}.json"
+        return json.loads(path.read_text(encoding="utf-8"))["step"] if path.exists() else None
+
+    def cache_put(self, key: str, task: str, prompt_version: str, step: dict, conversation: object) -> None:
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        (self.cache_dir / f"{key}.json").write_text(json.dumps({
+            "task": task, "prompt_version": prompt_version, "provider": self.provider_name, "model": self.model,
+            "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "conversation": conversation, "step": step}, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+
+    def tool_session(self, system: str, question: str, declarations: list[dict]):
+        return self._provider_or_create().start_tools(system, question, declarations)
 
     def complete_json(self, task: str, prompt_version: str, prompt: str, schema: type[T],
                       refresh: bool = False) -> tuple[T, CallMeta, str]:

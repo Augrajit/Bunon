@@ -193,7 +193,7 @@ def parse_order(email: str, own_capacity_qty: int, client: LLMClient | None = No
 # Fact sheet (tool results -> named, formatted facts)
 # =============================================================================
 
-Kind = Literal["prob", "pct", "bdt", "bdt_delta", "qty", "int", "days", "date", "usd", "text"]
+Kind = Literal["prob", "pct", "pp", "bdt", "bdt_delta", "qty", "int", "days", "date", "usd", "text"]
 
 
 @dataclass(frozen=True)
@@ -211,12 +211,14 @@ class Fact:
             return f"{float(v):,.0f} BDT"
         if k == "bdt_delta":
             return f"{float(v):+,.0f} BDT"
+        if k == "pp":
+            return f"{float(v) * 100:+.1f} percentage points"
         if k == "qty":
             return f"{int(v):,}"  # the prose supplies the unit ("{{plan.pieces}} pieces")
         if k == "int":
             return f"{int(v)}"
         if k == "days":
-            return f"{int(v)} days"
+            return f"{int(v)} day" if int(v) == 1 else f"{int(v)} days"
         if k == "date":
             return v.strftime("%d %b %Y") if isinstance(v, date) else str(v)
         if k == "usd":
@@ -322,7 +324,7 @@ def factory_ids(fs: FactSheet) -> set[str]:
 MEMO_VERSION = "memo_v1"
 _PH = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
 # A fact key written outside braces would print as raw text, e.g. "line.F0288.fail_share".
-_BARE_KEY = re.compile(r"\b(?:order|funnel|plan|base|basebuf|match|line|district|old|new|diff|replan)\.[A-Za-z0-9_.]+")
+_BARE_KEY = re.compile(r"\b(?:order|funnel|plan|base|basebuf|match|line|district|old|new|diff|replan|c\d+)\.[A-Za-z0-9_.]+")
 
 
 class MemoLLM(BaseModel):
@@ -367,31 +369,38 @@ def _facts_block(fs: FactSheet) -> str:
     return "\n".join(f"{k} = {f.render()}: {f.label}" for k, f in fs.items())
 
 
+def check_text(where: str, t: str, fs: FactSheet) -> list[str]:
+    """The "no invented numbers" rules for one piece of LLM prose (memo field or analyst answer)."""
+    errors = []
+    ids = factory_ids(fs)
+    for key in _PH.findall(t):
+        if key.startswith("fac:"):
+            if key[4:] not in ids:
+                errors.append(f"{where}: unknown factory {key[4:]}")
+        elif key not in fs:
+            errors.append(f"{where}: unknown fact key '{key}'")
+    bare = _PH.sub(" ", t)
+    naked = _BARE_KEY.findall(bare)
+    if naked:
+        errors.append(f"{where}: fact key(s) {sorted(set(naked))[:3]} written without double braces; "
+                      "write {{key}}")
+        bare = _BARE_KEY.sub(" ", bare)
+    lits = tn.literal_numbers(bare)
+    if lits:
+        errors.append(f"{where}: literal number(s) {sorted(set(lits))[:5]} outside placeholders")
+    if "{" in bare or "}" in bare:
+        errors.append(f"{where}: malformed placeholder")
+    return errors
+
+
 def validate_memo(memo: MemoLLM, fs: FactSheet) -> list[str]:
     """Return all rule violations (empty list = valid)."""
     errors = []
-    ids = factory_ids(fs)
     texts = [("summary", memo.summary), ("recommendation", memo.recommendation)]
     for name in ("rejected_alternatives", "risks", "human_actions"):
         texts += [(f"{name}[{i}]", t) for i, t in enumerate(getattr(memo, name))]
     for where, t in texts:
-        for key in _PH.findall(t):
-            if key.startswith("fac:"):
-                if key[4:] not in ids:
-                    errors.append(f"{where}: unknown factory {key[4:]}")
-            elif key not in fs:
-                errors.append(f"{where}: unknown fact key '{key}'")
-        bare = _PH.sub(" ", t)
-        naked = _BARE_KEY.findall(bare)
-        if naked:
-            errors.append(f"{where}: fact key(s) {sorted(set(naked))[:3]} written without double braces; "
-                          "write {{key}}")
-            bare = _BARE_KEY.sub(" ", bare)
-        lits = tn.literal_numbers(bare)
-        if lits:
-            errors.append(f"{where}: literal number(s) {sorted(set(lits))[:5]} outside placeholders")
-        if "{" in bare or "}" in bare:
-            errors.append(f"{where}: malformed placeholder")
+        errors += check_text(where, t, fs)
     if not memo.summary.strip() or not memo.recommendation.strip():
         errors.append("summary and recommendation must not be empty")
     return errors

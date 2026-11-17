@@ -160,3 +160,12 @@ Every plan uses only Ashulia/Savar and Gazipur factories, because they are close
   The "high" row is harsh: a high-severity flood in Gazipur takes the current plan from 91.4% to 0.0%, because 40% of its pieces are in Gazipur. The numbers are honest under the table, but the table itself needs real values.
 - **What the 3 demo items showed:** local events can be routed around for 100–160k BDT, by moving volume out of the district. A nationwide hartal cannot: the best plan reaches 49.1%. Bunon should say so early, and it does.
 - Tests: 107 (5 new).
+
+### D8: 17 Nov 2026: item 3: tool-calling analyst
+
+- **What:** section 8, "Ask a what-if question". The LLM chooses among `run_simulation`, `solve_plan` and `compare_plans` (at most 6 calls) and answers with placeholders only. Every call (arguments, facts, errors) is logged on screen. Details and live results: PROMPTS.md A2d.
+- **Division of labour:** the optimiser and simulation produce every number; the LLM handles language, chooses the tools and their arguments, and explains. Tool arguments are range-checked in code, the same ranges as the sidebar.
+- **Offline:** each model step is cached by conversation hash; the 3 example questions replay with no key.
+- **Worth showing judges:** for "can *any* plan reach the target during a nationwide hartal?", the model loosened all limits on its own initiative to test the claim, then reported that none does (about 49% at best).
+- **Item 4 (steering into OptimizerParams)** already exists (D5); not rebuilt.
+- Tests: 113 (6 new, `tests/test_analyst.py`, scripted fake provider): answer facts only; offline replay; 6-call limit; retry then template; bad arguments reported to the model; exclusion and cap respected.

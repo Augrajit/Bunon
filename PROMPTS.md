@@ -126,6 +126,38 @@ Source: `bunon/agent.py` (`NEWS_PROMPT`, schema `NewsLLM`). The prompt lists the
 | Nationwide hartal (English) | national ← "nationwide" | 2 ← "2 days" | medium | 91.4% → 10.9% | 49.1%, target not reachable |
 | Gazipur flood (Bangla) | gazipur ← "গাজীপুরের" | none stated ("সপ্তাহজুড়ে" = all week) → default | high | 91.4% → 0.0% | 91.3%, +101,098 BDT |
 
+### A2d. `analyst_v1`: what-if questions answered by choosing and calling tools
+
+Source: `bunon/analyst.py` (`SYSTEM`, `DECLARATIONS`). Native Gemini function calling via `generateContent`, with automatic calling disabled.
+
+**Checked before writing (17 Nov 2026):** Google's function-calling docs plus the installed SDK (google-genai 3.3.0).
+- Tools are dict declarations in `types.Tool`. Read `response.function_calls`, append the model's own `Content` (it carries thought signatures), and return a user-role `Content` of `FunctionResponse` parts echoing each call's `id`.
+- **Difference found:** the docs pass `id=` to `Part.from_function_response`, but in SDK 3.3.0 that function has no `id` argument, so the `FunctionResponse` is built directly.
+- When the tool limit is reached, tools are switched off with `FunctionCallingConfig(mode="NONE")`.
+
+**Tools (the only source of numbers):**
+
+| Tool | Does | Facts it returns (citable) |
+|---|---|---|
+| `run_simulation(area, severity, duration_days?)` | current plan under a disruption (severity → fixed table) | `cN.p_meet`, `cN.p_change`, `cN.delay_days`, `cN.output_share`, `cN.affected` |
+| `solve_plan(exclude_factories?, max_factories?, max_district_share?, unproven_cap?, shock_*?)` | best new plan under those settings | `cN.p_meet`, `cost_total`, `cost_delta`, `buffer_pct`, `n_factories`, `factories`, `target_met` + **the settings echoed** (`cN.max_district_share`…) |
+| `compare_plans(first, second)` | difference between two results | `cN.p_diff`, `cN.cost_diff` |
+
+**Enforcement:**
+- Arguments are range-checked in code. Unknown factory IDs or tools return an error to the model, and the error is shown in the log.
+- **At most 6 tool calls**; after that, tools are switched off.
+- The final answer goes through `agent.check_text` (no digits or number words, keys in braces, only known keys or factory IDs). One retry with the errors, then a deterministic template built from the same facts.
+- Every model step is cached under a hash of the conversation so far, and cached questions replay offline. If a cached prefix exists but a later step is missing, the whole conversation is re-run live (thought signatures cannot be rebuilt from a cache).
+- The UI logs every call: step, tool, arguments, facts produced or error.
+
+**First live run (17 Nov 2026):**
+- Version 1: Q1 and Q3 were valid. **Q2's answer was rejected twice**: the model restated the question's "50%" as "fifty percent" and "half". There was no citable key for it, so the template was used. The model also invented a tool, `get_current_plan`.
+- Fix: `solve_plan` echoes its settings as facts; the prompt asks to cite the echoed setting; unknown tools get a clear error.
+- Version 2: all three answers were valid on the first attempt.
+  - "Ashulia severe" → simulate (0%) → re-plan (91.7%, +162,720 BDT) → compare.
+  - "Drop F2184, cap districts at 50%" → 90.5%, +17,780 BDT → compare with the current plan.
+  - "Nationwide hartal 2 days, can **any** plan reach the target?" → the model also **loosened every limit on its own** to test "any plan" (best about 48–49%) and compared the two.
+
 ### A3. `steer_v1`: a manager's instruction → planning-setting changes
 
 Source: `bunon/agent.py` (`STEER_PROMPT`, schema `SteerLLM`). The prompt lists the allowed settings with their ranges, then:

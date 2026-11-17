@@ -80,6 +80,19 @@ def main() -> None:
             print(f"  event fill x{ev.fill_mult}, +{ev.extra_delay_days} d: current {rec.risk.p_meet_qty:.3f} -> "
                   f"{r['current_with_event'].p_meet_qty:.3f}; re-plan {r['new'].risk.p_meet_qty:.3f} "
                   f"(target met: {r['new_target_met']}), cost {r['new'].plan.cost_total - rec.plan.cost_total:+,.0f}")
+    from bunon import analyst
+    questions = (
+        "If the Ashulia stoppage turns severe, what happens to our plan, and what should we do?",
+        "Should we stop using F2184 and keep any district under 50%? Compare that with the current plan.",
+        "If a nationwide hartal lasts 2 days, can any plan still reach our target?",
+    )
+    for q in questions:
+        tb = analyst.Toolbox(w, order, p, comp, fs, C.TARGET_P_MEET)
+        run = analyst.answer(q, tb, client)
+        print(f"\nwhat-if: {q}\n  source {run.source}; errors {run.errors or 'none'}")
+        for c in run.calls:
+            print(f"  step {c.step} {c.call_id} {c.name}({c.args}) -> {'ok' if c.ok else 'ERR ' + c.error} {c.facts}")
+        print("  answer:", run.answer_md)
     print(f"\nlive calls made: {client.calls}")
 
 

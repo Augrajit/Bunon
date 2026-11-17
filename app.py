@@ -26,7 +26,7 @@ def _reload_bunon_if_changed() -> None:
 
     import bunon
     order = ["config", "schemas", "textnum", "llm", "data_gen", "reliability", "simulation",
-             "optimizer", "agent", "decisions"]
+             "optimizer", "agent", "analyst", "decisions"]
     src = Path(bunon.__file__).parent
     digest = hashlib.sha1(b"".join((src / f"{m}.py").read_bytes() for m in order)).hexdigest()
     if getattr(bunon, "_source_digest", None) != digest:
@@ -39,7 +39,8 @@ def _reload_bunon_if_changed() -> None:
 
 _reload_bunon_if_changed()
 
-from bunon import agent as ag  # noqa: E402  (after the reload check, so names bind to current code)
+from bunon import agent as ag  # noqa: E402
+from bunon import analyst  # noqa: E402  (after the reload check, so names bind to current code)
 from bunon import config as C  # noqa: E402
 from bunon import decisions as dl
 from bunon import optimizer as op
@@ -151,6 +152,14 @@ def run_news(args: tuple, area: str, severity: str, duration):
     ev = op.event_from_severity(area, severity, duration)
     return op.assess_news(world(), out["order"], out["params"], rec, ev, target_p=target, shocks=shocks,
                           partial_lots=partial)
+
+
+@st.cache_data(show_spinner="The analyst is choosing and running tools…")
+def run_question(args: tuple, question: str):
+    out = run_plans(*args)
+    target, shocks, partial = args[2], args[6], args[5]
+    tb = analyst.Toolbox(world(), out["order"], out["params"], out["comp"], out["facts"], target, shocks, partial)
+    return analyst.answer(question, tb, LLMClient())
 
 
 # =============================================================================
@@ -622,6 +631,46 @@ with tab_news:
                          hide_index=True, width="stretch")
             approval_buttons("news_replan", new.plan, f"news: {sev} {area}; P {new.risk.p_meet_qty:.3f}, "
                              f"{bdt(new.plan.cost_total)}", order, ncands, "news_replan")
+
+# --- 8 · what-if analyst ---------------------------------------------------------------------------------
+st.header("8 · Ask a what-if question")
+st.caption("The LLM decides which tools to run (simulate a disruption on the current plan, solve a new plan "
+           f"with exclusions or caps, compare results), at most {analyst.MAX_TOOL_CALLS} calls. The tools do all "
+           "the numbers; the answer may only cite tool results, and every call is logged below.")
+WHATIF_EXAMPLES = (
+    "If the Ashulia stoppage turns severe, what happens to our plan, and what should we do?",
+    "Should we stop using F2184 and keep any district under 50%? Compare that with the current plan.",
+    "If a nationwide hartal lasts 2 days, can any plan still reach our target?",
+)
+qx = st.columns(len(WHATIF_EXAMPLES))
+for i, q in enumerate(WHATIF_EXAMPLES):
+    if qx[i].button(q, key=f"whatif_ex_{i}"):
+        st.session_state["whatif_text"] = q
+question = st.text_input("Question", key="whatif_text", placeholder="e.g. What if Gazipur floods for a week?")
+if st.button("Ask", type="primary") and question.strip():
+    st.session_state["whatif"] = (question.strip(), args)
+if st.session_state.get("whatif", (None, None))[1] == args:
+    run = _run_safely(run_question, args, st.session_state["whatif"][0])
+    badge = {**SOURCE_BADGE, "unavailable": "⚠️ Not available offline: this question is not in the cache"}
+    st.caption(badge[run.source] + (f" · {len(run.calls)} tool call(s)" if run.calls else ""))
+    for c in run.calls:
+        head = (f"Step {c.step} · `{c.call_id}` · **{c.name}**("
+                + ", ".join(f"{k}={json.dumps(v, ensure_ascii=False)}" for k, v in c.args.items()) + ")")
+        with st.expander(head + ("" if c.ok else " · ⚠️ rejected"), expanded=False):
+            if c.ok:
+                st.dataframe(pd.DataFrame([{"Fact key": k, "Value": v, "Meaning": run.facts[k].label}
+                                           for k, v in c.facts.items()]), hide_index=True, width="stretch")
+            else:
+                st.error(c.error)
+    if run.answer_md:
+        st.markdown(run.answer_md)
+    if run.errors:
+        with st.expander("Checker messages"):
+            st.write(run.errors)
+    if run.source == "unavailable":
+        st.info("On the public demo, answers are replayed from a cache: the three example questions work. "
+                "Use the sidebar controls and the tabs above for anything else.")
+
 
 # --- log ------------------------------------------------------------------------------------------------------
 st.divider()

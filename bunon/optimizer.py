@@ -21,7 +21,7 @@ from bunon import reliability as rl
 from bunon.data_gen import load_public
 from bunon.schemas import (AllocationLine, AllocationPlan, BufferPoint, BundleRisk, Candidate,
                            OptimizerParams, OrderConstraints, PlanResult, ReliabilityForecast,
-                           ReplanResult, ShockParams)
+                           ReplanResult, ShockEvent, ShockParams)
 from bunon.simulation import simulate
 
 
@@ -253,24 +253,26 @@ def solve_baseline(cands: list[Candidate], Q: int, params: OptimizerParams, buff
 # --- buffer search, comparison, re-allocation --------------------------------------
 
 def evaluate(plan: AllocationPlan, cands: list[Candidate], world: World, shocks: bool,
-             n_sims: int = C.N_SIMS, seed: int = C.SIM_SEED, partial_lots: bool = C.PARTIAL_LOTS_DEFAULT) -> BundleRisk:
+             n_sims: int = C.N_SIMS, seed: int = C.SIM_SEED, partial_lots: bool = C.PARTIAL_LOTS_DEFAULT,
+             events: list[ShockEvent] | None = None) -> BundleRisk:
     slack = {c.factory_id: c.slack_days for c in cands}
     dist = {c.factory_id: c.district for c in cands}
     win = {c.factory_id: c.window_days for c in cands} if partial_lots else None
-    return simulate(plan, world.forecasts, slack, dist, world.shocks if shocks else None, n_sims, seed, win)
+    return simulate(plan, world.forecasts, slack, dist, world.shocks if shocks else None, n_sims, seed, win, events)
 
 
 def search_buffer(world: World, order: OrderConstraints, params: OptimizerParams,
                   target_p: float = C.TARGET_P_MEET, grid=C.BUFFER_GRID, shocks: bool = True,
                   n_sims: int = C.N_SIMS, seed: int = C.SIM_SEED, partial_lots: bool = C.PARTIAL_LOTS_DEFAULT,
-                  cands: list[Candidate] | None = None) -> PlanResult:
+                  cands: list[Candidate] | None = None, events: list[ShockEvent] | None = None) -> PlanResult:
     """Solve for each buffer; recommend the cheapest plan with P(meet) >= target, else the most likely one."""
     cands = cands if cands is not None else build_candidates(world, order, params)
     Q = order.subcontract_qty
     frontier = []
     for b in grid:
         plan = solve_mip(cands, Q, params.model_copy(update={"buffer_pct": b}))
-        risk = evaluate(plan, cands, world, shocks, n_sims, seed, partial_lots) if plan.status == "optimal" else None
+        risk = (evaluate(plan, cands, world, shocks, n_sims, seed, partial_lots, events)
+                if plan.status == "optimal" else None)
         frontier.append(BufferPoint(buffer_pct=b, plan=plan, risk=risk))
     ok = [p for p in frontier if p.risk and p.risk.p_meet_qty >= target_p]
     if ok:
@@ -427,3 +429,53 @@ def replan_from_reply(world: World, order: OrderConstraints, params: OptimizerPa
 def largest_line(point: BufferPoint) -> str:
     """Disruption rule (PLAN.md §8): the factory with the largest allocation declines."""
     return max(point.plan.lines, key=lambda ln: (ln.qty, ln.factory_id)).factory_id
+
+
+# --- news-driven disruptions (SPEC.md D7) -------------------------------------------------------------
+
+def event_from_severity(area: str, severity: str, duration_days: int | None, label: str = "") -> ShockEvent:
+    """Severity label -> simulation parameters through the FIXED config table (the LLM never sets numbers)."""
+    row = C.SEVERITY_TABLE[severity]
+    days = duration_days if duration_days is not None else row["default_days"]
+    delay = min(C.MAX_EVENT_DELAY_DAYS, round(days * row["lost_day_share"]))
+    return ShockEvent(area=area, fill_mult=row["fill_mult"], extra_delay_days=int(delay), label=label)
+
+
+def adjust_for_events(cands: list[Candidate], world: World, events: list[ShockEvent]) -> list[Candidate]:
+    """What the optimiser should believe about affected factories: less output, less slack."""
+    out = []
+    for c in cands:
+        hit = [e for e in events if e.area == "national" or e.area == c.district]
+        if not hit:
+            out.append(c)
+            continue
+        mult = 1.0
+        delay = 0
+        for e in hit:
+            mult *= e.fill_mult
+            delay += e.extra_delay_days
+        fc = world.forecasts[c.factory_id]
+        slack = c.slack_days - delay
+        q = (fc.fill_mean * mult * rl.p_on_time(fc, slack) if slack >= 0
+             else fc.fill_mean * mult * max(0.0, (c.window_days + slack) / c.window_days))
+        cap = int(c.window_capacity_risk_adj * mult) // 100 * 100
+        if cap < c.min_batch:
+            continue  # cannot produce a minimum batch any more
+        out.append(c.model_copy(update={"slack_days": slack, "window_capacity_risk_adj": cap, "q_effective": q}))
+    return out
+
+
+def assess_news(world: World, order: OrderConstraints, params: OptimizerParams, current: BufferPoint,
+                event: ShockEvent, target_p: float = C.TARGET_P_MEET, shocks: bool = True,
+                partial_lots: bool = C.PARTIAL_LOTS_DEFAULT) -> dict:
+    """(1) the current plan's P(meet) if the event happens; (2) a plan made knowing about it
+    (news arrives before purchase orders are sent, so no quantities are locked)."""
+    cands = build_candidates(world, order, params)
+    hit_now = evaluate(current.plan, cands, world, shocks, partial_lots=partial_lots, events=[event])
+    adj = adjust_for_events(cands, world, [event])
+    res = search_buffer(world, order, params, target_p, shocks=shocks, partial_lots=partial_lots,
+                        cands=adj, events=[event])
+    affected = [ln.factory_id for ln in current.plan.lines
+                if event.area == "national" or next(c.district for c in cands if c.factory_id == ln.factory_id) == event.area]
+    return {"event": event, "current_with_event": hit_now, "affected_in_plan": affected,
+            "new": res.recommended, "new_target_met": res.target_met, "cands": adj}

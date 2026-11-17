@@ -307,6 +307,65 @@ def test_replan_from_delay_keeps_factory_and_cuts_its_slack(facts):
     assert rp.new.risk.p_meet_qty <= rec.risk.p_meet_qty + 0.01
 
 
+# --- news ------------------------------------------------------------------------------------------
+
+NEWS = {n["id"]: n for n in json.loads((C.ROOT / "data" / "demo" / "news.json").read_text(encoding="utf-8"))}
+
+
+def _news(area, aspan, typ, tspan, days, dspan, sev, sspan, conf="high"):
+    return {"area": area, "area_span": aspan, "disruption_type": typ, "type_span": tspan,
+            "duration_days": {"value": days, "source_span": dspan}, "severity": sev, "severity_span": sspan,
+            "confidence": conf}
+
+
+def test_news_maps_severity_through_fixed_table(tmp_path):
+    n = NEWS["ashulia_unrest"]["text"]
+    out = _news("ashulia_savar", "garment factories in Ashulia", "labour_unrest", "stopped work on Tuesday over unpaid wages",
+                3, "talks may take 3 days", "medium", "production at about a dozen units is halted")
+    r = ag.parse_news(n, client(tmp_path, out))
+    row = C.SEVERITY_TABLE["medium"]
+    assert r.area == "ashulia_savar" and r.duration.value == 3
+    assert r.event.fill_mult == row["fill_mult"]
+    assert r.event.extra_delay_days == round(3 * row["lost_day_share"])
+
+
+def test_news_area_must_be_named_in_quote(tmp_path):
+    n = NEWS["ashulia_unrest"]["text"]
+    out = _news("gazipur", "garment factories in Ashulia", "labour_unrest", "stopped work on Tuesday over unpaid wages",
+                None, None, "medium", "production at about a dozen units is halted")
+    r = ag.parse_news(n, client(tmp_path, out))
+    assert r.area is None and r.event is None and r.notes
+
+
+def test_news_invented_duration_falls_back_to_default(tmp_path):
+    n = NEWS["gazipur_flood_bn"]["text"]
+    out = _news("gazipur", "গাজীপুরের কোনাবাড়ি ও কাশিমপুর", "flood_or_weather", "টানা বৃষ্টিতে জলাবদ্ধতা",
+                7, "সপ্তাহজুড়ে বিদ্যুৎ বিভ্রাটের আশঙ্কা", "high", "অনেক কারখানায় উৎপাদন বন্ধ")
+    r = ag.parse_news(n, client(tmp_path, out))
+    assert r.area == "gazipur" and r.duration.status == "rejected"
+    row = C.SEVERITY_TABLE["high"]
+    assert r.event.extra_delay_days == min(C.MAX_EVENT_DELAY_DAYS, round(row["default_days"] * row["lost_day_share"]))
+
+
+def test_news_national(tmp_path):
+    n = NEWS["national_hartal"]["text"]
+    out = _news("national", "a nationwide hartal", "hartal_or_strike", "called a nationwide hartal for Thursday and Friday",
+                2, "disrupted for 2 days", "medium", "Highway transport between Dhaka and Chattogram is expected to be disrupted")
+    r = ag.parse_news(n, client(tmp_path, out))
+    assert r.area == "national" and r.event.area == "national"
+
+
+def test_known_event_lowers_current_plan_and_replan_avoids_it():
+    from bunon import optimizer as op
+    w = op.load_world(); order = op.demo_order(); p = op.default_params(order)
+    rec = op.search_buffer(w, order, p, n_sims=3000).recommended
+    ev = op.event_from_severity("ashulia_savar", "medium", 3)
+    r = op.assess_news(w, order, p, rec, ev)
+    assert r["current_with_event"].p_meet_qty < rec.risk.p_meet_qty
+    assert r["affected_in_plan"]
+    assert r["new"].risk.p_meet_qty > r["current_with_event"].p_meet_qty
+
+
 # --- steering -------------------------------------------------------------------------------------
 
 INSTR = "Use no more than three factories, keep new factories under 10%, and don't use F2184. Also move the deadline to 27 December."

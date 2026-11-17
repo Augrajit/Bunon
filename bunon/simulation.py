@@ -14,13 +14,13 @@ from __future__ import annotations
 import numpy as np
 
 from bunon import config as C
-from bunon.schemas import AllocationPlan, BundleRisk, ReliabilityForecast, ShockParams
+from bunon.schemas import AllocationPlan, BundleRisk, ReliabilityForecast, ShockEvent, ShockParams
 
 
 def simulate(plan: AllocationPlan, forecasts: dict[str, ReliabilityForecast], slack: dict[str, int],
              districts: dict[str, str], shocks: ShockParams | None = None,
              n_sims: int = C.N_SIMS, seed: int = C.SIM_SEED,
-             window_days: dict[str, int] | None = None) -> BundleRisk:
+             window_days: dict[str, int] | None = None, events: list[ShockEvent] | None = None) -> BundleRisk:
     """window_days given -> "partial lots" (the DEFAULT since SPEC.md D2): a factory running d days
     late on a W-day job has finished (W + slack) / (W + d) of it by the latest ship date, and that
     part counts. window_days=None -> the "late = 0" comparison toggle."""
@@ -69,6 +69,11 @@ def simulate(plan: AllocationPlan, forecasts: dict[str, ReliabilityForecast], sl
             mask = hit[:, None] & cols[None, :]
             fill = np.where(mask, fill * shocks.district_fill_mult, fill)
             delay = delay + np.where(mask, rng.poisson(max(shocks.district_extra_delay, 0), (n_sims, k)), 0)
+
+    for ev in events or []:  # known disruptions (from news): applied to every draw, deterministically
+        hit = np.array([ev.area == "national" or districts[i] == ev.area for i in ids])
+        fill = np.where(hit[None, :], fill * ev.fill_mult, fill)
+        delay = delay + np.where(hit[None, :], ev.extra_delay_days, 0)
 
     on_time = delay <= sl
     if window_days is None:

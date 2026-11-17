@@ -144,3 +144,19 @@ Every plan uses only Ashulia/Savar and Gazipur factories, because they are close
   - A full rejection (F2214) is recoverable: P 0.918, +57,619 BDT, because the freed factory slot lets a new factory in.
 - Fixed on the way: the re-plan's reported buffer is now the actual over-allocation, not the solver's grid value.
 - Tests: 102 (13 new).
+
+### D7: 17 Nov 2026: item 2: disruptions from news text
+
+- **What:** a headline or short news item (English or Bangla) → area, disruption type, duration, severity label and confidence, each with a checked quote (PROMPTS.md A2c). **Severity maps to simulation parameters only through the fixed `config.SEVERITY_TABLE`**; the LLM sets no numbers. The human can correct area and severity before assessing.
+- **Impact:** the event is applied to every simulation draw (not sampled). The app shows (1) the current plan's P(meet) if it happens and (2) a plan made knowing about it, before any purchase orders go out, so no quantities are locked. That plan can be approved or rejected like any other.
+- **Severity table (placeholders pending research):**
+
+  | Severity | Output delivered | Share of days lost as delay | Default days |
+  |---|---|---|---|
+  | low | 95% | 30% | 2 |
+  | medium | 85% | 60% | 3 |
+  | high | 65% | 100% | 7 |
+
+  The "high" row is harsh: a high-severity flood in Gazipur takes the current plan from 91.4% to 0.0%, because 40% of its pieces are in Gazipur. The numbers are honest under the table, but the table itself needs real values.
+- **What the 3 demo items showed:** local events can be routed around for 100–160k BDT, by moving volume out of the district. A nationwide hartal cannot: the best plan reaches 49.1%. Bunon should say so early, and it does.
+- Tests: 107 (5 new).

@@ -138,6 +138,21 @@ def run_reply_replan(args: tuple, factory_id: str, decision: str, qty, delay, da
     return rp, memo, cands_late
 
 
+@st.cache_data(show_spinner="Reading the news…")
+def read_news(text: str):
+    return ag.parse_news(text, LLMClient())
+
+
+@st.cache_data(show_spinner="Simulating the disruption and re-planning around it…")
+def run_news(args: tuple, area: str, severity: str, duration):
+    out = run_plans(*args)
+    target, shocks, partial = args[2], args[6], args[5]
+    rec = out["comp"]["ours"].recommended
+    ev = op.event_from_severity(area, severity, duration)
+    return op.assess_news(world(), out["order"], out["params"], rec, ev, target_p=target, shocks=shocks,
+                          partial_lots=partial)
+
+
 # =============================================================================
 # Helpers
 # =============================================================================
@@ -479,7 +494,7 @@ def _run_safely(fn, *a):
         st.stop()
 
 
-tab_decline, tab_reply = st.tabs(["Scripted decline", "Factory reply (English / Bangla / Banglish)"])
+tab_decline, tab_reply, tab_news = st.tabs(["Scripted decline", "Factory reply (English / Bangla / Banglish)", "News (English / Bangla)"])
 
 with tab_decline:
     gone = op.largest_line(rec)
@@ -542,6 +557,71 @@ with tab_reply:
                 delay = res.delay_days.value if res.delay_days.status == "ok" else None
                 rp, rmemo, cands_late = _run_safely(run_reply_replan, args, rfid, res.decision, qty, delay, DAYS)
                 show_replan(rp, rmemo, cands_late, "reply_replan", f"{rfid} replied ({res.decision})")
+
+with tab_news:
+    NEWS = json.loads((C.ROOT / "data" / "demo" / "news.json").read_text(encoding="utf-8"))
+    st.caption("Paste a headline or short news item (English or Bangla). The LLM names the area, the kind of "
+               "disruption, the duration and a severity label, each with a quote the code checks. **The LLM "
+               "chooses no numbers:** severity is turned into simulation parameters by a fixed table.")
+    nx = st.columns(len(NEWS))
+    for i, n in enumerate(NEWS):
+        if nx[i].button(f"{n['id'].replace('_', ' ')} · {n['language']}", key=f"news_ex_{i}"):
+            st.session_state["news_text"] = n["text"]
+    ntext = st.text_area("News text", key="news_text", height=90, placeholder="e.g. Workers in Ashulia stopped work…")
+    if st.button("Read the news") and ntext.strip():
+        st.session_state["news_read"] = (ntext, args)
+    if st.session_state.get("news_read", (None, None))[1] == args:
+        ntext_r = st.session_state["news_read"][0]
+        nres = read_news(ntext_r)
+        if nres.meta:
+            st.caption(SOURCE_BADGE[nres.meta.source])
+        for note in nres.notes:
+            st.warning(note)
+        icon = {"ok": "✅ found in text", "missing": "— not stated", "rejected": "⚠️ check failed"}
+        st.dataframe(pd.DataFrame([
+            {"Item": "Area", "Value": nres.area or "(choose by hand)", "Quote": nres.area_span or ""},
+            {"Item": "What happened", "Value": nres.disruption_type or "", "Quote": nres.type_span or ""},
+            {"Item": "Duration (days)", "Value": "" if nres.duration.value is None else str(nres.duration.value),
+             "Quote": (nres.duration.source_span or "") + ("" if nres.duration.status == "ok" else f"  [{icon[nres.duration.status]}]")},
+            {"Item": "Severity", "Value": nres.severity or "", "Quote": nres.severity_span or ""},
+            {"Item": "LLM confidence", "Value": nres.confidence or "", "Quote": ""},
+        ]), hide_index=True, width="stretch")
+        districts = ["national", "ashulia_savar", "gazipur", "narayanganj", "chattogram", "dhaka_city", "mymensingh"]
+        a1, a2 = st.columns(2)
+        area = a1.selectbox("Area (check or correct)", districts,
+                            index=districts.index(nres.area) if nres.area in districts else 0, key="news_area")
+        sev = a2.selectbox("Severity (check or correct)", ["low", "medium", "high"],
+                           index=["low", "medium", "high"].index(nres.severity) if nres.severity else 1, key="news_sev")
+        dur = nres.duration.value if nres.duration.status == "ok" else None
+        ev = op.event_from_severity(area, sev, dur)
+        row = C.SEVERITY_TABLE[sev]
+        st.caption(f"Fixed table, severity **{sev}**: affected factories deliver {row['fill_mult']:.0%} of planned "
+                   f"output, and {row['lost_day_share']:.0%} of the event's "
+                   f"{dur if dur is not None else row['default_days']} days"
+                   f"{'' if dur is not None else ' (default: no number in the text)'} become delay → "
+                   f"**{ev.extra_delay_days} days** late. Placeholder values pending research.")
+        if st.button("Assess the impact", type="primary"):
+            st.session_state["news_assess"] = (area, sev, dur, args)
+        if st.session_state.get("news_assess") == (area, sev, dur, args):
+            r = _run_safely(run_news, args, area, sev, dur)
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Current plan, if this happens", f"{r['current_with_event'].p_meet_qty:.1%}",
+                      delta=f"{(r['current_with_event'].p_meet_qty - rec.risk.p_meet_qty) * 100:+.1f} pts")
+            new = r["new"]
+            m2.metric("Plan made knowing about it", f"{new.risk.p_meet_qty:.1%}" if new.risk else "—")
+            m3.metric("Cost of re-planning", bdt(new.plan.cost_total - rec.plan.cost_total))
+            st.write("Factories in the current plan that are hit: "
+                     + (", ".join(f"**{f}**" for f in r["affected_in_plan"]) or "none"))
+            if not r["new_target_met"]:
+                st.error(f"Even a plan made knowing about this cannot reach the {target:.0%} target. "
+                         "Escalate to the buyer early.")
+            ncands = r["cands"]
+            st.dataframe(pd.DataFrame([plan_row("Current plan (event applied)",
+                                                 rec.model_copy(update={"risk": r["current_with_event"]}), cands),
+                                        plan_row("Plan made knowing about it", new, ncands)]),
+                         hide_index=True, width="stretch")
+            approval_buttons("news_replan", new.plan, f"news: {sev} {area}; P {new.risk.p_meet_qty:.3f}, "
+                             f"{bdt(new.plan.cost_total)}", order, ncands, "news_replan")
 
 # --- log ------------------------------------------------------------------------------------------------------
 st.divider()

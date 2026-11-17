@@ -157,6 +157,14 @@ class ReliabilityEval(_Strict):
     by_bucket: list[BucketEval]
 
 
+class ShockEvent(_Strict):
+    """A known disruption (e.g. read from news): applied to every simulation draw, not sampled."""
+    area: str                      # district label, or "national"
+    fill_mult: float = Field(gt=0, le=1)
+    extra_delay_days: int = Field(ge=0)
+    label: str = ""
+
+
 class ShockParams(_Strict):
     """Correlated-shock model estimated from history (PLAN.md §6)."""
     p_national: float

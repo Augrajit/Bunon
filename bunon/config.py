@@ -117,6 +117,28 @@ DEMO_PENALTY_PCT_PER_WEEK = 5.0  # ASSUMPTION (research ask 5)
 DELIVERY_POINT_NAME = "Exporter consolidation point, Gazipur (district point, not a real factory)"
 DELIVERY_POINT_LATLNG = (24.00, 90.42)  # ASSUMPTION: approximate Gazipur point, to confirm
 
+# --- News-driven disruptions (SPEC.md D7) -----------------------------------
+# FIXED TABLE: the LLM only picks a severity label from the text; these numbers are ours.
+# fill_mult: share of planned output still delivered by affected factories.
+# lost_day_share: share of the event's duration that turns into delivery delay.
+# default_days: duration used when the text states no number of days.
+SEVERITY_TABLE = {        # PLACEHOLDER pending research
+    "low":    {"fill_mult": 0.95, "lost_day_share": 0.3, "default_days": 2},
+    "medium": {"fill_mult": 0.85, "lost_day_share": 0.6, "default_days": 3},
+    "high":   {"fill_mult": 0.65, "lost_day_share": 1.0, "default_days": 7},
+}
+MAX_EVENT_DELAY_DAYS = 14
+# Bangla place names, so a Bangla headline's quote can be checked against the district it names.
+DISTRICT_KEYWORDS_BN: dict[str, tuple[str, ...]] = {
+    "ashulia_savar": ("আশুলিয়া", "সাভার"),
+    "gazipur": ("গাজীপুর", "টঙ্গী", "কোনাবাড়ি", "কাশিমপুর", "শ্রীপুর"),
+    "narayanganj": ("নারায়ণগঞ্জ", "ফতুল্লা"),
+    "chattogram": ("চট্টগ্রাম",),
+    "dhaka_city": ("ঢাকা", "মিরপুর"),
+    "mymensingh": ("ময়মনসিংহ", "ভালুকা"),
+}
+NATIONAL_KEYWORDS = ("nationwide", "national", "country", "across bangladesh", "দেশব্যাপী", "সারাদেশে", "সারা দেশে")
+
 # --- LLM (PLAN.md §7) ------------------------------------------------------
 # Verified 15 Nov 2026 at aistudio.google.com/docs: gemini-3.5-flash-lite is "Stable" and has a
 # free tier (free-tier content may be used to improve Google products; we send only fictional

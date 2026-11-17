@@ -107,6 +107,25 @@ Source: `bunon/agent.py` (`REPLY_PROMPT`, schema `ReplyLLM`). The prompt explain
 
 All four classifications were right on the first call. Two memo calls hit a temporary 503 and were re-run. The first version of the counter memos called a delay a "refusal", reported "0% buffer" and praised a lower cost while missing the target. That led to the facts and context changes above. After the change, both counter memos needed their one retry (keys written without braces) and are now valid.
 
+### A2c. `news_v1`: news text (English / Bangla) → area, disruption, duration, severity
+
+Source: `bunon/agent.py` (`NEWS_PROMPT`, schema `NewsLLM`). The prompt lists the allowed areas with their place names, plus a three-level severity guide in words. **The LLM chooses labels, never numbers.**
+
+**Enforcement (code, `validate_news`):**
+- **The area must be named in its quote** (English place names from `config.DISTRICT_KEYWORDS`, Bangla names from `config.DISTRICT_KEYWORDS_BN`, or "nationwide" / "দেশব্যাপী"). Otherwise the area is left for the human to choose.
+- The duration must be a number stated in its quote. Otherwise the severity's default duration is used and labelled as a default.
+- The severity and "what happened" quotes must be in the text.
+- **Severity → simulation parameters through `config.SEVERITY_TABLE`** (fill multiplier, share of days lost as delay, default days), capped at `MAX_EVENT_DELAY_DAYS`. The human can correct area and severity before assessing.
+- Impact (`optimizer.assess_news`): (1) the current plan simulated with the event applied to every draw; (2) a plan made knowing about it, where affected factories get less capacity and less slack. It is then approved or rejected like any plan.
+
+**First live run (17 Nov 2026), all three fictional items correct on the first call:**
+
+| Item | Area ← quote | Duration | Severity | Current plan | Plan knowing about it |
+|---|---|---|---|---|---|
+| Ashulia work stoppage (English) | ashulia_savar ← "Ashulia" | 3 ← "3 days" | medium | 91.4% → 66.5% | 91.7%, +162,720 BDT |
+| Nationwide hartal (English) | national ← "nationwide" | 2 ← "2 days" | medium | 91.4% → 10.9% | 49.1%, target not reachable |
+| Gazipur flood (Bangla) | gazipur ← "গাজীপুরের" | none stated ("সপ্তাহজুড়ে" = all week) → default | high | 91.4% → 0.0% | 91.3%, +101,098 BDT |
+
 ### A3. `steer_v1`: a manager's instruction → planning-setting changes
 
 Source: `bunon/agent.py` (`STEER_PROMPT`, schema `SteerLLM`). The prompt lists the allowed settings with their ranges, then:

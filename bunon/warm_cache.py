@@ -67,6 +67,19 @@ def main() -> None:
             m = ag.write_memo(ag.factsheet_for_replan(fs, rp2), "replan", client)
             print(f"  re-plan: {rp2.reason}; P {rp2.new.risk.p_meet_qty:.3f}; cost "
                   f"{rp2.new.plan.cost_total - rec.plan.cost_total:+,.0f}; memo {m.source} {m.errors or ''}")
+    news = json.loads((C.ROOT / "data" / "demo" / "news.json").read_text(encoding="utf-8"))
+    for n in news:
+        nr = ag.parse_news(n["text"], client)
+        ev = nr.event
+        print(f"\nnews {n['id']} ({n['language']}): {nr.meta.source if nr.meta else 'failed'} -> area {nr.area} "
+              f"<- {nr.area_span!r}; type {nr.disruption_type}; days {nr.duration.value} ({nr.duration.status}) "
+              f"<- {nr.duration.source_span!r}; severity {nr.severity} <- {nr.severity_span!r}; conf {nr.confidence}"
+              f"; notes {nr.notes}")
+        if ev:
+            r = op.assess_news(w, order, p, rec, ev)
+            print(f"  event fill x{ev.fill_mult}, +{ev.extra_delay_days} d: current {rec.risk.p_meet_qty:.3f} -> "
+                  f"{r['current_with_event'].p_meet_qty:.3f}; re-plan {r['new'].risk.p_meet_qty:.3f} "
+                  f"(target met: {r['new_target_met']}), cost {r['new'].plan.cost_total - rec.plan.cost_total:+,.0f}")
     print(f"\nlive calls made: {client.calls}")
 
 

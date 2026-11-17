@@ -129,3 +129,18 @@ Every plan uses only Ashulia/Savar and Gazipur factories, because they are close
   - "No more than three factories, new factories under 10%" → no plan within the 25% buffer ceiling reaches 90%; the best is 17.5%. The app says so instead of hiding it. That shows the trade-off a manager is asking for.
   - "Don't use F2184, plan 6 days of slack" → ours 92.7%; the naive rule needs a 25% buffer (+380,636 BDT) to match.
 - New controls: a max-factories slider and a district-cap slider (100% = no cap) replace the on/off toggle. The defaults are unchanged, so the cached memos still apply. Checked at a 480 px content width: no metric or button is clipped.
+
+### D6: 17 Nov 2026: reframe of the AI role, item 1: factory replies
+
+**Decision (product owner):** the AI role was too thin (extracting stated fields, filling a memo). Reframe: the optimiser does the numbers; the LLM handles unstructured language and chooses which tools to run. Build in order, stopping after each: (1) factory reply parsing, (2) disruption from news text, (3) a tool-calling agent, (4) steering, which already exists (D5). Items 3 and 4 are cut before deploy or tests.
+
+**Item 1, done:**
+- Replies in English, Bangla or Banglish → accept / reject / counter, with quantity, delay and conditions, each with a verified quote (PROMPTS.md A2b). The code settles the final decision.
+- **A counter changes the plan:** the stated quantity is locked exactly, and a stated delay of d days cuts that factory's slack by d. A reject is a locked re-plan.
+- 4 demo replies in `data/demo/factory_replies.json` (1 English, 2 Banglish, 1 Bangla). All 4 were classified correctly live, and all answers are cached.
+- What the replies showed, on synthetic data:
+  - Losing 5,300 pieces at F2184 (→ 9,000) or a 5-day slip at F1064 drops P(meet) below 90% (0.864 / 0.883). The re-plan **cannot recover**, because the 5-factory limit (and, for the delay, the Ashulia/Savar district cap) binds.
+  - The memos now lead with that and recommend escalating to the buyer.
+  - A full rejection (F2214) is recoverable: P 0.918, +57,619 BDT, because the freed factory slot lets a new factory in.
+- Fixed on the way: the re-plan's reported buffer is now the actual over-allocation, not the solver's grid value.
+- Tests: 102 (13 new).

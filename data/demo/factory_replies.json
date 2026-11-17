@@ -1,0 +1,30 @@
+[
+  {
+    "id": "accept_en",
+    "factory_id": "F0288",
+    "language": "English",
+    "expected": "accept",
+    "text": "Dear Sir, thanks for the order. We confirm 13,300 pcs basic tee as per your tech pack, production will be completed on the agreed date. Please send the fabric by Monday."
+  },
+  {
+    "id": "counter_qty_banglish",
+    "factory_id": "F2184",
+    "language": "Banglish",
+    "expected": "counter (quantity)",
+    "text": "Bhai, order er jonno dhonnobad. Kintu amader line ekhon full, 14,300 pcs pura parbo na. Max 9 hajar pcs dite parbo same date e. Baki ta onno factory te din."
+  },
+  {
+    "id": "counter_delay_banglish",
+    "factory_id": "F1064",
+    "language": "Banglish",
+    "expected": "counter (delay)",
+    "text": "Order ta nibo bhai, 12,200 pcs thik ache. Kintu fabric dyeing e problem hocche, delivery 5 din late hobe. Advance 30% lagbe."
+  },
+  {
+    "id": "reject_bn",
+    "factory_id": "F2214",
+    "language": "Bangla",
+    "expected": "reject",
+    "text": "দুঃখিত ভাই, এই মাসে আমাদের সব লাইন বুকড। এবার অর্ডারটা নিতে পারছি না। পরের মাসে আবার জানাবেন।"
+  }
+]

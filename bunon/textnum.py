@@ -9,10 +9,12 @@ from datetime import date
 
 _BANGLA = str.maketrans("০১২৩৪৫৬৭৮৯", "0123456789")
 _MULT = {"k": 1e3, "thousand": 1e3, "lakh": 1e5, "lakhs": 1e5, "lac": 1e5, "lacs": 1e5,
-         "crore": 1e7, "crores": 1e7, "million": 1e6, "mn": 1e6}
+         "crore": 1e7, "crores": 1e7, "million": 1e6, "mn": 1e6,
+         # Banglish and Bangla: "9 hajar", "৯ হাজার", "1 lakh", "১ লাখ"
+         "hajar": 1e3, "hazar": 1e3, "হাজার": 1e3, "লাখ": 1e5, "লক্ষ": 1e5, "কোটি": 1e7}
 _NUM = re.compile(
     r"(?<![\w.])(\d{1,3}(?:,\d{2,3})+(?:\.\d+)?|\d+(?:\.\d+)?)"
-    r"(?:\s*(k|thousand|lakhs?|lacs?|crores?|million|mn)\b)?", re.IGNORECASE)
+    r"(?:\s*(k|thousand|lakhs?|lacs?|crores?|million|mn|hajar|hazar)\b|\s*(হাজার|লাখ|লক্ষ|কোটি))?", re.IGNORECASE)
 
 _MONTHS = {m: i + 1 for i, m in enumerate(
     ["january", "february", "march", "april", "may", "june", "july", "august", "september",
@@ -40,8 +42,9 @@ def numbers_in(text: str) -> list[float]:
     out = [float(_WORD_NUMS[m.group(1).lower()]) for m in _WORD_RE.finditer(text)]
     for m in _NUM.finditer(text.translate(_BANGLA)):
         n = float(m.group(1).replace(",", ""))
-        if m.group(2):
-            n *= _MULT[m.group(2).lower()]
+        mult = m.group(2) or m.group(3)
+        if mult:
+            n *= _MULT[mult.lower()]
         out.append(n)
     return out
 

@@ -224,6 +224,89 @@ def test_offline_without_cache_uses_template(facts, tmp_path):
     assert out.source == "template"
 
 
+# --- factory replies -------------------------------------------------------------------------------
+
+REPLIES = {r["id"]: r for r in json.loads((C.ROOT / "data" / "demo" / "factory_replies.json").read_text(encoding="utf-8"))}
+
+
+@pytest.mark.parametrize("text, value", [("Max 9 hajar pcs", 9000), ("৯ হাজার পিস", 9000), ("5 din late", 5),
+                                         ("১ লাখ", 100000), ("9 hazar", 9000)])
+def test_banglish_numbers(text, value):
+    assert tn.states_number(text, value)
+
+
+def _reply(decision, span, qty=None, qspan=None, delay=None, dspan=None, conds=()):
+    return {"decision": decision, "decision_span": span, "quantity": {"value": qty, "source_span": qspan},
+            "delay_days": {"value": delay, "source_span": dspan},
+            "conditions": [{"text": t, "source_span": s} for t, s in conds]}
+
+
+def test_reply_counter_quantity_banglish(tmp_path):
+    r = REPLIES["counter_qty_banglish"]
+    out = _reply("counter", "14,300 pcs pura parbo na", 9000, "Max 9 hajar pcs dite parbo")
+    res = ag.parse_reply(r["text"], 14_300, client(tmp_path, out))
+    assert res.decision == "counter" and res.quantity.value == 9000 and res.quantity.status == "ok"
+
+
+def test_reply_accept_with_lower_quantity_becomes_counter(tmp_path):
+    r = REPLIES["counter_qty_banglish"]
+    out = _reply("accept", "dite parbo same date e", 9000, "Max 9 hajar pcs dite parbo")
+    res = ag.parse_reply(r["text"], 14_300, client(tmp_path, out))
+    assert res.llm_decision == "accept" and res.decision == "counter" and res.notes
+
+
+def test_reply_delay_and_condition(tmp_path):
+    r = REPLIES["counter_delay_banglish"]
+    out = _reply("counter", "delivery 5 din late hobe", 12200, "12,200 pcs thik ache", 5, "delivery 5 din late hobe",
+                 [("advance payment required", "Advance 30% lagbe")])
+    res = ag.parse_reply(r["text"], 12_200, client(tmp_path, out))
+    assert res.decision == "counter" and res.delay_days.value == 5 and res.conditions[0].status == "ok"
+
+
+def test_reply_invented_number_is_dropped(tmp_path):
+    r = REPLIES["counter_qty_banglish"]
+    out = _reply("counter", "14,300 pcs pura parbo na", 10000, "Max 9 hajar pcs dite parbo")  # 10000 not stated
+    res = ag.parse_reply(r["text"], 14_300, client(tmp_path, out))
+    assert res.quantity.status == "rejected" and res.quantity.value is None
+
+
+def test_reply_quote_not_in_reply_needs_human(tmp_path):
+    r = REPLIES["reject_bn"]
+    res = ag.parse_reply(r["text"], 10_700, client(tmp_path, _reply("reject", "we cannot take the order")))
+    assert res.decision is None and res.notes
+
+
+def test_reply_reject_bangla(tmp_path):
+    r = REPLIES["reject_bn"]
+    res = ag.parse_reply(r["text"], 10_700, client(tmp_path, _reply("reject", "এবার অর্ডারটা নিতে পারছি না")))
+    assert res.decision == "reject"
+
+
+def test_replan_from_counter_quantity_locks_exact_quantity(facts):
+    from bunon import optimizer as op
+    w = op.load_world(); order = op.demo_order(); p = op.default_params(order)
+    rec = op.search_buffer(w, order, p, n_sims=2000).recommended
+    f = op.largest_line(rec)
+    rp = op.replan_from_reply(w, order, p, rec, f, "counter", qty=9000)
+    new = {ln.factory_id: ln.qty for ln in rp.new.plan.lines}
+    old = {ln.factory_id: ln.qty for ln in rec.plan.lines}
+    assert new[f] == 9000
+    assert all(new.get(g, 0) >= q for g, q in old.items() if g != f)
+    assert rp.new.plan.total_allocated >= order.subcontract_qty
+    assert op.replan_from_reply(w, order, p, rec, f, "accept") is None
+
+
+def test_replan_from_delay_keeps_factory_and_cuts_its_slack(facts):
+    from bunon import optimizer as op
+    w = op.load_world(); order = op.demo_order(); p = op.default_params(order)
+    rec = op.search_buffer(w, order, p, n_sims=2000).recommended
+    f = rec.plan.lines[1].factory_id
+    rp = op.replan_from_reply(w, order, p, rec, f, "counter", delay_days=5)
+    assert {ln.factory_id: ln.qty for ln in rp.new.plan.lines}[f] == {ln.factory_id: ln.qty for ln in rec.plan.lines}[f]
+    assert "5 days late" in rp.reason
+    assert rp.new.risk.p_meet_qty <= rec.risk.p_meet_qty + 0.01
+
+
 # --- steering -------------------------------------------------------------------------------------
 
 INSTR = "Use no more than three factories, keep new factories under 10%, and don't use F2184. Also move the deadline to 27 December."

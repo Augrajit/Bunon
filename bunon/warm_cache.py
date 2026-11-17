@@ -51,6 +51,22 @@ def main() -> None:
         sr = ag.steer(e, ids, client)
         print(f"\nsteer: {e}\n  source {sr.meta.source if sr.meta else 'failed'}; accepted {sr.accepted}; "
               f"rejected {sr.rejected}; unsupported {sr.unsupported}")
+    planned = {ln.factory_id: ln.qty for ln in rec.plan.lines}
+    replies = json.loads((C.ROOT / "data" / "demo" / "factory_replies.json").read_text(encoding="utf-8"))
+    for r in replies:
+        res = ag.parse_reply(r["text"], planned[r["factory_id"]], client)
+        print(f"\nreply {r['id']} ({r['language']}, expected {r['expected']}): "
+              f"{res.meta.source if res.meta else 'failed'} -> {res.decision} (LLM: {res.llm_decision})"
+              f"\n  qty {res.quantity.value} <- {res.quantity.source_span!r}; delay {res.delay_days.value} <- "
+              f"{res.delay_days.source_span!r}; conditions {[(c.value, c.source_span, c.status) for c in res.conditions]}"
+              f"; notes {res.notes}")
+        if res.decision in ("reject", "counter"):
+            qty = res.quantity.value if res.quantity.status == "ok" else None
+            delay = res.delay_days.value if res.delay_days.status == "ok" else None
+            rp2 = op.replan_from_reply(w, order, p, rec, r["factory_id"], res.decision, qty, delay, days_elapsed=3)
+            m = ag.write_memo(ag.factsheet_for_replan(fs, rp2), "replan", client)
+            print(f"  re-plan: {rp2.reason}; P {rp2.new.risk.p_meet_qty:.3f}; cost "
+                  f"{rp2.new.plan.cost_total - rec.plan.cost_total:+,.0f}; memo {m.source} {m.errors or ''}")
     print(f"\nlive calls made: {client.calls}")
 
 

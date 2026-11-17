@@ -369,6 +369,61 @@ def replan_locked(world: World, order: OrderConstraints, params: OptimizerParams
                         old=old, new=new, diff=diff)
 
 
+def replan_from_reply(world: World, order: OrderConstraints, params: OptimizerParams, old: BufferPoint,
+                      factory_id: str, decision: str, qty: int | None = None, delay_days: int | None = None,
+                      days_elapsed: int = 3, target_p: float = C.TARGET_P_MEET, shocks: bool = True,
+                      partial_lots: bool = C.PARTIAL_LOTS_DEFAULT, as_of: date = C.AS_OF) -> ReplanResult | None:
+    """Re-plan after a factory's reply (validated by agent.parse_reply).
+
+    - reject  -> same as a decline: locked re-plan without the factory.
+    - accept  -> nothing to change (returns None).
+    - counter -> the factory stays in the plan with its counter terms LOCKED:
+        * a quantity becomes its exact quantity (lower bound and cap),
+        * a delay of d days reduces its slack by d (negative = later than the latest finish;
+          only partial lots then count, via the simulation).
+      Other confirmed factories keep their quantities as lower bounds; new factories start late.
+    """
+    if decision == "accept":
+        return None
+    if decision == "reject":
+        return replan_locked(world, order, params, old, factory_id, days_elapsed,
+                             f"rejected the order on day {days_elapsed}", target_p, shocks, partial_lots, as_of)
+    old_q = {ln.factory_id: ln.qty for ln in old.plan.lines}
+    if factory_id not in old_q:
+        raise ValueError(f"{factory_id} is not in the plan")
+    lot = params.lot_size
+    agreed = (qty // lot * lot) if qty is not None else old_q[factory_id]
+    if agreed <= 0:
+        return replan_locked(world, order, params, old, factory_id, days_elapsed,
+                             f"can supply nothing (day {days_elapsed})", target_p, shocks, partial_lots, as_of)
+    locked = dict(old_q)
+    locked[factory_id] = agreed
+    p2 = params.model_copy(update={"locked_min_qty": locked})
+    original = {c.factory_id: c for c in build_candidates(world, order, p2, as_of=as_of)}
+    later = {c.factory_id: c for c in build_candidates(world, order, p2, as_of=as_of + timedelta(days=days_elapsed))}
+    c = original[factory_id]
+    fc = world.forecasts[factory_id]
+    slack = c.slack_days - (delay_days or 0)
+    q_eff = (fc.fill_mean * rl.p_on_time(fc, slack) if slack >= 0
+             else fc.fill_mean * max(0.0, (c.window_days + slack) / c.window_days))
+    changed = c.model_copy(update={"slack_days": slack, "window_capacity_risk_adj": agreed,
+                                   "window_capacity_declared": agreed, "min_batch": min(c.min_batch, agreed),
+                                   "q_effective": q_eff})
+    cands = ([changed] + [original[f] for f in locked if f != factory_id and f in original]
+             + [x for f, x in later.items() if f not in locked])
+    new = search_buffer(world, order, p2, target_p, shocks=shocks, partial_lots=partial_lots, cands=cands).recommended
+    new_q = {ln.factory_id: ln.qty for ln in new.plan.lines}
+    diff = [{"factory_id": i, "old_qty": old_q.get(i, 0), "new_qty": new_q.get(i, 0)}
+            for i in sorted(set(old_q) | set(new_q), key=lambda i: -max(old_q.get(i, 0), new_q.get(i, 0)))]
+    terms = []
+    if qty is not None and agreed != old_q[factory_id]:
+        terms.append(f"can supply only {agreed:,} pieces")
+    if delay_days:
+        terms.append(f"will deliver {delay_days} days late")
+    reason = "countered: " + (" and ".join(terms) if terms else "with conditions") + f" (day {days_elapsed})"
+    return ReplanResult(excluded_id=factory_id, reason=reason, old=old, new=new, diff=diff)
+
+
 def largest_line(point: BufferPoint) -> str:
     """Disruption rule (PLAN.md §8): the factory with the largest allocation declines."""
     return max(point.plan.lines, key=lambda ln: (ln.qty, ln.factory_id)).factory_id

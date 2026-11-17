@@ -47,6 +47,7 @@ from bunon import reliability as rl
 from bunon.data_gen import load_public
 from bunon.llm import LLMClient, current_mode
 from bunon.schemas import OrderConstraints
+from bunon.textnum import literal_numbers
 
 st.set_page_config(page_title="Bunon: subcontract allocation", page_icon="🧵", layout="wide")
 
@@ -114,6 +115,25 @@ def run_replan(args: tuple, days: int):
     memo = ag.write_memo(ag.factsheet_for_replan(out["facts"], rp), "replan", LLMClient())
     p_late = out["params"].model_copy(update={"excluded_ids": [rp.excluded_id]})
     from datetime import timedelta
+    cands_late = op.build_candidates(world(), out["order"], p_late, as_of=C.AS_OF + timedelta(days=days))
+    return rp, memo, cands_late
+
+
+@st.cache_data(show_spinner="Reading the reply…")
+def read_reply(text: str, planned_qty: int):
+    return ag.parse_reply(text, planned_qty, LLMClient())
+
+
+@st.cache_data(show_spinner="Re-planning with the factory's reply…")
+def run_reply_replan(args: tuple, factory_id: str, decision: str, qty, delay, days: int):
+    from datetime import timedelta
+    out = run_plans(*args)
+    target, shocks, partial = args[2], args[6], args[5]
+    rec = out["comp"]["ours"].recommended
+    rp = op.replan_from_reply(world(), out["order"], out["params"], rec, factory_id, decision, qty, delay,
+                              days_elapsed=days, target_p=target, shocks=shocks, partial_lots=partial)
+    memo = ag.write_memo(ag.factsheet_for_replan(out["facts"], rp), "replan", LLMClient())
+    p_late = out["params"].model_copy(update={"excluded_ids": [rp.excluded_id]})
     cands_late = op.build_candidates(world(), out["order"], p_late, as_of=C.AS_OF + timedelta(days=days))
     return rp, memo, cands_late
 
@@ -419,43 +439,109 @@ approval_buttons("plan", rec.plan, f"{len(rec.plan.lines)} factories, {rec.plan.
                  f"P {rec.risk.p_meet_qty:.3f}, {bdt(rec.plan.cost_total)}", order, cands, "plan")
 
 # --- 7 · disruption ----------------------------------------------------------------------------------------
-st.header("7 · Disruption: a factory declines")
-gone = op.largest_line(rec)
+st.header("7 · Disruption: a factory declines or answers")
 DAYS = 3
-st.write(f"Scripted scenario: on day {DAYS}, **{gone}**, the factory with the largest allocation, declines. "
-         "Factories that already confirmed keep their quantities (they may be asked for more, never less); "
-         f"new factories can only start now, so they have {DAYS} fewer production days. The deadline does not move.")
-if st.button(f"Simulate: {gone} declines on day {DAYS}", type="primary"):
-    st.session_state["replan_for"] = args
-if st.session_state.get("replan_for") == args:
-    try:
-        rp, rmemo, cands_late = run_replan(args, DAYS)
-    except Exception:
-        import traceback
-        st.error("The re-plan failed. Nothing was changed or sent. Technical details below.")
-        with st.expander("Technical details"):
-            st.code(traceback.format_exc())
-        st.stop()
+REPLIES = json.loads((C.ROOT / "data" / "demo" / "factory_replies.json").read_text(encoding="utf-8"))
+
+
+def show_replan(rp, rmemo, cands_late, key: str, what: str):
     n = rp.new
     d = st.columns(3)
     d[0].metric("New P(on-time full delivery)", f"{n.risk.p_meet_qty:.1%}" if n.risk else "—",
                 delta=f"{(n.risk.p_meet_qty - rec.risk.p_meet_qty) * 100:+.1f} pts" if n.risk else None)
     d[1].metric("New cost", bdt_m(n.plan.cost_total), delta=bdt(n.plan.cost_total - rec.plan.cost_total),
                 delta_color="inverse")
-    d[2].metric("New buffer", f"{n.buffer_pct:.1%}")
+    d[2].metric("New buffer", f"{max(0, n.plan.total_allocated - n.plan.target_qty) / n.plan.target_qty:.1%}")
     if n.risk and n.risk.p_meet_qty < target:
         st.error(f"The re-plan does not reach the {target:.0%} target (best found: {n.risk.p_meet_qty:.1%}). "
                  "The deadline is fixed: escalate to the buyer early, or add capacity outside this plan.")
+    declined = rp.reason.startswith(("declined", "rejected", "can supply nothing"))
     st.dataframe(pd.DataFrame([{
         "Factory": x["factory_id"], "Before": x["old_qty"], "After": x["new_qty"], "Change": x["new_qty"] - x["old_qty"],
-        "Note": ("declined" if x["factory_id"] == rp.excluded_id else
-                 "new: starts on day 3" if x["old_qty"] == 0 else "confirmed: locked ≥ before"),
+        "Note": (("declined" if declined else "reply terms locked") if x["factory_id"] == rp.excluded_id else
+                 f"new: starts on day {DAYS}" if x["old_qty"] == 0 else "confirmed: locked ≥ before"),
     } for x in rp.diff]), hide_index=True, width="stretch")
     st.subheader("Re-plan memo")
     show_memo(rmemo)
     all_cands = list({c.factory_id: c for c in [*cands, *cands_late]}.values())
-    approval_buttons("replan", n.plan, f"{gone} declined; {len(n.plan.lines)} factories, P "
-                     f"{n.risk.p_meet_qty:.3f}, {bdt(n.plan.cost_total)}", order, all_cands, "replan")
+    approval_buttons(key, n.plan, f"{what}; {len(n.plan.lines)} factories, P {n.risk.p_meet_qty:.3f}, "
+                     f"{bdt(n.plan.cost_total)}", order, all_cands, key)
+
+
+def _run_safely(fn, *a):
+    try:
+        return fn(*a)
+    except Exception:
+        import traceback
+        st.error("The re-plan failed. Nothing was changed or sent. Technical details below.")
+        with st.expander("Technical details"):
+            st.code(traceback.format_exc())
+        st.stop()
+
+
+tab_decline, tab_reply = st.tabs(["Scripted decline", "Factory reply (English / Bangla / Banglish)"])
+
+with tab_decline:
+    gone = op.largest_line(rec)
+    st.write(f"On day {DAYS}, **{gone}**, the factory with the largest allocation, declines. Factories that "
+             "already confirmed keep their quantities (they may be asked for more, never less); new factories can "
+             f"only start now, so they have {DAYS} fewer production days. The deadline does not move.")
+    if st.button(f"Simulate: {gone} declines on day {DAYS}", type="primary"):
+        st.session_state["replan_for"] = args
+    if st.session_state.get("replan_for") == args:
+        rp, rmemo, cands_late = _run_safely(run_replan, args, DAYS)
+        show_replan(rp, rmemo, cands_late, "replan", f"{gone} declined")
+
+with tab_reply:
+    st.caption("Paste what a factory wrote back. The LLM classifies it as accept / reject / counter and pulls out "
+               "quantity, delay and conditions, each with a word-for-word quote that the code checks. The code, "
+               "not the LLM, settles the final category, and a counter-offer is locked into the re-plan.")
+    plan_ids = [ln.factory_id for ln in rec.plan.lines]
+    planned = {ln.factory_id: ln.qty for ln in rec.plan.lines}
+    ex = st.columns(len(REPLIES))
+    for i, r in enumerate(REPLIES):
+        if ex[i].button(f"{r['factory_id']} · {r['language']}", key=f"reply_ex_{i}",
+                        disabled=r["factory_id"] not in planned):
+            st.session_state["reply_text"] = r["text"]
+            st.session_state["reply_factory"] = r["factory_id"]
+    if st.session_state.get("reply_factory") not in plan_ids:
+        st.session_state["reply_factory"] = plan_ids[0]
+    fid = st.selectbox("Reply from", plan_ids, key="reply_factory",
+                       format_func=lambda f: f"{f} (planned {planned[f]:,} pieces)")
+    text = st.text_area("Factory reply", key="reply_text", height=110,
+                        placeholder="e.g. Bhai, 14,300 pcs pura parbo na, max 9 hajar dite parbo.")
+    if st.button("Read the reply") and text.strip():
+        st.session_state["reply_read"] = (text, fid, args)
+    if st.session_state.get("reply_read", (None, None, None))[2] == args:
+        rtext, rfid, _ = st.session_state["reply_read"]
+        res = read_reply(rtext, planned[rfid])
+        if res.meta:
+            st.caption(SOURCE_BADGE[res.meta.source])
+        for note in res.notes:
+            st.warning(note)
+        if res.decision:
+            label = {"accept": "✅ Accept", "reject": "✖ Reject", "counter": "↔ Counter-offer"}[res.decision]
+            changed = f" (the LLM said *{res.llm_decision}*)" if res.llm_decision != res.decision else ""
+            st.markdown(f"**{rfid}: {label}**{changed}. Quote: “{res.decision_span}”")
+            icon = {"ok": "✅ found in reply", "missing": "— not stated", "rejected": "⚠️ check failed"}
+            rows = [{"Item": "Quantity (pieces)",
+                     "Value": "" if res.quantity.value is None else f"{res.quantity.value:,}",
+                     "Quote": res.quantity.source_span or "", "Check": icon[res.quantity.status]},
+                    {"Item": "Delay (days)", "Value": "" if res.delay_days.value is None else str(res.delay_days.value),
+                     "Quote": res.delay_days.source_span or "", "Check": icon[res.delay_days.status]}]
+            # Conditions: show the LLM's English gloss only if it contains no numbers; the quote is the evidence.
+            rows += [{"Item": "Condition", "Value": "(see quote)" if literal_numbers(str(c.value)) else c.value,
+                      "Quote": c.source_span or "", "Check": icon[c.status]} for c in res.conditions]
+            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+            if res.decision == "accept":
+                st.success("No change to the plan: the factory confirmed the planned quantity.")
+            elif st.button("Re-plan with this reply", type="primary"):
+                st.session_state["reply_replan"] = (rtext, rfid, args)
+            if st.session_state.get("reply_replan") == (rtext, rfid, args) and res.decision != "accept":
+                qty = res.quantity.value if res.quantity.status == "ok" else None
+                delay = res.delay_days.value if res.delay_days.status == "ok" else None
+                rp, rmemo, cands_late = _run_safely(run_reply_replan, args, rfid, res.decision, qty, delay, DAYS)
+                show_replan(rp, rmemo, cands_late, "reply_replan", f"{rfid} replied ({res.decision})")
 
 # --- log ------------------------------------------------------------------------------------------------------
 st.divider()

@@ -84,6 +84,29 @@ plan.p_meet = 91.4%: recommended plan: probability of on-time full delivery
 
 **Tests:** a literal "91%" is rejected; "five" is rejected; unknown keys and IDs are rejected; the numbers property holds; retry then template; retry then success; both templates validate and render; offline with no cache gives the template; no real names or `os_id`s in any prompt.
 
+### A2b. `reply_v1`: a factory's reply (English / Bangla / Banglish) → accept / reject / counter
+
+Source: `bunon/agent.py` (`REPLY_PROMPT`, schema `ReplyLLM`). The prompt explains Banglish ("parbo na" = cannot, "hajar" = thousand, "din" = days), states the requested quantity, and requires a verbatim quote, in the original script, for the decision, quantity, delay and every condition. It must never compute or guess a number.
+
+**Enforcement (code, `validate_reply`):**
+- Every quote must be in the reply. Numbers must be stated in their quote; `textnum` understands "9 hajar", "৯ হাজার", "১ লাখ", Bangla digits and "five".
+- **The code, not the LLM, settles the decision.** "Accept" with a lower quantity or a delay becomes **counter**. Zero pieces becomes **reject**. If the decision quote isn't in the reply, a human must decide.
+- Conditions are shown with their verbatim quote. The LLM's English summary is shown only if it contains no digits.
+- A counter feeds `optimizer.replan_from_reply`: a stated quantity is **locked exactly** (lower bound and cap), and a stated delay of d days **reduces that factory's slack by d**. A reject is a locked re-plan without the factory.
+
+**Re-plan memo additions (same `memo_v1` validator):** new facts `replan.kind` (decline vs counter, "NOT a refusal"), `new.target_met` and `new.binding_limits`. `new.buffer_pct` is now the *actual* over-allocation; after locks the grid value could read 0%. The context now says: if the target is missed, say so first, name the limits and recommend escalating.
+
+**First live run (17 Nov 2026):**
+
+| Reply | Expected | Result | Re-plan |
+|---|---|---|---|
+| F0288, English | accept | accept; condition: "Please send the fabric by Monday." | none needed |
+| F2184, Banglish | counter (quantity) | counter; quantity 9,000 ← "9 hajar" | P 0.864 (below target; limit: max factories), −513,905 BDT |
+| F1064, Banglish | counter (delay) | counter; 12,200 ← "12,200 pcs", delay 5 ← "5 din"; condition ← "Advance 30% lagbe" | P 0.883 (below target), +0 BDT |
+| F2214, Bangla | reject | reject; conditions: all lines booked, ask next month | P 0.918, +57,619 BDT |
+
+All four classifications were right on the first call. Two memo calls hit a temporary 503 and were re-run. The first version of the counter memos called a delay a "refusal", reported "0% buffer" and praised a lower cost while missing the target. That led to the facts and context changes above. After the change, both counter memos needed their one retry (keys written without braces) and are now valid.
+
 ### A3. `steer_v1`: a manager's instruction → planning-setting changes
 
 Source: `bunon/agent.py` (`STEER_PROMPT`, schema `SteerLLM`). The prompt lists the allowed settings with their ranges, then:

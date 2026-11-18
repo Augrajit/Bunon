@@ -87,6 +87,23 @@ def test_tool_loop_answer_uses_only_tool_facts(ctx, tmp_path):
     assert sent["ok"] and "c1.p_meet" in sent["facts"]
 
 
+def test_simulation_reports_event_length_separately_from_delay(ctx):
+    tb = toolbox(ctx)
+    _, ok, facts, _ = tb.call("run_simulation", {"area": "narayanganj", "severity": "medium", "duration_days": 3})
+    assert ok and facts["c1.event_days"] == "3 days" and facts["c1.delay_days"] == "2 days"
+    assert "c1.n_affected" in facts
+    _, ok, facts, _ = tb.call("run_simulation", {"area": "gazipur", "severity": "high"})  # no duration: table default
+    assert ok and facts["c2.event_days"] == f"{C.SEVERITY_TABLE['high']['default_days']} days"
+
+
+def test_answer_may_name_factories_from_tool_results(ctx):
+    tb = toolbox(ctx)
+    _, ok, facts, _ = tb.call("solve_plan", {"shock_area": "ashulia_savar", "shock_severity": "high"})
+    new_id = facts["c1.factories"].split(", ")[0]
+    assert ok and not ag.check_text("answer", f"Move work to {{{{fac:{new_id}}}}}.", tb.facts)
+    assert ag.check_text("answer", "Move work to {{fac:F9999}}.", tb.facts)
+
+
 def test_capped_analyst_reports_unavailable(ctx, tmp_path, monkeypatch):
     from bunon import llm
     monkeypatch.setenv("BUNON_LIVE_CALLS_PER_DAY", "0")

@@ -135,6 +135,11 @@ class Toolbox:
         except (ValueError, KeyError, AttributeError, TypeError) as e:
             return cid, False, {}, str(e)
 
+    @staticmethod
+    def _event_days(severity, days) -> int:
+        """Event length the simulation used: the stated duration, or the fixed table's default."""
+        return int(days) if days is not None else C.SEVERITY_TABLE[severity]["default_days"]
+
     def _event(self, area, severity, days):
         if area is None and severity is None:
             return None
@@ -153,9 +158,13 @@ class Toolbox:
         return dict([
             self._fact(f"{cid}.p_meet", risk.p_meet_qty, "prob", f"current plan under {ev.area} {a['severity']} disruption: probability"),
             self._fact(f"{cid}.p_change", risk.p_meet_qty - self.rec.risk.p_meet_qty, "pp", "change versus no disruption"),
-            self._fact(f"{cid}.delay_days", ev.extra_delay_days, "days", "delay applied to affected factories (fixed table)"),
+            self._fact(f"{cid}.event_days", self._event_days(a["severity"], a.get("duration_days")), "days",
+                       "length of the disruption simulated (as asked, or the fixed table's default)"),
+            self._fact(f"{cid}.delay_days", ev.extra_delay_days, "days",
+                       "resulting delivery delay for affected factories (fixed table; not the disruption's length)"),
             self._fact(f"{cid}.output_share", ev.fill_mult, "pct", "share of output still delivered by affected factories (fixed table)"),
             self._fact(f"{cid}.affected", ", ".join(hit) or "none", "text", "planned factories in the affected area"),
+            self._fact(f"{cid}.n_affected", len(hit), "int", "number of planned factories in the affected area"),
         ])
 
     def _t_solve_plan(self, cid, a):
@@ -206,6 +215,8 @@ class Toolbox:
             settings.append(self._fact(f"{cid}.unproven_cap", upd["unproven_cap_pct"], "pct", "unproven-factory cap used"))
         if ev:
             settings.append(self._fact(f"{cid}.shock", f"{ev.area} ({a['shock_severity']})", "text", "disruption assumed"))
+            settings.append(self._fact(f"{cid}.event_days", self._event_days(a["shock_severity"], a.get("shock_duration_days")),
+                                       "days", "length of the disruption assumed"))
         return dict(settings + [
             self._fact(f"{cid}.p_meet", new.risk.p_meet_qty, "prob", "new plan: probability of on-time full delivery"),
             self._fact(f"{cid}.cost_total", new.plan.cost_total, "bdt", "new plan: total cost"),

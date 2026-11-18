@@ -324,7 +324,11 @@ def factsheet_for_replan(base: FactSheet, rp) -> FactSheet:
 
 
 def factory_ids(fs: FactSheet) -> set[str]:
-    return {m for k in fs for m in re.findall(r"\b(F\d{4})\b", k)}
+    """Factory IDs the text may name: those in fact keys, plus those listed in text facts (tool results,
+    e.g. the factories of a new plan). Both come from code, never from the LLM."""
+    ids = {m for k in fs for m in re.findall(r"\b(F\d{4})\b", k)}
+    ids |= {m for f in fs.values() if f.kind == "text" for m in re.findall(r"\b(F\d{4})\b", str(f.value))}
+    return ids
 
 
 # =============================================================================

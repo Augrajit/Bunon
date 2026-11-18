@@ -1,0 +1,202 @@
+{
+ "task": "analyst",
+ "prompt_version": "analyst_v1",
+ "provider": "gemini",
+ "model": "gemini-3.5-flash-lite",
+ "created_utc": "2026-11-18T13:24:34+00:00",
+ "conversation": [
+  {
+   "system": "You are Bunon's procurement analyst for a garment exporter in Bangladesh. A manager asks a what-if\nquestion about the current subcontracting plan. Answer it by calling tools; the tools do all calculations.\n\nRules:\n- Call only the tools you need (at most 6 calls). Do not repeat a call with the same arguments.\n- Never compute, estimate or invent a number yourself.\n- To repeat a setting from the question (a cap, an exclusion, a number of days), cite the fact that the tool\n  echoes back (for example the cap used); never restate it in words.\n- FINAL ANSWER RULES (an automatic checker enforces them; violating answers are discarded):\n  1. No digits and no number words (two, five, hundred, percent, half, double ...) in the text.\n  2. Every number is a placeholder with a key from the facts, wrapped in double braces, e.g. {{c2.p_meet}}.\n     Never write a key without braces.\n  3. Refer to factories as {{fac:F0123}}.\n  4. Two to five short sentences: what you checked, what it shows, and a recommendation. Say that a human\n     decides and nothing is sent automatically. Mention that the data is synthetic.\n\nFACTS ABOUT THE CURRENT PLAN (key = value: meaning):\norder.total_qty = 150,000: buyer order quantity\norder.own_capacity = 100,000: exporter's own capacity\norder.subcontract_qty = 50,000: quantity to subcontract (Q)\norder.deadline = 20 Dec 2026: fixed delivery deadline\nfunnel.compliant = 442: T-shirt factories that are RSC-covered or hold a valid BSCI audit\nfunnel.candidates = 231: of those, with spare capacity that fits the deadline\nplan.target_p = 90%: target probability of on-time full delivery\nplan.slack_days = 4 days: planned slack before the latest finish date\nplan.p_meet = 91.4%: recommended plan: probability that the subcontracted quantity (order.subcontract_qty) is delivered in full and on time\nplan.buffer_pct = 20%: recommended plan: over-allocation buffer\nplan.pieces = 60,000: recommended plan: pieces allocated\nplan.buffer_pieces = 10,000: recommended plan: buffer pieces above Q\nplan.cost_total = 12,417,585 BDT: recommended plan: total cost\nplan.buffer_cost = 2,052,931 BDT: recommended plan: price of the buffer\nplan.n_factories = 5: recommended plan: number of factories\nplan.target_met = yes: does the plan reach the target\nbase.p_meet = 4.6%: naive plan (declared capacity + lowest price): probability that the subcontracted quantity is delivered in full and on time\nbase.cost_total = 10,273,732 BDT: naive plan: total cost\nbasebuf.p_meet = 89.5%: naive plan with the same buffer: probability that the subcontracted quantity is delivered in full and on time\nbasebuf.cost_total = 12,330,654 BDT: naive plan with the same buffer: total cost\nmatch.buffer_pct = 22.5%: buffer the naive plan needs to match our probability (search allowed beyond our ceiling)\nmatch.cost_total = 12,609,607 BDT: naive plan at that buffer: total cost\nmatch.extra_cost = +192,021 BDT: extra cost of the naive plan to match ours\nline.F2184.qty = 14,300: F2184: pieces allocated\nline.F2184.share = 23.8%: F2184: share of allocation\nline.F2184.district = ashulia_savar: F2184: district\nline.F2184.fail_share = 39.6%: F2184: share of failed simulations in which it was short or late\nline.F0288.qty = 13,300: F0288: pieces allocated\nline.F0288.share = 22.2%: F0288: share of allocation\nline.F0288.district = gazipur: F0288: district\nline.F0288.fail_share = 41.3%: F0288: share of failed simulations in which it was short or late\nline.F1064.qty = 12,200: F1064: pieces allocated\nline.F1064.share = 20.3%: F1064: share of allocation\nline.F1064.district = ashulia_savar: F1064: district\nline.F1064.fail_share = 39.1%: F1064: share of failed simulations in which it was short or late\nline.F2214.qty = 10,700: F2214: pieces allocated\nline.F2214.share = 17.8%: F2214: share of allocation\nline.F2214.district = gazipur: F2214: district\nline.F2214.fail_share = 37.4%: F2214: share of failed simulations in which it was short or late\nline.F2427.qty = 9,500: F2427: pieces allocated\nline.F2427.share = 15.8%: F2427: share of allocation\nline.F2427.district = ashulia_savar: F2427: district\nline.F2427.fail_share = 31.6%: F2427: share of failed simulations in which it was short or late\ndistrict.ashulia_savar.share = 60%: share of pieces in district ashulia_savar\ndistrict.gazipur.share = 40%: share of pieces in district gazipur\n",
+   "question": "If a nationwide hartal lasts 2 days, can any plan still reach our target?"
+  },
+  {
+   "model": {
+    "calls": [
+     {
+      "id": "call_7190230796054916137",
+      "name": "run_simulation",
+      "args": {
+       "duration_days": 2,
+       "severity": "medium",
+       "area": "national"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "run_simulation",
+     "response": {
+      "ok": true,
+      "call_id": "c1",
+      "facts": {
+       "c1.p_meet": "10.9%",
+       "c1.p_change": "-80.5 percentage points",
+       "c1.event_days": "2 days",
+       "c1.delay_days": "1 day",
+       "c1.output_share": "85%",
+       "c1.affected": "F2184, F0288, F1064, F2214, F2427",
+       "c1.n_affected": "5"
+      },
+      "cite_as": "write each value as {{key}}, e.g. {{c1.p_meet}}"
+     }
+    }
+   ]
+  },
+  {
+   "model": {
+    "calls": [
+     {
+      "id": "call_16504249971246864034",
+      "name": "solve_plan",
+      "args": {
+       "shock_area": "national",
+       "shock_duration_days": 2,
+       "shock_severity": "medium"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "solve_plan",
+     "response": {
+      "ok": true,
+      "call_id": "c2",
+      "facts": {
+       "c2.shock": "national (medium)",
+       "c2.event_days": "2 days",
+       "c2.p_meet": "49.1%",
+       "c2.cost_total": "13,066,589 BDT",
+       "c2.cost_delta": "+649,004 BDT",
+       "c2.buffer_pct": "25%",
+       "c2.n_factories": "5",
+       "c2.factories": "F1856, F1064, F2829, F0824, F2184",
+       "c2.target_met": "NO, below target"
+      },
+      "cite_as": "write each value as {{key}}, e.g. {{c2.shock}}"
+     }
+    }
+   ]
+  },
+  {
+   "model": {
+    "calls": [
+     {
+      "id": "call_9448044404136067411",
+      "name": "solve_plan",
+      "args": {
+       "shock_severity": "medium",
+       "shock_area": "national",
+       "shock_duration_days": 2,
+       "max_district_share": 0.5
+      }
+     }
+    ]
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "solve_plan",
+     "response": {
+      "ok": true,
+      "call_id": "c3",
+      "facts": {
+       "c3.max_district_share": "50%",
+       "c3.shock": "national (medium)",
+       "c3.event_days": "2 days",
+       "c3.p_meet": "47.2%",
+       "c3.cost_total": "13,102,534 BDT",
+       "c3.cost_delta": "+684,948 BDT",
+       "c3.buffer_pct": "25%",
+       "c3.n_factories": "5",
+       "c3.factories": "F0156, F1856, F1064, F2184, F0288",
+       "c3.target_met": "NO, below target"
+      },
+      "cite_as": "write each value as {{key}}, e.g. {{c3.max_district_share}}"
+     }
+    }
+   ]
+  },
+  {
+   "model": {
+    "calls": [
+     {
+      "id": "call_12405407839377074706",
+      "name": "solve_plan",
+      "args": {
+       "shock_duration_days": 2,
+       "max_factories": 5,
+       "shock_severity": "medium",
+       "unproven_cap": 0.1,
+       "shock_area": "national"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "solve_plan",
+     "response": {
+      "ok": true,
+      "call_id": "c4",
+      "facts": {
+       "c4.max_factories": "5",
+       "c4.unproven_cap": "10%",
+       "c4.shock": "national (medium)",
+       "c4.event_days": "2 days",
+       "c4.p_meet": "49.1%",
+       "c4.cost_total": "13,066,589 BDT",
+       "c4.cost_delta": "+649,004 BDT",
+       "c4.buffer_pct": "25%",
+       "c4.n_factories": "5",
+       "c4.factories": "F1856, F1064, F2829, F0824, F2184",
+       "c4.target_met": "NO, below target"
+      },
+      "cite_as": "write each value as {{key}}, e.g. {{c4.max_factories}}"
+     }
+    }
+   ]
+  },
+  {
+   "model": {
+    "calls": [
+     {
+      "id": "call_1350334479239876180",
+      "name": "compare_plans",
+      "args": {
+       "second": "c3",
+       "first": "c2"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "compare_plans",
+     "response": {
+      "ok": true,
+      "call_id": "c5",
+      "facts": {
+       "c5.p_diff": "-1.9 percentage points",
+       "c5.cost_diff": "+35,945 BDT"
+      },
+      "cite_as": "write each value as {{key}}, e.g. {{c5.p_diff}}"
+     }
+    }
+   ]
+  }
+ ],
+ "step": {
+  "text": "We checked the impact of a nationwide disruption lasting {{c1.event_days}} on our current setup and tested optimized alternatives under that shock. The simulation shows that the current plan drops to a delivery probability of {{c1.p_meet}}, while the best new allocation achieves only {{c2.p_meet}} and fails to meet our target. A human decision-maker must evaluate whether to accept this residual risk, as nothing is sent automatically and all underlying data is synthetic."
+ }
+}

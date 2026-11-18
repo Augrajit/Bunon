@@ -419,6 +419,13 @@ st.caption("Top 15 candidates by forecast deliverable quantity. Thin-history fac
 
 # --- 4 · plans --------------------------------------------------------------------------------------
 st.header("4 · Plans compared")
+if rec.risk is None:  # the optimiser found no allocation at all under these limits
+    st.error(f"**No feasible plan.** No combination of at most {max_f} factor{'y' if max_f == 1 else 'ies'} can "
+             f"cover {order.subcontract_qty:,} pieces by the deadline under the current limits (unproven share "
+             f"{unproven:.0%}, district share {dcap:.0%}, {slack} days of slack). Nothing was planned or sent.")
+    st.info("Loosen a limit in the sidebar (most often: allow more factories or a higher district share), or "
+            "escalate to the buyer: the deadline and quantity are fixed.")
+    st.stop()
 bl, bb = comp["baseline"], comp["baseline_buffered"]
 h = st.columns(3)
 h[0].metric("Naive: declared capacity + lowest price", f"{bl.risk.p_meet_qty:.0%}" if bl.risk else "—",

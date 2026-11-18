@@ -163,6 +163,8 @@ def _replan_numbers(args: tuple, days: int):
 
 def run_replan(args: tuple, days: int):
     rp, cands_late = _replan_numbers(args, days)
+    if rp.new.risk is None:
+        return rp, None, cands_late
     return rp, llm_once("Writing the re-plan memo…", _replan_memo, args, rp.model_dump_json()), cands_late
 
 
@@ -189,6 +191,8 @@ def _reply_replan_numbers(args: tuple, factory_id: str, decision: str, qty, dela
 
 def run_reply_replan(args: tuple, factory_id: str, decision: str, qty, delay, days: int):
     rp, cands_late = _reply_replan_numbers(args, factory_id, decision, qty, delay, days)
+    if rp.new.risk is None:
+        return rp, None, cands_late
     return rp, llm_once("Writing the re-plan memo…", _replan_memo, args, rp.model_dump_json()), cands_late
 
 
@@ -532,8 +536,22 @@ DAYS = 3
 REPLIES = json.loads((C.ROOT / "data" / "demo" / "factory_replies.json").read_text(encoding="utf-8"))
 
 
+def no_feasible_replan(what: str) -> None:
+    """The optimiser found no plan that covers the order under the current limits. Say so plainly;
+    there is nothing to approve and no memo to write."""
+    st.error(f"**No feasible re-plan.** After {what}, no combination of factories covers the order under the "
+             "current limits: confirmed factories cannot be cut, new ones start late, and the sidebar caps "
+             "(number of factories, unproven share, district share) leave too little capacity. Nothing was "
+             "changed or sent.")
+    st.info("Try loosening a limit in the sidebar (for example more factories or a higher unproven cap), or "
+            "escalate to the buyer early: the deadline and quantity are fixed.")
+
+
 def show_replan(rp, rmemo, cands_late, key: str, what: str):
     n = rp.new
+    if n.risk is None:
+        no_feasible_replan(what)
+        return
     d = st.columns(3)
     d[0].metric("New P(on-time full delivery)", f"{n.risk.p_meet_qty:.1%}" if n.risk else "—",
                 delta=f"{(n.risk.p_meet_qty - rec.risk.p_meet_qty) * 100:+.1f} pts" if n.risk else None)
@@ -682,19 +700,23 @@ with tab_news:
                       delta=f"{(r['current_with_event'].p_meet_qty - rec.risk.p_meet_qty) * 100:+.1f} pts")
             new = r["new"]
             m2.metric("Plan made knowing about it", f"{new.risk.p_meet_qty:.1%}" if new.risk else "—")
-            m3.metric("Cost of re-planning", bdt(new.plan.cost_total - rec.plan.cost_total))
+            if new.risk is not None:
+                m3.metric("Cost of re-planning", bdt(new.plan.cost_total - rec.plan.cost_total))
             st.write("Factories in the current plan that are hit: "
                      + (", ".join(f"**{f}**" for f in r["affected_in_plan"]) or "none"))
-            if not r["new_target_met"]:
-                st.error(f"Even a plan made knowing about this cannot reach the {target:.0%} target. "
-                         "Escalate to the buyer early.")
-            ncands = r["cands"]
-            st.dataframe(pd.DataFrame([plan_row("Current plan (event applied)",
-                                                 rec.model_copy(update={"risk": r["current_with_event"]}), cands),
-                                        plan_row("Plan made knowing about it", new, ncands)]),
-                         hide_index=True, width="stretch")
-            approval_buttons("news_replan", new.plan, f"news: {sev} {area}; P {new.risk.p_meet_qty:.3f}, "
-                             f"{bdt(new.plan.cost_total)}", order, ncands, "news_replan")
+            if new.risk is None:
+                no_feasible_replan(f"a {sev} disruption in {area}")
+            else:
+                if not r["new_target_met"]:
+                    st.error(f"Even a plan made knowing about this cannot reach the {target:.0%} target. "
+                             "Escalate to the buyer early.")
+                ncands = r["cands"]
+                st.dataframe(pd.DataFrame([plan_row("Current plan (event applied)",
+                                                     rec.model_copy(update={"risk": r["current_with_event"]}), cands),
+                                            plan_row("Plan made knowing about it", new, ncands)]),
+                             hide_index=True, width="stretch")
+                approval_buttons("news_replan", new.plan, f"news: {sev} {area}; P {new.risk.p_meet_qty:.3f}, "
+                                 f"{bdt(new.plan.cost_total)}", order, ncands, "news_replan")
 
 # --- 8 · what-if analyst ---------------------------------------------------------------------------------
 st.header("8 · Ask a what-if question")

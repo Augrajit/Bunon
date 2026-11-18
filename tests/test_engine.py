@@ -196,3 +196,14 @@ def test_partial_lots_never_lower_than_all_or_nothing(world, order):
     strict = op.evaluate(plan, cands, world, shocks=True, n_sims=5000)
     partial = op.evaluate(plan, cands, world, shocks=True, n_sims=5000, partial_lots=True)
     assert partial.p_meet_qty >= strict.p_meet_qty
+
+
+def test_replan_can_be_infeasible_and_says_so():
+    """Seen live 18 Nov: max 3 factories + 10% unproven cap, largest factory declines. No plan covers the
+    order; the result must carry no risk (the app then shows 'No feasible re-plan' instead of crashing)."""
+    w = op.load_world()
+    order = op.demo_order()
+    p = op.default_params(order, max_factories=3, unproven_cap_pct=0.10)
+    rec = op.compare_three(w, order, p)["ours"].recommended
+    rp = op.replan_locked(w, order, p, rec, op.largest_line(rec), days_elapsed=3)
+    assert rp.new.risk is None and rp.new.plan.status != "optimal" and not rp.new.plan.lines

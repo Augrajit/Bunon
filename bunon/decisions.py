@@ -7,6 +7,7 @@ Approvers are recorded by role, not by name, so the demo collects no personal da
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -18,10 +19,16 @@ from bunon import config as C
 from bunon.schemas import AllocationPlan, Candidate, OrderConstraints
 
 LOG_DB = C.ROOT / "data" / "runtime" / "decisions.db"
+LOG_DB_ENV = "BUNON_DECISIONS_DB"  # tests point the log elsewhere so they never touch the real one
 ROLES = ("Merchandising manager", "Production planner", "Compliance officer", "Demo viewer")
 
 
-def _con(path: Path) -> sqlite3.Connection:
+def _log_path(path: Path | None) -> Path:
+    return path or Path(os.environ.get(LOG_DB_ENV) or LOG_DB)
+
+
+def _con(path: Path | None) -> sqlite3.Connection:
+    path = _log_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(path)
     con.execute("""CREATE TABLE IF NOT EXISTS decisions (
@@ -32,7 +39,7 @@ def _con(path: Path) -> sqlite3.Connection:
 
 def log_decision(step: str, decision: Literal["approved", "rejected", "confirmed"], role: str,
                  plan_id: str | None = None, summary: str = "", payload: dict | None = None,
-                 path: Path = LOG_DB) -> None:
+                 path: Path | None = None) -> None:
     if role not in ROLES:
         raise ValueError(f"unknown role {role!r}")
     with _con(path) as con:
@@ -41,7 +48,7 @@ def log_decision(step: str, decision: Literal["approved", "rejected", "confirmed
             json.dumps(payload or {}, default=str)))
 
 
-def read_log(path: Path = LOG_DB, limit: int = 50) -> pd.DataFrame:
+def read_log(path: Path | None = None, limit: int = 50) -> pd.DataFrame:
     with _con(path) as con:
         return pd.read_sql("SELECT ts_utc, step, decision, role, plan_id, summary FROM decisions "
                            "ORDER BY ts_utc DESC LIMIT ?", con, params=(limit,))

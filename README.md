@@ -20,6 +20,12 @@ pip install -r requirements-dev.txt
 pytest -q
 ```
 
+Before a release, also run the slow click-through of the app at extreme sidebar settings (several minutes, offline, no LLM calls):
+
+```bash
+pytest -m sweep
+```
+
 The processed database `data/processed/bunon.db` is committed. Rebuilding it from scratch needs the raw Open Supply Hub export at `data/raw/factories.csv`, which is not in this repo:
 
 ```bash

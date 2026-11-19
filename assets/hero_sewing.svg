@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" role="img" aria-labelledby="t d">
+  <title id="t">Garment workers at sewing machines</title>
+  <desc id="d">Original flat illustration made for Bunon: two workers sew T-shirts at industrial sewing machines in a bright factory, with spools of thread and a stack of finished shirts.</desc>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#EEF0FB"/>
+      <stop offset="1" stop-color="#E0E4F7"/>
+    </linearGradient>
+    <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#D5D9EE"/>
+      <stop offset="1" stop-color="#C7CCE6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- room -->
+  <rect width="640" height="400" rx="24" fill="url(#sky)"/>
+  <rect x="0" y="300" width="640" height="100" fill="url(#floor)"/>
+  <!-- windows -->
+  <g fill="#FFFFFF" opacity="0.9">
+    <rect x="40" y="40" width="120" height="90" rx="8"/>
+    <rect x="190" y="40" width="120" height="90" rx="8"/>
+    <rect x="340" y="40" width="120" height="90" rx="8"/>
+    <rect x="490" y="40" width="110" height="90" rx="8"/>
+  </g>
+  <g stroke="#D3D8F0" stroke-width="4">
+    <line x1="100" y1="40" x2="100" y2="130"/><line x1="250" y1="40" x2="250" y2="130"/>
+    <line x1="400" y1="40" x2="400" y2="130"/><line x1="545" y1="40" x2="545" y2="130"/>
+  </g>
+  <!-- hanging lamps -->
+  <g fill="#3730A3">
+    <rect x="168" y="0" width="3" height="150"/><path d="M150 150 h40 l-8 16 h-24 z"/>
+    <rect x="448" y="0" width="3" height="150"/><path d="M430 150 h40 l-8 16 h-24 z"/>
+  </g>
+  <g fill="#FDE68A" opacity="0.55">
+    <ellipse cx="170" cy="172" rx="16" ry="5"/><ellipse cx="450" cy="172" rx="16" ry="5"/>
+  </g>
+
+  <!-- ===== worker 1 (left) ===== -->
+  <g>
+    <!-- chair -->
+    <rect x="72" y="300" width="70" height="10" rx="4" fill="#4B5563"/>
+    <rect x="104" y="310" width="6" height="40" fill="#4B5563"/>
+    <rect x="86" y="348" width="42" height="6" rx="3" fill="#4B5563"/>
+    <!-- body -->
+    <path d="M92 300 q-6 -70 30 -88 q34 -6 44 30 l6 58 z" fill="#0F9D8A"/>
+    <!-- arm to machine -->
+    <path d="M150 238 q30 18 58 30" stroke="#0F9D8A" stroke-width="16" stroke-linecap="round" fill="none"/>
+    <circle cx="212" cy="270" r="8" fill="#8D5A3B"/>
+    <!-- head + hair/scarf -->
+    <circle cx="132" cy="186" r="22" fill="#8D5A3B"/>
+    <path d="M108 188 q-2 -36 26 -38 q28 2 24 30 q-10 -16 -26 -16 q-14 0 -24 24 z" fill="#B91C1C"/>
+    <path d="M110 196 q-4 30 6 52 l12 -4 q-8 -20 -6 -44 z" fill="#B91C1C"/>
+  </g>
+  <!-- table 1 -->
+  <rect x="170" y="268" width="170" height="14" rx="4" fill="#9CA3AF"/>
+  <rect x="182" y="282" width="8" height="70" fill="#6B7280"/>
+  <rect x="318" y="282" width="8" height="70" fill="#6B7280"/>
+  <!-- machine 1 -->
+  <g>
+    <rect x="216" y="252" width="110" height="16" rx="5" fill="#3730A3"/>
+    <path d="M300 252 v-50 q0 -10 -10 -10 h-60 q-10 0 -10 10 v14 h18 v-6 h40 v42 z" fill="#3730A3"/>
+    <rect x="232" y="216" width="6" height="30" fill="#1F2937"/>
+    <rect x="229" y="244" width="12" height="4" fill="#9CA3AF"/>
+    <circle cx="300" cy="212" r="9" fill="#C7CCE6"/>
+    <rect x="254" y="184" width="6" height="10" fill="#1F2937"/>
+    <ellipse cx="257" cy="182" rx="8" ry="4" fill="#D97706"/>
+  </g>
+  <!-- fabric 1 (T-shirt being sewn) -->
+  <path d="M196 262 l18 -10 h44 l18 10 l-8 8 h-64 z" fill="#FFFFFF" stroke="#C7CCE6" stroke-width="2"/>
+
+  <!-- ===== worker 2 (right) ===== -->
+  <g>
+    <rect x="498" y="300" width="70" height="10" rx="4" fill="#4B5563"/>
+    <rect x="530" y="310" width="6" height="40" fill="#4B5563"/>
+    <rect x="512" y="348" width="42" height="6" rx="3" fill="#4B5563"/>
+    <path d="M548 300 q6 -70 -30 -88 q-34 -6 -44 30 l-6 58 z" fill="#3730A3"/>
+    <path d="M490 238 q-30 18 -58 30" stroke="#3730A3" stroke-width="16" stroke-linecap="round" fill="none"/>
+    <circle cx="428" cy="270" r="8" fill="#6B4430"/>
+    <circle cx="508" cy="186" r="22" fill="#6B4430"/>
+    <path d="M486 182 q4 -32 26 -32 q26 2 22 34 q-6 -14 -22 -18 q-16 -2 -26 16 z" fill="#1F2937"/>
+    <path d="M530 182 q12 8 8 30 l-8 -2 q2 -16 -4 -24 z" fill="#1F2937"/>
+  </g>
+  <rect x="300" y="268" width="170" height="14" rx="4" fill="#9CA3AF" opacity="0"/>
+  <!-- table 2 -->
+  <rect x="356" y="268" width="150" height="14" rx="4" fill="#9CA3AF"/>
+  <rect x="366" y="282" width="8" height="70" fill="#6B7280"/>
+  <rect x="488" y="282" width="8" height="70" fill="#6B7280"/>
+  <!-- machine 2 (mirrored) -->
+  <g>
+    <rect x="368" y="252" width="104" height="16" rx="5" fill="#0F9D8A"/>
+    <path d="M392 252 v-50 q0 -10 10 -10 h56 q10 0 10 10 v14 h-18 v-6 h-36 v42 z" fill="#0F9D8A"/>
+    <rect x="452" y="216" width="6" height="30" fill="#1F2937"/>
+    <rect x="449" y="244" width="12" height="4" fill="#9CA3AF"/>
+    <circle cx="392" cy="212" r="9" fill="#C7CCE6"/>
+    <rect x="428" y="184" width="6" height="10" fill="#1F2937"/>
+    <ellipse cx="431" cy="182" rx="8" ry="4" fill="#3730A3"/>
+  </g>
+  <path d="M410 262 l16 -10 h40 l16 10 l-8 8 h-56 z" fill="#FDE68A" stroke="#E5C860" stroke-width="2"/>
+
+  <!-- stack of finished shirts + spools (centre front) -->
+  <g>
+    <rect x="276" y="316" width="88" height="12" rx="3" fill="#FFFFFF" stroke="#C7CCE6" stroke-width="2"/>
+    <rect x="280" y="328" width="80" height="12" rx="3" fill="#0F9D8A"/>
+    <rect x="276" y="340" width="88" height="12" rx="3" fill="#3730A3"/>
+    <rect x="280" y="352" width="80" height="12" rx="3" fill="#FDE68A"/>
+  </g>
+  <g>
+    <rect x="58" y="356" width="14" height="22" rx="2" fill="#D97706"/>
+    <rect x="54" y="354" width="22" height="4" rx="2" fill="#6B7280"/><rect x="54" y="376" width="22" height="4" rx="2" fill="#6B7280"/>
+    <rect x="574" y="356" width="14" height="22" rx="2" fill="#B91C1C"/>
+    <rect x="570" y="354" width="22" height="4" rx="2" fill="#6B7280"/><rect x="570" y="376" width="22" height="4" rx="2" fill="#6B7280"/>
+  </g>
+  <!-- thread line -->
+  <path d="M257 182 q40 -40 80 -20 t94 20" stroke="#D97706" stroke-width="2" fill="none" stroke-dasharray="4 5" opacity="0.7"/>
+</svg>

@@ -80,6 +80,9 @@ def test_every_action_at_extreme_settings(name, over, monkeypatch, tmp_path):
     at.run()
     r = Runner(at)
     r.check("load")
+    # demo login (one click) -> welcome -> start a new order
+    assert r.click(key="demo_login") and any("How to use Bunon" in h.value for h in at.header), r.problems
+    assert r.click(key="start_order") and any("Buyer email" in h.value for h in at.header), r.problems
     if "_partial" in over:
         at.toggle[0].set_value(over["_partial"]).run()
     if "_shocks" in over:
@@ -110,3 +113,7 @@ def test_every_action_at_extreme_settings(name, over, monkeypatch, tmp_path):
         assert any("No feasible plan" in e.value for e in at.error)
     if over == {"max_f": 3, "unproven": 0.10}:  # the 18 Nov crash: decline leaves no feasible re-plan
         assert any("No feasible re-plan" in e.value for e in at.error)
+
+    # logout returns to the login page and forgets the session
+    assert r.click(key="logout"), r.problems
+    assert any(b.key == "demo_login" for b in at.button) and "authed" not in at.session_state

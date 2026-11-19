@@ -17,3 +17,6 @@ data/private/
 
 # Runtime approval log (ephemeral)
 data/runtime/
+
+# Full-size source photos (only the resized copy in assets/ is published)
+data/image/

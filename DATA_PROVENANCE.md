@@ -110,3 +110,12 @@ Every assumption lives in `bunon/config.py`, marked `ASSUMPTION`, and is listed 
 ## 4. AI tooling disclosure
 
 The code was written with Claude Code (Anthropic) as pair programmer. Development prompts and product prompts are listed in `PROMPTS.md`.
+
+## 4. Images
+
+| File | Source | Author | Licence | Size |
+|---|---|---|---|---|
+| `assets/hero_sewing.svg` (fallback if the photo is missing) | Original vector illustration drawn by hand in SVG for this project, 18 Nov 2026. No photo, stock image or third-party artwork was used or traced. | Bunon project (written with an AI coding assistant) | Original work of this project; no third-party licence applies | 6.1 KB |
+| `assets/factory_floor.jpg` (login background, welcome banner) | Wikimedia Commons, [File:Working_conditions_of_Garment_workers_in_Bangladesh.jpg](https://commons.wikimedia.org/wiki/File:Working_conditions_of_Garment_workers_in_Bangladesh.jpg) (taken 24 Jul 2013). Downloaded 19 Nov 2026 and resized from 4608×3456 to 1600×1200 (JPEG q82); no other edits. The full-size original stays local in `data/image/` (gitignored). | Fahad Faisal | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/); the resized copy is shared under the same licence | 260 KB |
+
+The app shows the credit "Photo: Fahad Faisal, CC BY-SA 4.0, via Wikimedia Commons (resized)", with links to the source page and the licence, on the login and welcome pages. The SVG is shown only if the photo file is missing, with its own credit. No other images are embedded. A reference photo of unknown licence suggested during design review was not used.

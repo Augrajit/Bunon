@@ -71,6 +71,187 @@ if "visitor" not in st.session_state:  # anonymous per-browser-session id, used 
     st.session_state["visitor"] = uuid.uuid4().hex
 set_visitor(st.session_state["visitor"])
 
+# =============================================================================
+# Look and feel: one CSS block (base theme and font are in .streamlit/config.toml)
+# =============================================================================
+
+THEME_CSS = """
+<style>
+:root { --bn-accent:#1E3A5F; --bn-accent-hover:#16304F; --bn-accent-soft:#EEF2F7; --bn-text:#0F172A;
+        --bn-muted:#475569; --bn-border:#DDE2EA; --bn-canvas:#F6F7F9; }
+[data-testid="stMainBlockContainer"] { padding-top:3rem; padding-bottom:4rem; max-width:1240px; }
+h1 { font-size:2rem !important; line-height:1.2 !important; font-weight:700 !important; letter-spacing:-0.02em; color:var(--bn-text); }
+h2 { font-size:1.3rem !important; font-weight:600 !important; letter-spacing:-0.01em; color:var(--bn-text);
+     border-bottom:1px solid var(--bn-border); padding-bottom:.45rem !important; margin-top:2rem !important; }
+h3 { font-size:1.08rem !important; font-weight:600 !important; color:var(--bn-text); }
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] * { color:var(--bn-muted) !important; }
+/* surfaces: metrics and bordered containers are flat white panels with a hairline border */
+[data-testid="stMetric"] { background:#FFFFFF; border:1px solid var(--bn-border); border-radius:6px; padding:14px 16px; }
+[data-testid="stMetricLabel"] p { font-size:.8rem !important; text-transform:uppercase; letter-spacing:.04em; color:var(--bn-muted); }
+[data-testid="stMetric"], .bn-step { transition:border-color .15s ease; }
+[data-testid="stMetric"]:hover, .bn-step:hover { border-color:#AEB8C7; }
+.stButton > button, [data-testid="stFormSubmitButton"] > button, [data-testid="stDownloadButton"] > button {
+  font-weight:600; transition:background-color .15s ease, border-color .15s ease; }
+/* a short fade when a page or panel appears */
+@keyframes bnFade { from { opacity:0; } to { opacity:1; } }
+[data-testid="stMainBlockContainer"] > div, [data-testid="stMetric"] { animation:bnFade .22s ease-out both; }
+/* sidebar */
+[data-testid="stSidebar"] { background:var(--bn-canvas); }
+.bn-side-label { font-size:.72rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:#64748B; margin:.6rem 0 .3rem; }
+.bn-nav a { display:block; padding:6px 10px; margin:1px 0; border-radius:4px; border-left:2px solid transparent;
+            color:#334155 !important; text-decoration:none !important; font-size:.92rem; }
+.bn-nav a:hover { background:#E8ECF2; border-left-color:var(--bn-accent); color:var(--bn-text) !important; }
+/* brand and labels */
+.bn-brand { display:flex; align-items:center; gap:10px; font-size:1.25rem !important; font-weight:700; color:var(--bn-text);
+            letter-spacing:-0.01em; margin:0 0 .4rem 0; }
+.bn-mark { display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:6px;
+           background:var(--bn-accent); color:#FFFFFF; font-size:.95rem; font-weight:700; }
+.bn-badge { display:inline-block; padding:3px 10px; border-radius:4px; background:#FFF7EB; color:#7A4B0C;
+            border:1px solid #E7C58C; font-size:.74rem; font-weight:600; letter-spacing:.06em; text-transform:uppercase; }
+/* login page: the photo fills the window behind a dark overlay */
+.bn-login-eyebrow { color:#C9D6E8 !important; font-size:.78rem; font-weight:600; letter-spacing:.12em; text-transform:uppercase; margin:0 0 1rem; }
+.bn-login-title { color:#FFFFFF !important; font-size:2.6rem !important; line-height:1.12; font-weight:700; letter-spacing:-0.025em; margin:0 0 1rem; }
+.bn-login-text { color:#E2E8F0 !important; font-size:1.08rem !important; line-height:1.6; max-width:34rem; margin:0 0 1.4rem; }
+.bn-login-brand { display:flex; align-items:center; gap:10px; color:#FFFFFF; font-size:1.3rem; font-weight:700; margin:0 0 3.2rem; }
+.bn-login-brand .bn-mark { background:#FFFFFF; color:var(--bn-accent); }
+.bn-credit { font-size:.78rem; color:var(--bn-muted); margin-top:.4rem; }
+.bn-credit a { color:inherit !important; }
+.bn-credit-fixed { position:fixed; left:18px; bottom:12px; z-index:5; font-size:.74rem; color:rgba(255,255,255,.72); }
+.bn-credit-fixed a { color:rgba(255,255,255,.85) !important; }
+/* welcome page */
+.bn-banner { border-radius:8px; padding:56px 52px; margin-bottom:1.2rem; background-size:cover; background-position:center 62%; }
+.bn-banner .bn-login-title { font-size:2.3rem !important; margin-bottom:.8rem; }
+.bn-banner .bn-login-text { margin:0; }
+.bn-step { background:#FFFFFF; border:1px solid var(--bn-border); border-top:3px solid var(--bn-accent); border-radius:6px;
+           padding:18px 18px 20px; min-height:270px; }
+.bn-step-num { font-size:.72rem; font-weight:700; letter-spacing:.1em; color:var(--bn-accent); margin-bottom:.5rem; }
+.bn-step h4 { margin:0 0 .45rem 0; padding:0; font-size:1rem; line-height:1.3; font-weight:600; color:var(--bn-text); }
+.bn-step p { margin:0; color:var(--bn-muted); font-size:.9rem; line-height:1.5; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation:none !important; transition:none !important; }
+}
+</style>
+"""
+st.markdown(THEME_CSS, unsafe_allow_html=True)
+
+
+# =============================================================================
+# Demo login and welcome (no real authentication: nothing is checked or stored)
+# =============================================================================
+
+TAGLINE = ("Pick the subcontract factories that will actually deliver, price the buffer, "
+           "and re-plan when things go wrong.")
+BADGE = '<span class="bn-badge">Synthetic data prototype</span>'
+BRAND = '<span class="bn-mark">B</span>Bunon'
+PHOTO = C.ROOT / "assets" / "factory_floor.jpg"
+PHOTO_CREDIT = ('Photo: <a href="https://commons.wikimedia.org/wiki/File:Working_conditions_of_Garment_workers_in_Bangladesh.jpg" '
+                'target="_blank">Fahad Faisal</a>, '
+                '<a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank">CC BY-SA 4.0</a>, '
+                'via Wikimedia Commons (resized)')
+SVG_CREDIT = "Illustration: original SVG made for Bunon (2026)"
+
+
+@st.cache_resource(show_spinner=False)
+def _hero() -> tuple[str, str]:
+    """(data URI, credit HTML): the licensed factory photo if present, else the original SVG."""
+    import base64
+    if PHOTO.exists():
+        return "data:image/jpeg;base64," + base64.b64encode(PHOTO.read_bytes()).decode("ascii"), PHOTO_CREDIT
+    svg = (C.ROOT / "assets" / "hero_sewing.svg").read_bytes()
+    return "data:image/svg+xml;base64," + base64.b64encode(svg).decode("ascii"), SVG_CREDIT
+
+
+def _enter(page: str) -> None:
+    st.session_state["authed"] = True
+    st.session_state["page"] = page
+
+
+def login_page() -> None:
+    uri, credit = _hero()
+    st.markdown(f"""<style>
+[data-testid="stApp"] {{ background:
+   linear-gradient(90deg, rgba(9,20,36,.92) 0%, rgba(9,20,36,.80) 42%, rgba(9,20,36,.45) 100%),
+   url("{uri}") center / cover no-repeat fixed; }}
+[data-testid="stHeader"] {{ background:transparent; }}
+[data-testid="stMainBlockContainer"] {{ padding-top:9vh; }}
+.st-key-login_card {{ background:#FFFFFF; border-radius:8px; border:none !important; padding:28px 28px 22px !important;
+   box-shadow:0 20px 50px rgba(0,0,0,.35); }}
+</style>
+<div class="bn-credit-fixed">{credit}</div>""", unsafe_allow_html=True)
+    left, gap, right = st.columns([1.25, 0.15, 0.9])
+    with left:
+        st.markdown(f'<div class="bn-login-brand">{BRAND}</div>'
+                    '<p class="bn-login-eyebrow">Subcontract allocation for garment exporters</p>'
+                    '<p class="bn-login-title">Deliver the order, even when a factory doesn\'t.</p>'
+                    f'<p class="bn-login-text">{TAGLINE}</p>{BADGE}', unsafe_allow_html=True)
+    with right:
+        with st.container(border=True, key="login_card"):
+            st.subheader("Sign in")
+            st.caption("Demo access. No account needed. Nothing you type here is checked or stored.")
+            st.button("Continue as demo exporter", type="primary", width="stretch",
+                      on_click=_enter, args=("welcome",), key="demo_login")
+            with st.form("demo_login_form", border=False):
+                st.text_input("Email", value="demo.exporter@example.com")
+                st.text_input("Password", value="demo-password", type="password")
+                st.form_submit_button("Sign in", width="stretch", on_click=_enter, args=("welcome",))
+            st.caption("A human approves every decision. Nothing is ever sent to a factory automatically.")
+
+
+STEPS = (
+    ("Paste the buyer email", "Bunon reads quantity, deadline and compliance, quoting the email for each. "
+     "You confirm the order."),
+    ("Review the reliability forecast", "How likely each compliant factory is to deliver in full and on time, "
+     "from its (synthetic) history."),
+    ("Compare plans", "The naive plan, the naive plan with the same buffer, and Bunon's plan: on-time "
+     "probability and cost."),
+    ("Handle a reply or disruption", "A factory declines or counters, or the news reports a flood or strike. "
+     "Bunon re-plans."),
+    ("Approve the decision memo", "A short memo built only from computed numbers. You approve; you send "
+     "the draft orders."),
+)
+
+
+def welcome_page() -> None:
+    uri, credit = _hero()
+    st.markdown(
+        f'<div class="bn-banner" style="background-image:linear-gradient(90deg, rgba(9,20,36,.90) 0%, '
+        f'rgba(9,20,36,.72) 50%, rgba(9,20,36,.30) 100%), url(&quot;{uri}&quot;)">'
+        '<p class="bn-login-eyebrow">Demo workspace</p>'
+        '<p class="bn-login-title">Welcome, demo exporter</p>'
+        '<p class="bn-login-text">You can make 100,000 of a 150,000-piece T-shirt order in-house. Bunon finds the '
+        'subcontract factories for the other 50,000 that are most likely to deliver by the deadline.</p></div>',
+        unsafe_allow_html=True)
+    b1, b2 = st.columns([1, 3], vertical_alignment="center")
+    b1.button("Start a new order", type="primary", on_click=_enter, args=("app",), key="start_order", width="stretch")
+    b2.markdown(f'{BADGE} <span class="bn-credit">&nbsp; {credit}</span>', unsafe_allow_html=True)
+    st.header("How to use Bunon")
+    cols = st.columns(len(STEPS))
+    for i, (col, (title, text)) in enumerate(zip(cols, STEPS), start=1):
+        col.markdown(f'<div class="bn-step"><div class="bn-step-num">STEP {i:02d}</div>'
+                     f'<h4>{title}</h4><p>{text}</p></div>', unsafe_allow_html=True)
+    st.caption("The factory list is real (Open Supply Hub), shown only as pseudonymous IDs. Capacity, prices and "
+               "delivery history are synthetic. The buyer email is fictional.")
+
+
+def _logout() -> None:
+    keep = {"visitor"}  # the anonymous live-call counter id survives a logout
+    for k in list(st.session_state):
+        if k not in keep:
+            del st.session_state[k]
+
+
+if not st.session_state.get("authed"):
+    login_page()
+    st.stop()
+if st.session_state.get("page", "welcome") == "welcome":
+    with st.sidebar:
+        st.markdown(f'<div class="bn-brand">{BRAND}</div>', unsafe_allow_html=True)
+        st.button("Start a new order", key="nav_start_side", on_click=_enter, args=("app",), width="stretch")
+        st.button("Log out", key="logout_welcome", on_click=_logout, width="stretch")
+    welcome_page()
+    st.stop()
+
+
 SYNTH = "🧪 synthetic"
 SOURCE_BADGE = {"cache": "🤖 LLM (cached answer)", "live": "🤖 LLM (live)",
                 "template": "📄 Template (no valid LLM answer; numbers still from the tools)"}
@@ -281,13 +462,26 @@ def approval_buttons(step: str, plan, summary: str, order, cands, key: str):
 # =============================================================================
 
 st.title("Bunon: subcontract allocation for garment exporters")
+st.markdown(BADGE, unsafe_allow_html=True)
 st.warning(
     "**Prototype.** The factory list is real (Open Supply Hub), shown only as pseudonymous IDs. "
     "**All capacity, price and delivery-history figures are synthetic** (seeded, see DATA_PROVENANCE.md) and "
     "fill/lateness are placeholders pending research. The buyer email is fictional. Nothing is ever sent to "
     "a factory: every decision needs a human.", icon="⚠️")
 
+NAV_STEPS = (("order", "1 · Buyer email → order"), ("funnel", "2 · Who can make it"),
+             ("reliability", "3 · Reliability forecast"), ("plans", "4 · Plans compared"),
+             ("recommended", "5 · Recommended plan"), ("memo", "6 · Decision memo"),
+             ("disruption", "7 · Disruption"), ("whatif", "8 · What-if question"))
+
 with st.sidebar:
+    st.markdown(f'<div class="bn-brand">{BRAND}</div><div class="bn-side-label">Workflow</div>', unsafe_allow_html=True)
+    st.markdown('<div class="bn-nav">' + "".join(f'<a href="#{a}" target="_self">{t}</a>' for a, t in NAV_STEPS)
+                + "</div>", unsafe_allow_html=True)
+    nb1, nb2 = st.columns(2)
+    nb1.button("Welcome", key="nav_welcome", on_click=_enter, args=("welcome",), width="stretch")
+    nb2.button("Log out", key="logout", on_click=_logout, width="stretch")
+    st.divider()
     st.selectbox("Acting as (recorded in the decision log)", dl.ROLES, key="role")
     st.header("Planning controls")
     for k, v in (("slack", C.PLANNED_SLACK_DAYS), ("target", C.TARGET_P_MEET), ("unproven", C.UNPROVEN_CAP_PCT),
@@ -314,12 +508,12 @@ with st.sidebar:
                f"Delivery point: {C.DELIVERY_POINT_NAME}. Python {sys.version.split()[0]}.")
     if st.button("↺ Restart the story"):
         for k in list(st.session_state):
-            if k != "role":
+            if k not in ("role", "authed", "page", "visitor"):
                 del st.session_state[k]
         st.rerun()
 
 # --- 1 · intake -------------------------------------------------------------------------------
-st.header("1 · Buyer email → order")
+st.header("1 · Buyer email → order", anchor="order")
 st.caption("The LLM reads the email into order terms. Each value must come with a word-for-word quote from "
            "the email that states it; anything that fails the check is left for you to enter.")
 email = st.text_area("Buyer email", C.DEMO_EMAIL_PATH.read_text(encoding="utf-8"), height=240)
@@ -391,7 +585,7 @@ st.success(f"Order confirmed: **{order.total_qty:,}** pieces, own capacity {orde
            f"**subcontract {order.subcontract_qty:,}** by {order.deadline:%d %b %Y} (fixed).")
 
 # --- 2 · funnel ---------------------------------------------------------------------------------
-st.header("2 · Who can make it")
+st.header("2 · Who can make it", anchor="funnel")
 rep = report()
 r1 = st.columns(3)
 r1[0].metric("Factories in export", f"{rep['raw_rows']:,}")
@@ -404,7 +598,7 @@ r2[2].metric("Proven (≥ 3 past jobs)", f"{sum(c.proven for c in cands):,}", he
 st.caption("First four counts: real Open Supply Hub data. Last two depend on synthetic capacity and history.")
 
 # --- 3 · reliability ------------------------------------------------------------------------------
-st.header(f"3 · Reliability forecast {SYNTH}")
+st.header(f"3 · Reliability forecast {SYNTH}", anchor="reliability")
 st.dataframe(pd.DataFrame([{
     "Factory": c.factory_id, "District": c.district,
     "Declared capacity in window": c.window_capacity_declared, "Forecast deliverable": c.window_capacity_risk_adj,
@@ -418,7 +612,7 @@ st.caption("Top 15 candidates by forecast deliverable quantity. Thin-history fac
            "prior, so their forecasts are wider.")
 
 # --- 4 · plans --------------------------------------------------------------------------------------
-st.header("4 · Plans compared")
+st.header("4 · Plans compared", anchor="plans")
 if rec.risk is None:  # the optimiser found no allocation at all under these limits
     st.error(f"**No feasible plan.** No combination of at most {max_f} factor{'y' if max_f == 1 else 'ies'} can "
              f"cover {order.subcontract_qty:,} pieces by the deadline under the current limits (unproven share "
@@ -450,11 +644,12 @@ fig.add_trace(go.Scatter(x=fr["buffer"], y=fr["baseline"], mode="lines+markers",
 fig.add_hline(y=target, line_dash="dot", annotation_text=f"target {target:.0%}")
 fig.update_layout(height=320, margin=dict(l=10, r=10, t=30, b=10), xaxis_tickformat=".0%", yaxis_tickformat=".0%",
                   xaxis_title="Over-allocation buffer", yaxis_title="P(on-time full delivery)",
-                  title="What the buffer buys", legend=dict(orientation="h", y=1.12))
+                  title="What the buffer buys", legend=dict(orientation="h", y=1.12),
+                  colorway=["#1E3A5F", "#B7791F"])
 st.plotly_chart(fig, width="stretch")
 
 # --- 5 · recommended plan ----------------------------------------------------------------------------
-st.header("5 · Recommended plan")
+st.header("5 · Recommended plan", anchor="recommended")
 m = st.columns(4)
 m[0].metric("Pieces allocated", f"{rec.plan.total_allocated:,}", f"+{rec.plan.buffer_qty:,} buffer")
 m[1].metric("Total cost", bdt_m(rec.plan.cost_total), help=bdt(rec.plan.cost_total))
@@ -528,7 +723,7 @@ if current_mode() == "offline":
                "wording falls back to the sidebar controls.")
 
 # --- 6 · memo + approval --------------------------------------------------------------------------------
-st.header("6 · Decision memo")
+st.header("6 · Decision memo", anchor="memo")
 memo = memo_for(*args)
 if memo is None:
     st.error("No feasible plan to explain.")
@@ -538,7 +733,7 @@ approval_buttons("plan", rec.plan, f"{len(rec.plan.lines)} factories, {rec.plan.
                  f"P {rec.risk.p_meet_qty:.3f}, {bdt(rec.plan.cost_total)}", order, cands, "plan")
 
 # --- 7 · disruption ----------------------------------------------------------------------------------------
-st.header("7 · Disruption: a factory declines or answers")
+st.header("7 · Disruption: a factory declines or answers", anchor="disruption")
 DAYS = 3
 REPLIES = json.loads((C.ROOT / "data" / "demo" / "factory_replies.json").read_text(encoding="utf-8"))
 
@@ -726,7 +921,7 @@ with tab_news:
                                  f"{bdt(new.plan.cost_total)}", order, ncands, "news_replan")
 
 # --- 8 · what-if analyst ---------------------------------------------------------------------------------
-st.header("8 · Ask a what-if question")
+st.header("8 · Ask a what-if question", anchor="whatif")
 st.caption("The LLM decides which tools to run (simulate a disruption on the current plan, solve a new plan "
            f"with exclusions or caps, compare results), at most {analyst.MAX_TOOL_CALLS} calls. The tools do all "
            "the numbers; the answer may only cite tool results, and every call is logged below.")

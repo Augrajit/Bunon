@@ -1,0 +1,66 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+Bunon: a Streamlit prototype that picks the subcontract garment factories most likely to deliver a buyer order on time, prices the buffer, and re-plans after a decline, counter-offer or news disruption. Hackathon submission (International AI Builders Congress, Bangladesh). Live at https://buunon.streamlit.app/ (Streamlit Community Cloud, deploys from `main`).
+
+## Commands
+
+Windows, Python 3.11, venv in `.venv`.
+
+```bash
+.venv/Scripts/python.exe -m pip install -r requirements-dev.txt
+.venv/Scripts/python.exe -m pytest -q                      # unit tests (~40 s); the sweep is excluded by pytest.ini
+.venv/Scripts/python.exe -m pytest tests/test_engine.py::test_mip_respects_all_constraints -q   # one test
+.venv/Scripts/python.exe -m pytest -m sweep -q             # app click-through at 20 extreme settings (~4 min, offline)
+.venv/Scripts/python.exe -m streamlit run app.py           # local app (or the "bunon" config in .claude/launch.json, port 8501)
+.venv/Scripts/python.exe -m bunon.data_gen                 # rebuild data/processed/bunon.db (needs local-only data/raw/factories.csv)
+.venv/Scripts/python.exe -m bunon.warm_cache               # refill cached LLM answers for the scripted demo (needs GEMINI_API_KEY)
+.venv/Scripts/python.exe -m bunon.checkpoint               # regenerate CHECKPOINT_DAY2.md
+```
+
+No linter or formatter is configured. Tests that need the private raw CSV or name mapping skip on a clean clone (5 skips is normal).
+
+## The rule everything is built around
+
+**The LLM never produces a number.** Language goes to Gemini; every number comes from the engine. This is enforced in code, not prompts:
+
+- Extraction (`agent.py`: order intake, factory replies, news, steering): every value must come with a verbatim quote from the source text, and `textnum.py` checks the quote literally states that value (handles lakh grouping, `150k`, crore, Bangla digits, Banglish, day-first dates). A failed value becomes `None` and the human fills it in.
+- Generation (decision memo in `agent.py`, what-if answers in `analyst.py`): the LLM may write no digits or number words, only `{{key}}` placeholders resolved from a `FactSheet` of tool results, and factories only as `{{fac:F0123}}`. `agent.check_text` rejects violations → one retry → deterministic template.
+- News severity is only a label; its effect comes from the fixed `SEVERITY_TABLE` in `config.py`.
+
+When adding any LLM feature, keep this split and route numbers through facts/placeholders.
+
+## Architecture
+
+Engine (no LLM): `data_gen` (clean Open Supply Hub export → SQLite + seeded synthetic history) → `reliability` (empirical-Bayes per-factory forecast) → `optimizer` (PuLP/CBC MIP, naive baselines, buffer search, re-plans with locks/exclusions/shock events) → `simulation` (Monte Carlo P(on-time full delivery), seeded). `schemas.py` holds the Pydantic contracts between modules; `config.py` holds every constant and assumption.
+
+LLM layer:
+- `llm.py` is the only file that imports the provider SDK (`google-genai`, model `gemini-3.5-flash-lite`, JSON schema output, manual function calling). Every answer is cached in `data/llm_cache/<sha256>.json`; the key covers provider, model, task, prompt version and exact prompt text.
+- Modes via `BUNON_LLM_MODE`: `offline` (default) reads only the cache and raises `CacheMiss` on a miss; `live` calls Gemini on a miss. Live calls are capped (`BudgetExceeded`, a `CacheMiss` subclass): 40 per visitor session, 400 per day, counter in `data/runtime/llm_budget.json`. Callers treat any miss as "fall back to template/hand entry", never as an error.
+- `analyst.py`: what-if tool loop over `run_simulation`, `solve_plan`, `compare_plans` (max 6 calls, each logged and shown in the UI).
+- Consequence: changing a prompt string, prompt version (`*_VERSION` in `agent.py` / `analyst.py`) or a demo input invalidates its cached answer, so the offline demo and the cache-replay tests fall back to templates until the answers are re-generated live. Bump the version deliberately and re-warm.
+
+UI: `app.py` (single file). Demo login gate → welcome page → eight numbered sections (order, funnel, reliability, plans, recommended, memo, disruption, what-if). Approvals go to `decisions.py` (SQLite in `data/runtime/`, by role, never by name; `BUNON_DECISIONS_DB` overrides the path in tests). LLM steps are memoised per session with `llm_once`, not `st.cache_data`, so one visitor's failure is not shared. Look and feel: base theme in `.streamlit/config.toml`, everything else in the single `THEME_CSS` block in `app.py`.
+
+Hosting quirk: Streamlit Cloud reruns `app.py` but keeps imported modules, so `app.py` hashes `bunon/*.py` each run and reloads the package when it changed. Module-level caches built from old classes are dropped there too; keep that in mind when adding caches.
+
+## Data and privacy rules (public repo)
+
+- The factory list is real (Open Supply Hub) but published only as pseudonymous IDs (`F0001`–`F3196`), coordinates rounded to 2 decimals, workers rounded to 50. Never commit or send to the LLM factory names, `os_id`, addresses, the raw CSV (`data/raw/`) or the mapping (`data/private/`). Tests scan prompts and every DB cell for this.
+- All capacity, price and delivery-history data is synthetic (seed 42) and must stay labelled "synthetic" in the UI.
+- Values marked `ASSUMPTION` / `PLACEHOLDER` in `config.py` wait for the team's research (`RESEARCH_ASKS.md`). Do not tune them to improve results.
+- Nothing is ever sent to a factory automatically; every plan needs a human approval.
+- Third-party assets need a recorded source, author and licence in `DATA_PROVENANCE.md`.
+
+## Project documents
+
+- `PLAN.md`: scope, model design and the rules above (section numbers are cited in module docstrings).
+- `SPEC.md`: dated decision log (D1, D2, …). Record each design change there with its reason and before/after numbers.
+- `PROMPTS.md`: the product prompts and AI-tooling disclosure; update it when a prompt changes.
+- `DATA_PROVENANCE.md`: every data source, cleaning rule and image licence.
+- `README.md`: demo results table and the 3-minute demo path; keep its numbers in step with the engine.
+
+Before a UI change is committed, run both `pytest -q` and `pytest -m sweep`. Commit before starting the next change; push only when asked.

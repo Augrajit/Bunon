@@ -1,0 +1,76 @@
+{
+  "format_version": 1,
+  "simulated_notice": "SIMULATED factory personas for the Bunon demo. Hand-written by the Bunon team; not real factories' words. Factory IDs are pseudonymous. Shown in the app as 'simulated'.",
+  "personas": [
+    {
+      "persona_id": "example_format",
+      "factory_id": "TBD",
+      "label": "FORMAT EXAMPLE ONLY - delete or ignore; never used in the demo",
+      "language": "Banglish",
+      "profile": "other",
+      "style_notes": "Shows every field once. Replace with real personas below.",
+      "example": true,
+      "messages": [
+        {
+          "msg_id": "example_offer",
+          "story_day": 2,
+          "kind": "offer_reply",
+          "text": "Bhai, 8000 pcs nite parbo, rate 62 taka, delivery 25/01/2027.",
+          "expected": {"decision": "counter", "qty": 8000, "price_bdt_per_piece": 62, "ship_date": "2027-01-25"}
+        },
+        {
+          "msg_id": "example_update",
+          "story_day": 9,
+          "kind": "progress_update",
+          "text": "Aj porjonto 3500 pcs ready. Line e current nai, 2 din late hobe.",
+          "expected": {"pieces_done": 3500, "delay_days": 2, "cause": "power cut"}
+        }
+      ]
+    },
+    {
+      "persona_id": "steady_en",
+      "factory_id": "TBD",
+      "label": "Formal English, reliable",
+      "language": "English",
+      "profile": "reliable",
+      "style_notes": "TODO (teammates): how this factory writes.",
+      "messages": []
+    },
+    {
+      "persona_id": "quick_banglish",
+      "factory_id": "TBD",
+      "label": "Banglish, fast, over-promises",
+      "language": "Banglish",
+      "profile": "over_promises",
+      "style_notes": "TODO (teammates)",
+      "messages": []
+    },
+    {
+      "persona_id": "price_banglish",
+      "factory_id": "TBD",
+      "label": "Banglish, counters on price",
+      "language": "Banglish",
+      "profile": "counters_on_price",
+      "style_notes": "TODO (teammates)",
+      "messages": []
+    },
+    {
+      "persona_id": "declines_bn",
+      "factory_id": "TBD",
+      "label": "Bangla, declines",
+      "language": "Bangla",
+      "profile": "declines",
+      "style_notes": "TODO (teammates)",
+      "messages": []
+    },
+    {
+      "persona_id": "slow_en",
+      "factory_id": "TBD",
+      "label": "English, slow to answer",
+      "language": "English",
+      "profile": "slow_to_answer",
+      "style_notes": "TODO (teammates)",
+      "messages": []
+    }
+  ]
+}

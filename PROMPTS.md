@@ -9,7 +9,8 @@ The competition asks for a prompt library and AI-tooling disclosure. This file c
 
 | | |
 |---|---|
-| Provider / model | Google Gemini, `gemini-3.5-flash-lite`. Listed as "Stable" and on the free tier in Google's docs, checked 15 Nov 2026 |
+| Provider / model | Google Gemini, `gemini-3.5-flash-lite`: "Stable" in Google's docs (checked 15 Nov 2026). The model has a free tier (re-checked 26 Nov 2026: free-tier content may be used to improve Google's products; paid-tier content is not). **This project has used a paid key since 15 Nov (SPEC.md D4)**; the current key's tier is being confirmed in AI Studio. Real user text goes only through a paid key (PLAN_V2 §6). |
+| Results in this file | The live results below are from 15–17 Nov 2026, on the December demo order. The success rule, QC model and order dates changed on 26 Nov (SPEC.md D12), so the numbers differ now; the prompts are unchanged except that fact labels say "on-time delivery within tolerance" instead of "on-time full delivery". |
 | SDK / call | `google-genai` 3.3.0, `client.models.generate_content` with `response_mime_type="application/json"` and `response_json_schema` (Pydantic) |
 | Settings | `temperature=0`, `seed=42` |
 | Interface | `bunon/llm.py` is the only file that imports the SDK. Swapping providers means adding one class |

@@ -51,18 +51,21 @@ def demo_order() -> OrderConstraints:
     )
 
 
+def loss_on_failure_bdt(order: OrderConstraints) -> float:
+    """The manager's expected loss if the subcontracted part fails (SPEC.md D12): a manager input,
+    never parsed from the buyer email. Falls back to the labelled placeholder default."""
+    return order.loss_on_failure_bdt if order.loss_on_failure_bdt is not None else C.DEFAULT_LOSS_ON_FAILURE_BDT
+
+
 def missing_piece_cost_bdt(order: OrderConstraints) -> float:
-    """Whole-order penalty spread over the subcontracted pieces (all-or-nothing heuristic, PLAN.md §5)."""
-    if not order.fob_usd_per_piece or not order.late_penalty_pct_per_week or not order.subcontract_qty:
-        return 0.0
-    order_value_bdt = order.fob_usd_per_piece * C.USD_BDT * order.total_qty
-    penalty = order_value_bdt * order.late_penalty_pct_per_week / 100 * C.WEEKS_AT_RISK
-    return penalty / order.subcontract_qty
+    """Loss on failure spread over the subcontracted pieces: the optimiser's shadow cost of a piece at risk."""
+    return loss_on_failure_bdt(order) / order.subcontract_qty if order.subcontract_qty else 0.0
 
 
 def default_params(order: OrderConstraints, **kw) -> OptimizerParams:
     base = dict(planned_slack_days=C.PLANNED_SLACK_DAYS, max_factories=C.MAX_FACTORIES,
                 unproven_cap_pct=C.UNPROVEN_CAP_PCT, max_district_share=C.DISTRICT_CAP_SHARE, lot_size=C.LOT_SIZE,
+                tolerance_pct=C.DELIVERY_TOLERANCE_PCT, min_buffer_pct=C.SAFETY_MARGIN_DEFAULT_PCT,
                 missing_piece_cost_bdt=missing_piece_cost_bdt(order),
                 fixed_cost_per_factory_bdt=C.FIXED_COST_PER_FACTORY_BDT)
     base.update(kw)
@@ -80,7 +83,11 @@ def haversine_km(lat, lng, lat0, lng0):
 def build_candidates(world: World, order: OrderConstraints, params: OptimizerParams,
                      as_of: date = C.AS_OF) -> list[Candidate]:
     f = world.factories
-    f = f[f["tee_capable"] & f["compliant"] & (f["declared_spare_daily"] > 0)]
+    # Compliance must hold at the buyer's deadline, not only on the data snapshot date: RSC, or a BSCI
+    # audit that is still valid on the deadline (SPEC.md D12).
+    expiry = pd.to_datetime(f["bsci_expiry"], errors="coerce")
+    valid_then = f["rsc"].astype(bool) | (expiry >= pd.Timestamp(order.deadline))
+    f = f[f["tee_capable"] & f["compliant"] & valid_then & (f["declared_spare_daily"] > 0)]
     f = f[~f["factory_id"].isin(params.excluded_ids)]
     road_km = haversine_km(f["lat"], f["lng"], *C.DELIVERY_POINT_LATLNG) * C.ROAD_CIRCUITY
     S = params.planned_slack_days
@@ -103,7 +110,7 @@ def build_candidates(world: World, order: OrderConstraints, params: OptimizerPar
             transit_days=transit, slack_days=S, window_days=window,
             window_capacity_declared=cap_declared, window_capacity_risk_adj=cap_risk,
             min_batch=int(row.min_batch), proven=not fc.thin_history,
-            q_effective=fc.fill_mean * rl.p_on_time(fc, S),
+            q_effective=fc.fill_mean * rl.p_on_time(fc, S) * fc.good_share,
         ))
     return out
 
@@ -134,7 +141,8 @@ def make_plan(method: str, qty: dict[str, int], cands: dict[str, Candidate], Q: 
     avg_piece = (prod + trans + mat) / total if total else 0.0
     return AllocationPlan(
         plan_id=_plan_id(method, b, params, qty), method=method, status=status, lines=lines,
-        target_qty=Q, total_allocated=total, buffer_qty=buffer_qty,
+        target_qty=Q, min_good_qty=math.ceil(round((1 - params.tolerance_pct) * Q, 6)),
+        total_allocated=total, buffer_qty=buffer_qty,
         cost_production=prod, cost_material=mat, cost_transport=trans, cost_fixed=fixed,
         cost_buffer=buffer_qty * (avg_piece - C.SURPLUS_SALVAGE_BDT_PER_PIECE),
         cost_risk_penalty=sum(ln.risk_penalty_bdt for ln in lines),
@@ -269,11 +277,17 @@ def search_buffer(world: World, order: OrderConstraints, params: OptimizerParams
     cands = cands if cands is not None else build_candidates(world, order, params)
     Q = order.subcontract_qty
     frontier = []
+    grid = [b for b in grid if b >= params.min_buffer_pct - 1e-9] or [params.min_buffer_pct]  # safety margin
     for b in grid:
         plan = solve_mip(cands, Q, params.model_copy(update={"buffer_pct": b}))
         risk = (evaluate(plan, cands, world, shocks, n_sims, seed, partial_lots, events)
                 if plan.status == "optimal" else None)
         frontier.append(BufferPoint(buffer_pct=b, plan=plan, risk=risk))
+    return _pick(frontier, target_p)
+
+
+def _pick(frontier: list[BufferPoint], target_p: float) -> PlanResult:
+    """The cheapest plan that reaches the target, else the most likely one."""
     ok = [p for p in frontier if p.risk and p.risk.p_meet_qty >= target_p]
     if ok:
         rec, met = min(ok, key=lambda p: p.plan.cost_total), True
@@ -339,7 +353,7 @@ def replan_exclude(world: World, order: OrderConstraints, params: OptimizerParam
     old_q = {ln.factory_id: ln.qty for ln in old.plan.lines}
     new_q = {ln.factory_id: ln.qty for ln in new.plan.lines}
     diff = [{"factory_id": i, "old_qty": old_q.get(i, 0), "new_qty": new_q.get(i, 0)}
-            for i in sorted(set(old_q) | set(new_q), key=lambda i: -max(old_q.get(i, 0), new_q.get(i, 0)))]
+            for i in sorted(set(old_q) | set(new_q), key=lambda i: (-max(old_q.get(i, 0), new_q.get(i, 0)), i))]  # id breaks ties: stable order
     return ReplanResult(excluded_id=excluded_id, reason=reason, old=old, new=new, diff=diff)
 
 
@@ -366,7 +380,7 @@ def replan_locked(world: World, order: OrderConstraints, params: OptimizerParams
     new = search_buffer(world, order, p2, target_p, shocks=shocks, partial_lots=partial_lots, cands=cands).recommended
     new_q = {ln.factory_id: ln.qty for ln in new.plan.lines}
     diff = [{"factory_id": i, "old_qty": old_q.get(i, 0), "new_qty": new_q.get(i, 0)}
-            for i in sorted(set(old_q) | set(new_q), key=lambda i: -max(old_q.get(i, 0), new_q.get(i, 0)))]
+            for i in sorted(set(old_q) | set(new_q), key=lambda i: (-max(old_q.get(i, 0), new_q.get(i, 0)), i))]  # id breaks ties: stable order
     return ReplanResult(excluded_id=excluded_id, reason=reason or f"declined on day {days_elapsed}",
                         old=old, new=new, diff=diff)
 
@@ -407,7 +421,7 @@ def replan_from_reply(world: World, order: OrderConstraints, params: OptimizerPa
     fc = world.forecasts[factory_id]
     slack = c.slack_days - (delay_days or 0)
     q_eff = (fc.fill_mean * rl.p_on_time(fc, slack) if slack >= 0
-             else fc.fill_mean * max(0.0, (c.window_days + slack) / c.window_days))
+             else fc.fill_mean * max(0.0, (c.window_days + slack) / c.window_days)) * fc.good_share
     changed = c.model_copy(update={"slack_days": slack, "window_capacity_risk_adj": agreed,
                                    "window_capacity_declared": agreed, "min_batch": min(c.min_batch, agreed),
                                    "q_effective": q_eff})
@@ -416,7 +430,7 @@ def replan_from_reply(world: World, order: OrderConstraints, params: OptimizerPa
     new = search_buffer(world, order, p2, target_p, shocks=shocks, partial_lots=partial_lots, cands=cands).recommended
     new_q = {ln.factory_id: ln.qty for ln in new.plan.lines}
     diff = [{"factory_id": i, "old_qty": old_q.get(i, 0), "new_qty": new_q.get(i, 0)}
-            for i in sorted(set(old_q) | set(new_q), key=lambda i: -max(old_q.get(i, 0), new_q.get(i, 0)))]
+            for i in sorted(set(old_q) | set(new_q), key=lambda i: (-max(old_q.get(i, 0), new_q.get(i, 0)), i))]  # id breaks ties: stable order
     terms = []
     if qty is not None and agreed != old_q[factory_id]:
         terms.append(f"can supply only {agreed:,} pieces")
@@ -457,12 +471,32 @@ def adjust_for_events(cands: list[Candidate], world: World, events: list[ShockEv
         fc = world.forecasts[c.factory_id]
         slack = c.slack_days - delay
         q = (fc.fill_mean * mult * rl.p_on_time(fc, slack) if slack >= 0
-             else fc.fill_mean * mult * max(0.0, (c.window_days + slack) / c.window_days))
-        cap = int(c.window_capacity_risk_adj * mult) // 100 * 100
+             else fc.fill_mean * mult * max(0.0, (c.window_days + slack) / c.window_days)) * fc.good_share
+        # Output loss is in q (and applied in the simulation); physical capacity shrinks only by the days
+        # lost beyond the slack. (Before SPEC.md D12 capacity was also cut by fill_mult: a double penalty.)
+        cap_share = 1.0 if slack >= 0 else max(0.0, (c.window_days + slack) / c.window_days)
+        cap = int(c.window_capacity_risk_adj * cap_share) // 100 * 100
         if cap < c.min_batch:
             continue  # cannot produce a minimum batch any more
         out.append(c.model_copy(update={"slack_days": slack, "window_capacity_risk_adj": cap, "q_effective": q}))
     return out
+
+
+def search_with_events(world: World, order: OrderConstraints, params: OptimizerParams, events: list[ShockEvent],
+                       target_p: float = C.TARGET_P_MEET, shocks: bool = True,
+                       partial_lots: bool = C.PARTIAL_LOTS_DEFAULT,
+                       cands: list[Candidate] | None = None) -> tuple[PlanResult, list[Candidate]]:
+    """Best plan made knowing about the events. The adjusted candidates (less output, less slack) are the
+    optimiser's view only; every plan is then scored like the current plan: original slack, each event
+    applied once in the simulation. (Before SPEC.md D12 the event's delay was counted twice here.)"""
+    cands = cands if cands is not None else build_candidates(world, order, params)
+    adj = adjust_for_events(cands, world, events)
+    res = search_buffer(world, order, params, target_p, shocks=shocks, partial_lots=partial_lots, cands=adj,
+                        events=events)
+    frontier = [BufferPoint(buffer_pct=pt.buffer_pct, plan=pt.plan,
+                            risk=evaluate(pt.plan, cands, world, shocks, partial_lots=partial_lots, events=events)
+                            if pt.plan.status == "optimal" else None) for pt in res.frontier]
+    return _pick(frontier, target_p), adj
 
 
 def assess_news(world: World, order: OrderConstraints, params: OptimizerParams, current: BufferPoint,
@@ -472,10 +506,10 @@ def assess_news(world: World, order: OrderConstraints, params: OptimizerParams, 
     (news arrives before purchase orders are sent, so no quantities are locked)."""
     cands = build_candidates(world, order, params)
     hit_now = evaluate(current.plan, cands, world, shocks, partial_lots=partial_lots, events=[event])
-    adj = adjust_for_events(cands, world, [event])
-    res = search_buffer(world, order, params, target_p, shocks=shocks, partial_lots=partial_lots,
-                        cands=adj, events=[event])
+    res, adj = search_with_events(world, order, params, [event], target_p, shocks, partial_lots, cands)
     affected = [ln.factory_id for ln in current.plan.lines
                 if event.area == "national" or next(c.district for c in cands if c.factory_id == ln.factory_id) == event.area]
+    keep = res.recommended.risk is None or hit_now.p_meet_qty >= res.recommended.risk.p_meet_qty
     return {"event": event, "current_with_event": hit_now, "affected_in_plan": affected,
-            "new": res.recommended, "new_target_met": res.target_met, "cands": adj}
+            "new": res.recommended, "new_target_met": res.target_met, "cands": adj,
+            "keep_current_is_better": keep}

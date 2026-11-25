@@ -18,10 +18,17 @@ Windows, Python 3.11, venv in `.venv`.
 .venv/Scripts/python.exe -m streamlit run app.py           # local app (or the "bunon" config in .claude/launch.json, port 8501)
 .venv/Scripts/python.exe -m bunon.data_gen                 # rebuild data/processed/bunon.db (needs local-only data/raw/factories.csv)
 .venv/Scripts/python.exe -m bunon.warm_cache               # refill cached LLM answers for the scripted demo (needs GEMINI_API_KEY)
+.venv/Scripts/python.exe -m bunon.personas                 # check the hand-written persona fixture (data/demo/personas.json)
 .venv/Scripts/python.exe -m bunon.checkpoint               # regenerate CHECKPOINT_DAY2.md
 ```
 
 No linter or formatter is configured. Tests that need the private raw CSV or name mapping skip on a clean clone (5 skips is normal).
+
+## Direction and success rule
+
+PLAN_V2.md (approved 26 Nov 2026) is the current plan: Bunon becomes the trust layer for subcontracting, organised around one order's timeline (sourcing → follow-up → warning → rescue → record), on Streamlit with all order logic in a `bunon/service.py` free of Streamlit imports. Its decisions block at the top overrides the rest of it.
+
+Success (SPEC.md D12): **good pieces after QC delivered by the deadline ≥ (1 − tolerance) × Q**, not all on-time pieces ≥ Q. QC defects and whole-lot rejection come from the reliability model (`eb-3`). Factory personas in the demo are hand-written by the team and labelled simulated; never generate them with the LLM.
 
 ## The rule everything is built around
 
@@ -41,7 +48,7 @@ LLM layer:
 - `llm.py` is the only file that imports the provider SDK (`google-genai`, model `gemini-3.5-flash-lite`, JSON schema output, manual function calling). Every answer is cached in `data/llm_cache/<sha256>.json`; the key covers provider, model, task, prompt version and exact prompt text.
 - Modes via `BUNON_LLM_MODE`: `offline` (default) reads only the cache and raises `CacheMiss` on a miss; `live` calls Gemini on a miss. Live calls are capped (`BudgetExceeded`, a `CacheMiss` subclass): 40 per visitor session, 400 per day, counter in `data/runtime/llm_budget.json`. Callers treat any miss as "fall back to template/hand entry", never as an error.
 - `analyst.py`: what-if tool loop over `run_simulation`, `solve_plan`, `compare_plans` (max 6 calls, each logged and shown in the UI).
-- Consequence: changing a prompt string, prompt version (`*_VERSION` in `agent.py` / `analyst.py`) or a demo input invalidates its cached answer, so the offline demo and the cache-replay tests fall back to templates until the answers are re-generated live. Bump the version deliberately and re-warm.
+- Consequence: changing a prompt string, prompt version (`*_VERSION` in `agent.py` / `analyst.py`), a demo input, **or anything that changes the engine's numbers** (they appear in memo and analyst prompts) invalidates cached answers, so the offline demo falls back to templates until they are re-generated live. Re-warm with `bunon.warm_cache`, then walk the app once in live mode; the sweep fails if intake is not cached.
 
 UI: `app.py` (single file). Demo login gate → welcome page → eight numbered sections (order, funnel, reliability, plans, recommended, memo, disruption, what-if). Approvals go to `decisions.py` (SQLite in `data/runtime/`, by role, never by name; `BUNON_DECISIONS_DB` overrides the path in tests). LLM steps are memoised per session with `llm_once`, not `st.cache_data`, so one visitor's failure is not shared. Look and feel: base theme in `.streamlit/config.toml`, everything else in the single `THEME_CSS` block in `app.py`.
 

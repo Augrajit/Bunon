@@ -63,7 +63,7 @@ Generated only for the 1,748 T-shirt-capable open factories, from the **public**
 |---|---|
 | `declared_daily_capacity` | workers × U(0.55, 0.70) sewing share × 40 pcs/operator/day (**assumption**) × d |
 | `declared_spare_daily` | 35% fully booked (0). Otherwise min(Beta(2, 200) × declared, 1,000). **Calibrated, not measured** (see §3) |
-| `unit_price_bdt` | 30 BDT (**assumption**) × lognormal, sd 12%, rank correlation with θ about +0.2 (cheaper is slightly less reliable). Realised: p10 25.6, median 30.0, p90 34.8 |
+| `unit_price_bdt` | CM (cut-make) rate: 60 BDT (**placeholder** from the expert interview, §6: about 150 BDT per set × 40% for a T-shirt) × lognormal, sd 12%, rank correlation with θ about +0.2 (cheaper is slightly less reliable). Realised: p10 51.1, median 60.0, p90 69.6. Was 30 BDT before SPEC.md D12 |
 | `min_batch` | from {500, 1,000, 2,000, 3,000}, larger for bigger factories |
 | `setup_days` | U{3..7} |
 
@@ -71,15 +71,15 @@ Generated only for the 1,748 T-shirt-capable open factories, from the **public**
 
 - Jobs per factory: a mixture of Poisson(1) 20%, Poisson(6) 30%, Poisson(18) 50%, offered between 2023-11-01 and 2026-10-31.
 - **Realised:** 19,497 offers, 14,574 accepted. Clean accepted jobs per factory: 0–2 jobs for 432 factories, 3–10 for 683, 11+ for 633.
-- Delivered = committed × fill. Fill = sigmoid(θ + N(0, 0.35)), reduced by:
-  - **over-stretch:** committed > 0.9 × true capacity → × U(0.75, 0.95). Factories that over-declare get over-stretched more often.
-  - **Eid months** (approximate: Apr & Jun 2024, Mar & Jun 2025, Mar & May 2026) → × 0.9
+- Delivered = committed × fill. Two-part fill (SPEC.md D2): delivered in full with p_full = sigmoid(θ), θ ~ N(1.0, 0.8) + 0.3 if compliant + 0.15 × size; otherwise a short delivery, fill = sigmoid(2.2 + 0.3·z(θ) + N(0, 0.5)). Then reduced by:
+  - **over-stretch:** committed above TRUE capacity → × U(0.85, 0.97). Factories that over-declare get over-stretched more often.
   - **district shocks:** 3% per (district, month) → × U(0.5, 0.8), +5–15 days, for every job in that district that month
   - **national shocks:** 2% per month → × U(0.85, 0.95), +2–5 days
-  - **catastrophes:** 2% of jobs → fill U(0, 0.4)
-- Delay: late with P(late) (+0.10 in Jun–Sep monsoon), days ~ Gamma(1.5, scale), +2 in the monsoon.
-- **Data-entry errors, deliberately injected:** 1% of accepted jobs, either ×10 quantity or a negative delay. 154 rows, caught by `flag_bad_history_rows`.
-- **Realised on clean accepted jobs:** mean fill 0.79 (p10 0.61, median 0.82), 36% late, 5.5% shock-tagged.
+  - **catastrophes:** 1% of jobs → fill U(0, 0.4)
+- Delay: late with P(late) (+0.05 in Jun–Sep monsoon), days ~ Gamma(1.5, scale), +1 in the monsoon. **Eid months** (approximate: Apr & Jun 2024, Mar & Jun 2025, Mar & May 2026) add 2–4 days to a job that is already late; they cost days, not quantity (SPEC.md D3).
+- **QC at the exporter (SPEC.md D12, placeholders until the interview gives figures):** each factory has a true defect rate (Beta, mean 2%, slightly lower for more reliable factories) and a chance that a whole delivered lot fails final QC (Beta, mean 2%). Per job: `qc_rejected_qty` = delivered × a job rate around the factory's rate, or all delivered pieces if the lot fails (`lot_rejected`). Generated from a separate random stream, so every earlier synthetic value is unchanged.
+- **Data-entry errors, deliberately injected:** 1% of accepted jobs, either ×10 quantity or a negative delay. 151 rows, caught by `flag_bad_history_rows`.
+- **Realised on clean accepted jobs** (14,423; recomputed 26 Nov 2026): mean fill 0.93 (p10 0.82, median 1.0; 56% delivered in full), 24% late, 4.8% shock-tagged. QC: mean defect rate 2.1% (median 1.3%, p90 5.5%) on lots that pass; 2.0% of lots rejected whole. Clean accepted jobs per factory: 0–2 for 430 factories, 3–10 for 687, 11+ for 631.
 
 ### "No hero" checks (tests)
 
@@ -91,7 +91,7 @@ Generated only for the 1,748 T-shirt-capable open factories, from the **public**
 
 ## 3. Assumptions that need real numbers
 
-Every assumption lives in `bunon/config.py`, marked `ASSUMPTION`, and is listed with its placeholder in `RESEARCH_ASKS.md`.
+Every assumption lives in `bunon/config.py`, marked `ASSUMPTION` or `PLACEHOLDER`, and is listed with its placeholder in `RESEARCH_ASKS.md`.
 **The most influential one** is spare capacity (`SPARE_SHARE_BETA`, `SPARE_DAILY_CAP`). It was calibrated once on 14 Nov 2026 to the rule fixed in PLAN.md §3, before any optimisation result existed: "the median feasible candidate can make 8–15% of the subcontract quantity". Result: 13.8%.
 
 | Assumption | Value | Provided by |
@@ -99,9 +99,13 @@ Every assumption lives in `bunon/config.py`, marked `ASSUMPTION`, and is listed 
 | pcs per sewing operator per day | 40 | placeholder |
 | sewing share of workers | 55–70% | placeholder |
 | fully booked share / spare share / cap | 35% / Beta(2, 200) / 1,000 pcs/day | placeholder, calibrated |
-| CM price, basic tee | 30 BDT | placeholder |
+| CM price, basic tee | 60 BDT (150 BDT per set × 40%) | interview (per-set rate) + placeholder (T-shirt share) |
+| exporter-supplied material | 350 BDT/kg × 0.19 kg + 10 BDT trims = 76.5 BDT/pc | interview (300–400 BDT/kg) + placeholders |
+| delivery tolerance | 2% (success = good pieces ≥ 98% of Q) | interview (principle) + placeholder (value) |
+| QC defect rate / whole-lot rejection | mean 2% / mean 2% | placeholder |
+| expected loss if the subcontracted part fails | 4,400,000 BDT default; a manager input in the app | placeholder |
 | FOB, basic tee | USD 2.40 | placeholder |
-| late penalty | 5% of FOB per week | placeholder |
+| late penalty (buyer email, fictional) | 5% of FOB per week; no longer sets the loss (D12) | placeholder |
 | truck cost / pcs per truck | 60 BDT/km / 12,000 | placeholder |
 | delivery point | Gazipur (24.00, 90.42) | placeholder; confirm with a real exporter |
 
@@ -111,7 +115,7 @@ Every assumption lives in `bunon/config.py`, marked `ASSUMPTION`, and is listed 
 
 The code was written with Claude Code (Anthropic) as pair programmer. Development prompts and product prompts are listed in `PROMPTS.md`.
 
-## 4. Images
+## 5. Images
 
 | File | Source | Author | Licence | Size |
 |---|---|---|---|---|
@@ -119,3 +123,20 @@ The code was written with Claude Code (Anthropic) as pair programmer. Developmen
 | `assets/factory_floor.jpg` (login background, welcome banner) | Wikimedia Commons, [File:Working_conditions_of_Garment_workers_in_Bangladesh.jpg](https://commons.wikimedia.org/wiki/File:Working_conditions_of_Garment_workers_in_Bangladesh.jpg) (taken 24 Jul 2013). Downloaded 19 Nov 2026 and resized from 4608×3456 to 1600×1200 (JPEG q82); no other edits. The full-size original stays local in `data/image/` (gitignored). | Fahad Faisal | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/); the resized copy is shared under the same licence | 260 KB |
 
 The app shows the credit "Photo: Fahad Faisal, CC BY-SA 4.0, via Wikimedia Commons (resized)", with links to the source page and the licence, on the login and welcome pages. The SVG is shown only if the photo file is missing, with its own credit. No other images are embedded. A reference photo of unknown licence suggested during design review was not used.
+
+## 6. Expert interview (single-source input)
+
+| | |
+|---|---|
+| Source | One anonymised interview with a businessperson who works in garment subcontracting in Bangladesh, conducted by the Bunon team, November 2026. Name withheld; the notes stay with the team. |
+| Status | **Single-source expert input.** Directions are used; the numbers stay labelled placeholders until confirmed (a follow-up interview is planned). |
+| Used in | SPEC.md D12, `bunon/config.py` (section "Success, quality and loss" and the CM price block) |
+
+What it changed:
+- **Success rule:** an order succeeds if the good pieces delivered by the deadline reach (1 − tolerance) × the subcontracted quantity, not 100% of it. Tolerance placeholder 2%, adjustable in the app.
+- **Quality:** QC rejects some pieces, and a whole lot can occasionally fail; only good pieces count. Defect rate and lot rejection are placeholders (2% each).
+- **Delays** are frequent but usually short (1–2 days). Buyers often keep a hidden cushion of 5–7 days, but **Bunon plans to the buyer's stated date** and does not use that cushion.
+- **Prices:** sewing about 150 BDT per set (top + trousers); a T-shirt-only rate is not confirmed (placeholder 40% of a set). Fabric 300–400 BDT/kg (placeholder 350 BDT/kg × 0.19 kg per shirt). On a CM basis the exporter supplies the fabric (to be confirmed).
+- **Loss on failure** is the manager's estimate, entered in the app; it is not read from the buyer email.
+- **Safety margin** (minimum over-allocation) is optional, default 0%.
+- **Delivery point:** subcontractors deliver to the exporter's own factory (the Gazipur point).

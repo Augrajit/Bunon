@@ -1,4 +1,4 @@
-"""Monte Carlo bundle risk: P(total on-time delivery >= Q) (PLAN.md §6).
+"""Monte Carlo bundle risk: P(good pieces delivered on time >= (1 - tolerance) x Q) (PLAN.md §6, SPEC.md D12).
 
 Per draw:
   - full delivery:     w.p. p_full_i ~ Beta(p_full_a, p_full_b), fill_i = 1
@@ -8,6 +8,10 @@ Per draw:
   - shocks (mode "shocks"): one national shock and per-district shocks, shared by
     every factory they hit -> correlated failures
   - on time if delay <= slack_i; otherwise partial lots (default) or 0 ("late = 0" toggle)
+  - QC (when the forecasts carry a QC model): a job defect rate ~ Beta, and a whole lot fails QC
+    with p_lot_reject (itself drawn from its Beta posterior); only good pieces count.
+  - success: total good on-time pieces >= plan.min_good_qty (= ceil((1 - tolerance) x Q)).
+The delivered_p5 / delivered_p50 / histogram / shortfall figures are in GOOD pieces.
 """
 from __future__ import annotations
 
@@ -28,10 +32,11 @@ def simulate(plan: AllocationPlan, forecasts: dict[str, ReliabilityForecast], sl
     ids = [ln.factory_id for ln in plan.lines]
     k = len(ids)
     mode = "shocks" if shocks is not None else "independent"
+    need = plan.min_good_qty if plan.min_good_qty is not None else plan.target_qty
     if k == 0:
         return BundleRisk(plan_id=plan.plan_id, n_sims=n_sims, seed=seed, p_meet_qty=0.0, p_meet_se=0.0,
-                          expected_delivered=0.0, delivered_p5=0, delivered_p50=0, shortfall_p95=plan.target_qty,
-                          histogram=[], fail_contribution={}, correlation_mode=mode)
+                          expected_delivered=0.0, delivered_p5=0, delivered_p50=0, shortfall_p95=need,
+                          histogram=[], fail_contribution={}, correlation_mode=mode, min_good_qty=need)
 
     f = [forecasts[i] for i in ids]
     qty = np.array([ln.qty for ln in plan.lines], float)
@@ -82,20 +87,31 @@ def simulate(plan: AllocationPlan, forecasts: dict[str, ReliabilityForecast], sl
         W = np.array([window_days[i] for i in ids], float)
         frac = np.where(on_time, 1.0, (W + sl) / (W + np.maximum(delay, 1)))
     delivered_i = qty * np.minimum(fill, 1.0) * frac
-    total = delivered_i.sum(axis=1)
-    ok = total >= plan.target_qty
+    lot_rej = np.zeros((n_sims, k), bool)
+    good_i = delivered_i
+    has_qc = [x.qc_defect_a is not None for x in f]
+    if any(has_qc) and not all(has_qc):
+        raise ValueError("either every factory in the plan has a QC model or none does")
+    if all(has_qc):  # QC model present (SPEC.md D12); drawn last
+        rate = rng.beta(np.array([x.qc_defect_a for x in f]), np.array([x.qc_defect_b for x in f]), (n_sims, k))
+        p_lot = rng.beta(np.array([x.p_lot_reject_a for x in f]), np.array([x.p_lot_reject_b for x in f]), (n_sims, k))
+        lot_rej = rng.random((n_sims, k)) < p_lot
+        good_i = np.where(lot_rej, 0.0, delivered_i * (1 - rate))
+    total = good_i.sum(axis=1)
+    ok = total >= need
     p = float(ok.mean())
 
     failed = ~ok
-    short = (~on_time) | cat
+    short = (~on_time) | cat | lot_rej
     contrib = {i: (float(short[failed, j].mean()) if failed.any() else 0.0) for j, i in enumerate(ids)}
     counts, edges = np.histogram(total, bins=30)
     return BundleRisk(
         plan_id=plan.plan_id, n_sims=n_sims, seed=seed, p_meet_qty=p,
         p_meet_se=float(np.sqrt(p * (1 - p) / n_sims)),
-        expected_delivered=float(total.mean()),
+        expected_delivered=float(delivered_i.sum(axis=1).mean()),
+        expected_good=float(total.mean()), min_good_qty=need,
         delivered_p5=int(np.percentile(total, 5)), delivered_p50=int(np.percentile(total, 50)),
-        shortfall_p95=int(max(0.0, plan.target_qty - np.percentile(total, 5))),
+        shortfall_p95=int(max(0.0, need - np.percentile(total, 5))),
         histogram=[(int(e), int(c)) for e, c in zip(edges[:-1], counts)],
         fail_contribution=contrib, correlation_mode=mode,
     )

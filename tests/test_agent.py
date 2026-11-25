@@ -86,7 +86,7 @@ def test_cache_roundtrip_and_offline(tmp_path):
 
 GOOD_INTAKE = {
     "total_qty": {"value": 150000, "source_span": "Quantity: 150,000 pcs in total"},
-    "deadline": {"value": "2026-12-20", "source_span": "no later than 20 December 2026"},
+    "deadline": {"value": "2027-01-31", "source_span": "no later than 31 January 2027"},
     "delivery_terms": {"value": "FOB Chattogram", "source_span": "FOB Chattogram"},
     "fabric": {"value": "100% cotton single jersey, 160 GSM", "source_span": "100% cotton single jersey, 160 GSM, reactive dyed"},
     "gsm": {"value": 160, "source_span": "160 GSM"},
@@ -103,7 +103,7 @@ def test_intake_happy_path(tmp_path):
     res = ag.parse_order(EMAIL, 100_000, client(tmp_path, GOOD_INTAKE))
     assert res.order is not None and not res.issues
     assert res.order.total_qty == 150_000 and res.order.subcontract_qty == 50_000
-    assert res.order.deadline == date(2026, 12, 20)
+    assert res.order.deadline == date(2027, 1, 31)
     assert res.order.fob_usd_per_piece == 2.4 and res.order.late_penalty_pct_per_week == 5
 
 
@@ -243,30 +243,30 @@ def _reply(decision, span, qty=None, qspan=None, delay=None, dspan=None, conds=(
 
 def test_reply_counter_quantity_banglish(tmp_path):
     r = REPLIES["counter_qty_banglish"]
-    out = _reply("counter", "14,300 pcs pura parbo na", 9000, "Max 9 hajar pcs dite parbo")
-    res = ag.parse_reply(r["text"], 14_300, client(tmp_path, out))
+    out = _reply("counter", "12,400 pcs pura parbo na", 9000, "Max 9 hajar pcs dite parbo")
+    res = ag.parse_reply(r["text"], 12_400, client(tmp_path, out))
     assert res.decision == "counter" and res.quantity.value == 9000 and res.quantity.status == "ok"
 
 
 def test_reply_accept_with_lower_quantity_becomes_counter(tmp_path):
     r = REPLIES["counter_qty_banglish"]
     out = _reply("accept", "dite parbo same date e", 9000, "Max 9 hajar pcs dite parbo")
-    res = ag.parse_reply(r["text"], 14_300, client(tmp_path, out))
+    res = ag.parse_reply(r["text"], 12_400, client(tmp_path, out))
     assert res.llm_decision == "accept" and res.decision == "counter" and res.notes
 
 
 def test_reply_delay_and_condition(tmp_path):
     r = REPLIES["counter_delay_banglish"]
-    out = _reply("counter", "delivery 5 din late hobe", 12200, "12,200 pcs thik ache", 5, "delivery 5 din late hobe",
+    out = _reply("counter", "delivery 5 din late hobe", 13100, "13,100 pcs thik ache", 5, "delivery 5 din late hobe",
                  [("advance payment required", "Advance 30% lagbe")])
-    res = ag.parse_reply(r["text"], 12_200, client(tmp_path, out))
+    res = ag.parse_reply(r["text"], 13_100, client(tmp_path, out))
     assert res.decision == "counter" and res.delay_days.value == 5 and res.conditions[0].status == "ok"
 
 
 def test_reply_invented_number_is_dropped(tmp_path):
     r = REPLIES["counter_qty_banglish"]
-    out = _reply("counter", "14,300 pcs pura parbo na", 10000, "Max 9 hajar pcs dite parbo")  # 10000 not stated
-    res = ag.parse_reply(r["text"], 14_300, client(tmp_path, out))
+    out = _reply("counter", "12,400 pcs pura parbo na", 10000, "Max 9 hajar pcs dite parbo")  # 10000 not stated
+    res = ag.parse_reply(r["text"], 12_400, client(tmp_path, out))
     assert res.quantity.status == "rejected" and res.quantity.value is None
 
 

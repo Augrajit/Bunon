@@ -239,6 +239,10 @@ class Fact:
 FactSheet = dict[str, Fact]
 
 
+def _min_good(plan) -> int:
+    return plan.min_good_qty if plan.min_good_qty is not None else plan.target_qty
+
+
 def factsheet_for_plan(order: OrderConstraints, comparison: dict, match, cands, slack: int, target_p: float,
                        n_compliant: int) -> FactSheet:
     """Everything the initial memo may cite. Factory references use pseudonymous IDs only."""
@@ -254,9 +258,12 @@ def factsheet_for_plan(order: OrderConstraints, comparison: dict, match, cands, 
         "order.deadline": Fact(order.deadline, "date", "fixed delivery deadline"),
         "funnel.compliant": Fact(n_compliant, "int", "T-shirt factories that are RSC-covered or hold a valid BSCI audit"),
         "funnel.candidates": Fact(len(cands), "int", "of those, with spare capacity that fits the deadline"),
-        "plan.target_p": Fact(target_p, "prob", "target probability of on-time full delivery"),
+        "plan.target_p": Fact(target_p, "prob", "target probability of on-time delivery within tolerance"),
         "plan.slack_days": Fact(slack, "days", "planned slack before the latest finish date"),
-        "plan.p_meet": Fact(rec.risk.p_meet_qty, "prob", "recommended plan: probability that the subcontracted quantity (order.subcontract_qty) is delivered in full and on time"),
+        "plan.tolerance": Fact(1 - _min_good(rec.plan) / rec.plan.target_qty, "pct",
+                               "accepted shortfall: success means good pieces of at least (1 - this) of Q"),
+        "plan.min_good": Fact(_min_good(rec.plan), "qty", "good pieces (after QC) needed by the deadline for success"),
+        "plan.p_meet": Fact(rec.risk.p_meet_qty, "prob", "recommended plan: probability that the subcontracted quantity (order.subcontract_qty) arrives on time as good pieces, within the delivery tolerance"),
         "plan.buffer_pct": Fact(rec.buffer_pct, "pct", "recommended plan: over-allocation buffer"),
         "plan.pieces": Fact(rec.plan.total_allocated, "qty", "recommended plan: pieces allocated"),
         "plan.buffer_pieces": Fact(rec.plan.buffer_qty, "qty", "recommended plan: buffer pieces above Q"),
@@ -264,9 +271,9 @@ def factsheet_for_plan(order: OrderConstraints, comparison: dict, match, cands, 
         "plan.buffer_cost": Fact(rec.plan.cost_buffer, "bdt", "recommended plan: price of the buffer"),
         "plan.n_factories": Fact(len(rec.plan.lines), "int", "recommended plan: number of factories"),
         "plan.target_met": Fact("yes" if comparison["ours"].target_met else "no", "text", "does the plan reach the target"),
-        "base.p_meet": Fact(bl.risk.p_meet_qty if bl.risk else 0.0, "prob", "naive plan (declared capacity + lowest price): probability that the subcontracted quantity is delivered in full and on time"),
+        "base.p_meet": Fact(bl.risk.p_meet_qty if bl.risk else 0.0, "prob", "naive plan (declared capacity + lowest price): probability that the subcontracted quantity arrives on time as good pieces, within the delivery tolerance"),
         "base.cost_total": Fact(bl.plan.cost_total, "bdt", "naive plan: total cost"),
-        "basebuf.p_meet": Fact(bb.risk.p_meet_qty if bb.risk else 0.0, "prob", "naive plan with the same buffer: probability that the subcontracted quantity is delivered in full and on time"),
+        "basebuf.p_meet": Fact(bb.risk.p_meet_qty if bb.risk else 0.0, "prob", "naive plan with the same buffer: probability that the subcontracted quantity arrives on time as good pieces, within the delivery tolerance"),
         "basebuf.cost_total": Fact(bb.plan.cost_total, "bdt", "naive plan with the same buffer: total cost"),
     }
     if match is not None:
@@ -280,7 +287,7 @@ def factsheet_for_plan(order: OrderConstraints, comparison: dict, match, cands, 
         fs[f"line.{fid}.share"] = Fact(ln.share, "pct", f"{fid}: share of allocation")
         fs[f"line.{fid}.district"] = Fact(by_id[fid].district, "text", f"{fid}: district")
         fs[f"line.{fid}.fail_share"] = Fact(rec.risk.fail_contribution.get(fid, 0.0), "pct",
-                                            f"{fid}: share of failed simulations in which it was short or late")
+                                            f"{fid}: share of failed simulations in which it was short, late or had its lot rejected at QC")
     for d, s in district_shares(rec.plan, cands).items():
         fs[f"district.{d}.share"] = Fact(s, "pct", f"share of pieces in district {d}")
     return fs
@@ -292,9 +299,9 @@ def factsheet_for_replan(base: FactSheet, rp) -> FactSheet:
     fs: FactSheet = {k: v for k, v in base.items() if k.startswith(("order.", "plan.target_p", "plan.slack_days"))}
     fs.update({
         "replan.reason": Fact(rp.reason, "text", "what happened to the declining factory, a complete phrase: write \"{{fac:ID}} {{replan.reason}}\""),
-        "old.p_meet": Fact(old.risk.p_meet_qty, "prob", "original plan: probability that the subcontracted quantity is delivered in full and on time"),
+        "old.p_meet": Fact(old.risk.p_meet_qty, "prob", "original plan: probability that the subcontracted quantity arrives on time as good pieces, within the delivery tolerance"),
         "old.cost_total": Fact(old.plan.cost_total, "bdt", "original plan: total cost"),
-        "new.p_meet": Fact(new.risk.p_meet_qty if new.risk else 0.0, "prob", "new plan: probability that the subcontracted quantity is delivered in full and on time"),
+        "new.p_meet": Fact(new.risk.p_meet_qty if new.risk else 0.0, "prob", "new plan: probability that the subcontracted quantity arrives on time as good pieces, within the delivery tolerance"),
         "new.cost_total": Fact(new.plan.cost_total, "bdt", "new plan: total cost"),
         "new.cost_delta": Fact(new.plan.cost_total - old.plan.cost_total, "bdt_delta", "cost change"),
         # Actual buffer: after locks the solver's grid buffer can read 0 while the plan still over-allocates.
@@ -460,7 +467,7 @@ def template_memo(kind: Literal["initial", "replan"], fs: FactSheet) -> MemoLLM:
                    and fs[f"diff.{fid}.old_qty"].value != fs[f"diff.{fid}.new_qty"].value]
         return MemoLLM(
             summary=("{{fac:" + str(fs["replan.excluded"].value) + "}} {{replan.reason}}. The re-plan reaches "
-                     "{{new.p_meet}} probability of on-time full delivery (was {{old.p_meet}}) at a cost of "
+                     "{{new.p_meet}} probability of on-time delivery within tolerance (was {{old.p_meet}}) at a cost of "
                      "{{new.cost_total}} ({{new.cost_delta}})."),
             recommendation="Approve the re-plan with {{new.n_factories}} factories and a {{new.buffer_pct}} buffer.",
             rejected_alternatives=["Keeping the original plan unchanged ignores the factory's reply and leaves the order at risk."],
@@ -485,7 +492,7 @@ def template_memo(kind: Literal["initial", "replan"], fs: FactSheet) -> MemoLLM:
                      "simulated failures: watch it closely.")
     return MemoLLM(
         summary=("Allocate {{plan.pieces}} pieces ({{plan.buffer_pct}} buffer) across {{plan.n_factories}} "
-                 "factories. Probability of on-time full delivery: {{plan.p_meet}} against a target of "
+                 "factories. Probability of on-time delivery within tolerance: {{plan.p_meet}} against a target of "
                  "{{plan.target_p}}; total cost {{plan.cost_total}}, of which the buffer is {{plan.buffer_cost}}."),
         recommendation="Approve this allocation: " + alloc + ".",
         rejected_alternatives=rejected,
@@ -756,7 +763,7 @@ SteerField = Literal["target_p", "planned_slack_days", "max_factories", "unprove
 
 # field -> (kind, min, max, meaning). "frac" values are fractions; instructions say them as percentages.
 STEER_FIELDS: dict[str, tuple[str, float, float, str]] = {
-    "target_p": ("frac", 0.50, 0.99, "target probability of on-time full delivery"),
+    "target_p": ("frac", 0.50, 0.99, "target probability of on-time delivery within tolerance"),
     "planned_slack_days": ("int", 0, 10, "days of slack planned before the latest finish date"),
     "max_factories": ("int", 1, 5, "maximum number of subcontract factories"),
     "unproven_cap_pct": ("frac", 0.0, 0.30, "maximum share of pieces at factories with little history"),

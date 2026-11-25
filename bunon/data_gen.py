@@ -82,7 +82,7 @@ def _has(series: pd.Series, word: str) -> pd.Series:
 
 # --- step 1: clean the real export ------------------------------------------
 
-def clean_osh(raw: pd.DataFrame, as_of: date = C.AS_OF) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+def clean_osh(raw: pd.DataFrame, as_of: date = C.DATA_AS_OF) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Return (public factories table, private mapping, counts)."""
     df = raw[_RAW_COLS].copy()
     counts = {"raw_rows": len(df)}
@@ -292,6 +292,24 @@ def generate_synthetic(factories: pd.DataFrame, seed: int = C.SYNTH_SEED
         "unit_price_bdt": np.where(accepted, np.round(price[idx] * rng.uniform(0.95, 1.05, m), 2), None),
         "shock_tag": np.where(accepted, tag, None),
     })
+    # QC at the exporter (SPEC.md D12). A separate random stream, so adding QC leaves every
+    # earlier synthetic value unchanged. Per factory: a true defect rate (slightly lower for more
+    # reliable factories) and a small chance that a whole delivered lot fails final QC.
+    qrng = np.random.default_rng(seed + 1_000)
+    def _beta(mean, conc, size=None):
+        return qrng.beta(mean * conc, (1 - mean) * conc, size)
+    logit0 = np.log(C.QC_DEFECT_MEAN / (1 - C.QC_DEFECT_MEAN))
+    defect_mean_i = _sigmoid(logit0 + C.QC_DEFECT_THETA_COEF * z_theta)
+    defect_i = _beta(defect_mean_i, C.QC_DEFECT_FACTORY_CONC)
+    p_lot_i = _beta(np.full(n, C.QC_LOT_REJECT_MEAN), C.QC_LOT_REJECT_CONC)
+    rate_j = _beta(np.clip(defect_i[idx], 1e-4, 0.5), C.QC_DEFECT_JOB_CONC)
+    lot_rej = qrng.random(m) < p_lot_i[idx]
+    qc_rejected = np.where(lot_rej, delivered, np.round(delivered * rate_j)).astype(int)
+    hidden["true_defect_rate"] = defect_i
+    hidden["true_p_lot_reject"] = p_lot_i
+    history["qc_rejected_qty"] = np.where(accepted, qc_rejected, None)
+    history["lot_rejected"] = np.where(accepted, lot_rej, None)
+
     history = history.sort_values(["offered_date", "job_id"]).reset_index(drop=True)
     return synth, history, hidden
 
@@ -343,7 +361,7 @@ def load_public(path: Path = C.PUBLIC_DB) -> dict[str, pd.DataFrame]:
 
 
 def build(raw_csv: Path = C.RAW_CSV, db: Path = C.PUBLIC_DB, mapping_path: Path = C.PRIVATE_MAPPING,
-          seed: int = C.SYNTH_SEED, as_of: date = C.AS_OF) -> DataGenReport:
+          seed: int = C.SYNTH_SEED, as_of: date = C.DATA_AS_OF) -> DataGenReport:
     raw = pd.read_csv(raw_csv, dtype=str, keep_default_na=False, encoding="utf-8")
     public, mapping, counts = clean_osh(raw, as_of)
     synth, history, _ = generate_synthetic(public, seed)

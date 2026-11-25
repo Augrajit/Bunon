@@ -199,11 +199,14 @@ def test_partial_lots_never_lower_than_all_or_nothing(world, order):
 
 
 def test_replan_can_be_infeasible_and_says_so():
-    """Seen live 18 Nov: max 3 factories + 10% unproven cap, largest factory declines. No plan covers the
-    order; the result must carry no risk (the app then shows 'No feasible re-plan' instead of crashing)."""
+    """Seen live 18 Nov (then: max 3 factories + 10% unproven cap, decline on day 3). Since SPEC.md D12 the
+    January order has a shorter window, so the case is now: max 4 factories, the largest factory declines
+    on day 12. No plan covers the order; the result must carry no risk (the app shows 'No feasible
+    re-plan' instead of crashing)."""
     w = op.load_world()
     order = op.demo_order()
-    p = op.default_params(order, max_factories=3, unproven_cap_pct=0.10)
+    p = op.default_params(order, max_factories=4)
     rec = op.compare_three(w, order, p)["ours"].recommended
-    rp = op.replan_locked(w, order, p, rec, op.largest_line(rec), days_elapsed=3)
+    assert rec.plan.lines, "the initial plan must exist for this test to mean anything"
+    rp = op.replan_locked(w, order, p, rec, op.largest_line(rec), days_elapsed=12)
     assert rp.new.risk is None and rp.new.plan.status != "optimal" and not rp.new.plan.lines

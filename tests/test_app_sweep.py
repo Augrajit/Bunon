@@ -22,13 +22,14 @@ pytestmark = [
 ]
 
 APP = str(Path(__file__).resolve().parents[1] / "app.py")
-DEFAULT = dict(slack=4, target=0.90, max_f=5, unproven=0.15, dcap=0.60)
+DEFAULT = dict(slack=4, target=0.90, max_f=5, unproven=0.15, dcap=0.60, tol=0.02, margin=0.0, loss=4_400_000.0)
 CASES = [("default", {})]
 for _k, _vals in (("slack", [0, 10]), ("target", [0.50, 0.99]), ("max_f", [1, 2, 3, 4]),
-                  ("unproven", [0.0, 0.30]), ("dcap", [0.30, 1.0])):
+                  ("unproven", [0.0, 0.30]), ("dcap", [0.30, 1.0]), ("tol", [0.0, 0.05]), ("margin", [0.25]),
+                  ("loss", [0.0])):
     CASES += [(f"{_k}={_v}", {_k: _v}) for _v in _vals]
 CASES += [
-    ("max_f=3,unproven=0.1", {"max_f": 3, "unproven": 0.10}),  # the live crash: no feasible re-plan
+    ("max_f=3,unproven=0.1", {"max_f": 3, "unproven": 0.10}),  # the 18 Nov crash settings (no plan since D12)
     ("max_f=1,dcap=0.3", {"max_f": 1, "dcap": 0.30}),
     ("max_f=2,unproven=0,slack=10", {"max_f": 2, "unproven": 0.0, "slack": 10}),
     ("loose", {"unproven": 0.30, "dcap": 1.0, "slack": 0}),
@@ -89,6 +90,10 @@ def test_every_action_at_extreme_settings(name, over, monkeypatch, tmp_path):
         at.toggle[1].set_value(over["_shocks"]).run()
 
     assert r.click("Read the email") and r.click("Confirm order"), r.problems
+    # Guard against a hollow pass: offline intake must come from the cache (re-run `python -m
+    # bunon.warm_cache` after changing the demo email or the intake prompt), and the plan step must render.
+    assert not any("LLM intake unavailable" in w.value for w in at.warning), "intake not cached: run warm_cache"
+    assert any("Plans compared" in h.value for h in at.header), "the plan section did not render"
     r.click(key="approve_plan")
     r.click(prefix="Simulate:")
     r.click(key="approve_replan")
@@ -109,10 +114,10 @@ def test_every_action_at_extreme_settings(name, over, monkeypatch, tmp_path):
     r.click("Interpret")
     assert not r.problems, "\n".join(r.problems)
 
-    if over.get("max_f") in (1, 2):  # no allocation exists: say so plainly, show no empty plan
+    if over.get("max_f") in (1, 2, 3):  # no allocation exists: say so plainly, show no empty plan
         assert any("No feasible plan" in e.value for e in at.error)
-    if over == {"max_f": 3, "unproven": 0.10}:  # the 18 Nov crash: decline leaves no feasible re-plan
-        assert any("No feasible re-plan" in e.value for e in at.error)
+    # The infeasible re-plan itself (18 Nov crash) is covered by
+    # tests/test_engine.py::test_replan_can_be_infeasible_and_says_so (SPEC.md D12).
 
     # logout returns to the login page and forgets the session
     assert r.click(key="logout"), r.problems

@@ -200,7 +200,7 @@ def login_page() -> None:
 STEPS = (
     ("Paste the buyer email", "Bunon reads quantity, deadline and compliance, quoting the email for each. "
      "You confirm the order."),
-    ("Review the reliability forecast", "How likely each compliant factory is to deliver in full and on time, "
+    ("Review the reliability forecast", "How likely each compliant factory is to deliver good pieces on time, "
      "from its (synthetic) history."),
     ("Compare plans", "The naive plan, the naive plan with the same buffer, and Bunon's plan: on-time "
      "probability and cost."),
@@ -294,11 +294,12 @@ def read_email(email: str):
 
 @st.cache_data(show_spinner="Solving the allocation and simulating 20,000 outcomes per plan…")
 def run_plans(order_json: str, slack, target, unproven, district_cap, partial, shocks, max_f=C.MAX_FACTORIES,
-              excluded: tuple = ()):
+              excluded: tuple = (), tol=C.DELIVERY_TOLERANCE_PCT, margin=C.SAFETY_MARGIN_DEFAULT_PCT,
+              loss=C.DEFAULT_LOSS_ON_FAILURE_BDT):
     w = world()
-    order = OrderConstraints.model_validate_json(order_json)
+    order = OrderConstraints.model_validate_json(order_json).model_copy(update={"loss_on_failure_bdt": loss})
     p = op.default_params(order, planned_slack_days=slack, unproven_cap_pct=unproven, max_district_share=district_cap,
-                          max_factories=max_f, excluded_ids=list(excluded))
+                          max_factories=max_f, excluded_ids=list(excluded), tolerance_pct=tol, min_buffer_pct=margin)
     cands = op.build_candidates(w, order, p)
     comp = op.compare_three(w, order, p, target_p=target, shocks=shocks, partial_lots=partial)
     rec = comp["ours"].recommended
@@ -421,7 +422,7 @@ def bdt_m(x: float) -> str:
 def plan_row(name, pt, cands) -> dict:
     shares = op.district_shares(pt.plan, cands) if pt.plan.lines else {}
     return {"Plan": name,
-            "P(on-time full delivery)": None if pt.risk is None else round(pt.risk.p_meet_qty, 3),
+            "P(on time, within tolerance)": None if pt.risk is None else round(pt.risk.p_meet_qty, 3),
             "Buffer": f"{pt.buffer_pct:.1%}", "Factories": len(pt.plan.lines), "Pieces": pt.plan.total_allocated,
             "Cost (BDT)": round(pt.plan.cost_total), "Buffer price (BDT)": round(pt.plan.cost_buffer),
             "Districts": ", ".join(f"{k} {v:.0%}" for k, v in shares.items()), "Status": pt.plan.status}
@@ -485,10 +486,23 @@ with st.sidebar:
     st.selectbox("Acting as (recorded in the decision log)", dl.ROLES, key="role")
     st.header("Planning controls")
     for k, v in (("slack", C.PLANNED_SLACK_DAYS), ("target", C.TARGET_P_MEET), ("unproven", C.UNPROVEN_CAP_PCT),
-                 ("dcap", C.DISTRICT_CAP_SHARE), ("max_f", C.MAX_FACTORIES), ("excluded", [])):
+                 ("dcap", C.DISTRICT_CAP_SHARE), ("max_f", C.MAX_FACTORIES), ("excluded", []),
+                 ("tol", C.DELIVERY_TOLERANCE_PCT), ("margin", C.SAFETY_MARGIN_DEFAULT_PCT),
+                 ("loss", C.DEFAULT_LOSS_ON_FAILURE_BDT)):
         st.session_state.setdefault(k, v)
     slack = st.slider("Planned slack before latest finish (days)", 0, 10, key="slack")
-    target = st.slider("Target P(on-time full delivery)", 0.50, 0.99, step=0.01, key="target")
+    target = st.slider("Target P(on time, within tolerance)", 0.50, 0.99, step=0.01, key="target",
+                       help="Probability that the good pieces delivered by the deadline reach (1 − tolerance) "
+                            "of the subcontracted quantity.")
+    tol = st.slider("Accepted shortfall (tolerance)", 0.0, 0.05, step=0.005, key="tol", format="%.3f",
+                    help="Success = good pieces after QC ≥ (1 − tolerance) × subcontracted quantity. "
+                         "Placeholder 2% from the expert interview.")
+    margin = st.slider("Safety margin: minimum over-allocation", 0.0, 0.25, step=0.025, key="margin",
+                       help="Optional; default 0%. Bunon may still recommend a larger buffer to reach the target.")
+    loss = st.number_input("Expected loss if the subcontracted part fails (BDT)", 0.0, 1e9, step=100_000.0,
+                           key="loss", format="%.0f",
+                           help="Your estimate: penalties, air freight, lost margin. Not read from the email. "
+                                "Default is a placeholder.")
     max_f = st.slider("Max number of factories", 1, 5, key="max_f")
     unproven = st.slider("Cap on unproven factories (share of pieces)", 0.0, 0.30, step=0.05, key="unproven")
     dcap = st.slider("Max share of pieces per district (100% = no cap)", 0.30, 1.0, step=0.05, key="dcap")
@@ -576,7 +590,7 @@ if "order_json" not in st.session_state:
 
 args = (st.session_state["order_json"], int(slack), round(float(target), 2), round(float(unproven), 2),
         round(float(dcap), 2) if dcap < 1.0 else None, bool(partial), bool(shocks), int(max_f),
-        tuple(sorted(st.session_state["excluded"])))
+        tuple(sorted(st.session_state["excluded"])), round(float(tol), 3), round(float(margin), 3), float(loss))
 out = run_plans(*args)
 order, cands, comp, match = out["order"], out["cands"], out["comp"], out["match"]
 ours, rec = comp["ours"], comp["ours"].recommended
@@ -623,7 +637,7 @@ if rec.risk is None:  # the optimiser found no allocation at all under these lim
 bl, bb = comp["baseline"], comp["baseline_buffered"]
 h = st.columns(3)
 h[0].metric("Naive: declared capacity + lowest price", f"{bl.risk.p_meet_qty:.0%}" if bl.risk else "—",
-            help="P(on-time full delivery of the subcontracted quantity)")
+            help="P(good pieces delivered by the deadline ≥ (1 − tolerance) × subcontracted quantity)")
 h[1].metric(f"Naive + same {rec.buffer_pct:.0%} buffer", f"{bb.risk.p_meet_qty:.0%}" if bb.risk else "—")
 h[2].metric("Bunon recommendation", f"{rec.risk.p_meet_qty:.0%}" if rec.risk else "—")
 if not ours.target_met:
@@ -643,7 +657,7 @@ fig.add_trace(go.Scatter(x=fr["buffer"], y=fr["ours"], mode="lines+markers", nam
 fig.add_trace(go.Scatter(x=fr["buffer"], y=fr["baseline"], mode="lines+markers", name="Naive + same buffer"))
 fig.add_hline(y=target, line_dash="dot", annotation_text=f"target {target:.0%}")
 fig.update_layout(height=320, margin=dict(l=10, r=10, t=30, b=10), xaxis_tickformat=".0%", yaxis_tickformat=".0%",
-                  xaxis_title="Over-allocation buffer", yaxis_title="P(on-time full delivery)",
+                  xaxis_title="Over-allocation buffer", yaxis_title="P(on time, within tolerance)",
                   title="What the buffer buys", legend=dict(orientation="h", y=1.12),
                   colorway=["#1E3A5F", "#B7791F"])
 st.plotly_chart(fig, width="stretch")
@@ -654,7 +668,7 @@ m = st.columns(4)
 m[0].metric("Pieces allocated", f"{rec.plan.total_allocated:,}", f"+{rec.plan.buffer_qty:,} buffer")
 m[1].metric("Total cost", bdt_m(rec.plan.cost_total), help=bdt(rec.plan.cost_total))
 m[2].metric("Buffer price", bdt_m(rec.plan.cost_buffer), help=bdt(rec.plan.cost_buffer))
-m[3].metric("P(on-time full delivery)", f"{rec.risk.p_meet_qty:.1%}" if rec.risk else "—",
+m[3].metric("P(on time, within tolerance)", f"{rec.risk.p_meet_qty:.1%}" if rec.risk else "—",
             help=f"±{rec.risk.p_meet_se:.1%} simulation error" if rec.risk else None)
 by_id = {c.factory_id: c for c in cands}
 st.dataframe(pd.DataFrame([{
@@ -755,7 +769,7 @@ def show_replan(rp, rmemo, cands_late, key: str, what: str):
         no_feasible_replan(what)
         return
     d = st.columns(3)
-    d[0].metric("New P(on-time full delivery)", f"{n.risk.p_meet_qty:.1%}" if n.risk else "—",
+    d[0].metric("New P(on time, within tolerance)", f"{n.risk.p_meet_qty:.1%}" if n.risk else "—",
                 delta=f"{(n.risk.p_meet_qty - rec.risk.p_meet_qty) * 100:+.1f} pts" if n.risk else None)
     d[1].metric("New cost", bdt_m(n.plan.cost_total), delta=bdt(n.plan.cost_total - rec.plan.cost_total),
                 delta_color="inverse")
@@ -909,6 +923,9 @@ with tab_news:
             if new.risk is None:
                 no_feasible_replan(f"a {sev} disruption in {area}")
             else:
+                if r["keep_current_is_better"]:
+                    st.warning("Keeping the current plan is at least as likely to succeed under this event as any "
+                               "new plan Bunon found. Do not re-plan for this event alone.")
                 if not r["new_target_met"]:
                     st.error(f"Even a plan made knowing about this cannot reach the {target:.0%} target. "
                              "Escalate to the buyer early.")

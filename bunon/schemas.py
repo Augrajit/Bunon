@@ -66,6 +66,8 @@ class HistoryJob(_Strict):
     delay_days: int | None
     unit_price_bdt: float | None
     shock_tag: str | None
+    qc_rejected_qty: int | None = None   # pieces rejected at the exporter's QC (SPEC.md D12)
+    lot_rejected: bool | None = None     # whole lot failed final QC
 
 
 class DataGenReport(_Strict):
@@ -101,6 +103,7 @@ class OrderConstraints(_Strict):
     fob_usd_per_piece: float | None = None
     late_penalty_pct_per_week: float | None = None
     penalty_text: str | None = None
+    loss_on_failure_bdt: float | None = Field(None, ge=0)   # manager input, never parsed from the email (D12)
     source_spans: dict[str, str] = {}
     missing_fields: list[str] = []
 
@@ -132,6 +135,18 @@ class ReliabilityForecast(_Strict):
     p_catastrophe: float
     accept_prob: float
     model_version: str
+    # QC (SPEC.md D12). None = no QC model (every delivered piece is good), e.g. hand-built test forecasts.
+    qc_defect_mean: float = 0.0       # expected share of delivered pieces rejected at QC
+    qc_defect_a: float | None = None  # Beta for one job's defect rate (job spread + model uncertainty)
+    qc_defect_b: float | None = None
+    p_lot_reject: float = 0.0         # chance a whole delivered lot fails final QC
+    p_lot_reject_a: float | None = None
+    p_lot_reject_b: float | None = None
+
+    @property
+    def good_share(self) -> float:
+        """Expected share of delivered pieces that pass QC."""
+        return (1 - self.p_lot_reject) * (1 - self.qc_defect_mean)
 
 
 class BucketEval(_Strict):
@@ -200,6 +215,8 @@ class OptimizerParams(_Strict):
     unproven_cap_pct: float = Field(0.15, ge=0.0, le=1.0)
     max_district_share: float | None = Field(0.60, gt=0.0, le=1.0)  # None = no district cap
     lot_size: int = Field(100, gt=0)
+    tolerance_pct: float = Field(0.0, ge=0.0, le=0.2)       # success = good >= (1 - tol) x Q (SPEC.md D12)
+    min_buffer_pct: float = Field(0.0, ge=0.0, le=0.5)      # manager's safety margin (default 0%)
     missing_piece_cost_bdt: float = Field(0.0, ge=0.0)
     fixed_cost_per_factory_bdt: float = Field(0.0, ge=0.0)
     excluded_ids: list[str] = []
@@ -221,6 +238,7 @@ class AllocationPlan(_Strict):
     status: Literal["optimal", "infeasible", "not_solved"]
     lines: list[AllocationLine]
     target_qty: int
+    min_good_qty: int | None = None   # success threshold: good pieces >= this (None = target_qty)
     total_allocated: int
     buffer_qty: int
     cost_production: float     # CM (cut-make) price paid to subcontractors
@@ -241,9 +259,11 @@ class BundleRisk(_Strict):
     plan_id: str
     n_sims: int
     seed: int
-    p_meet_qty: float
+    p_meet_qty: float          # P(good pieces on time >= min_good_qty)
     p_meet_se: float
-    expected_delivered: float
+    expected_delivered: float  # on-time pieces before QC
+    expected_good: float = 0.0  # on-time pieces that pass QC
+    min_good_qty: int = 0
     delivered_p5: int
     delivered_p50: int
     shortfall_p95: int

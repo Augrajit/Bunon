@@ -29,7 +29,7 @@ DECLARATIONS = [
     {
         "name": "run_simulation",
         "description": ("Simulate the CURRENT recommended plan with a disruption applied (severity maps to "
-                        "fixed parameters). Returns the probability of on-time full delivery and which "
+                        "fixed parameters). Returns the probability of on-time delivery within tolerance and which "
                         "planned factories are hit."),
         "parameters": {"type": "object", "properties": {
             "area": {"type": "string", "enum": AREAS, "description": "Affected district, or national"},
@@ -192,11 +192,10 @@ class Toolbox:
             upd["unproven_cap_pct"] = v
         p2 = self.params.model_copy(update=upd)
         ev = self._event(a.get("shock_area"), a.get("shock_severity"), a.get("shock_duration_days"))
-        cands = op.build_candidates(self.w, self.order, p2)
         if ev:
-            cands = op.adjust_for_events(cands, self.w, [ev])
-        res = op.search_buffer(self.w, self.order, p2, self.target, shocks=self.shocks, partial_lots=self.partial,
-                               cands=cands, events=[ev] if ev else None)
+            res, _ = op.search_with_events(self.w, self.order, p2, [ev], self.target, self.shocks, self.partial)
+        else:
+            res = op.search_buffer(self.w, self.order, p2, self.target, shocks=self.shocks, partial_lots=self.partial)
         new = res.recommended
         if not new.risk:
             raise ValueError("no feasible plan under these settings")
@@ -218,7 +217,7 @@ class Toolbox:
             settings.append(self._fact(f"{cid}.event_days", self._event_days(a["shock_severity"], a.get("shock_duration_days")),
                                        "days", "length of the disruption assumed"))
         return dict(settings + [
-            self._fact(f"{cid}.p_meet", new.risk.p_meet_qty, "prob", "new plan: probability of on-time full delivery"),
+            self._fact(f"{cid}.p_meet", new.risk.p_meet_qty, "prob", "new plan: probability of on-time delivery within tolerance"),
             self._fact(f"{cid}.cost_total", new.plan.cost_total, "bdt", "new plan: total cost"),
             self._fact(f"{cid}.cost_delta", new.plan.cost_total - self.rec.plan.cost_total, "bdt_delta", "cost versus the current plan"),
             self._fact(f"{cid}.buffer_pct", buf, "pct", "new plan: buffer"),

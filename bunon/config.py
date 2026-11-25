@@ -16,7 +16,8 @@ PRIVATE_MAPPING = ROOT / "data" / "private" / "mapping.csv"  # gitignored
 LLM_CACHE_DIR = ROOT / "data" / "llm_cache"
 
 # --- Reproducibility -----------------------------------------------------
-AS_OF = date(2026, 11, 20)      # fixed demo date, so the demo is reproducible later
+DATA_AS_OF = date(2026, 11, 20)  # snapshot date of the Open Supply Hub export and synthetic history (data_gen)
+AS_OF = date(2027, 1, 3)        # planning date of the demo order ("day 0"; PLAN_V2 decision: January 2027)
 SYNTH_SEED = 42                 # fixed before the first run (PLAN.md §3)
 ID_SEED = 20261114              # separate seed: pseudonym IDs never change with SYNTH_SEED
 
@@ -55,8 +56,17 @@ FULLY_BOOKED_SHARE = 0.35       # ASSUMPTION (research ask 3)
 SPARE_SHARE_BETA = (2.0, 200.0)
 SPARE_DAILY_CAP = 1_000         # ASSUMPTION: at most about one line offered to outside work
 
-BASE_CM_PRICE_BDT = 30.0        # ASSUMPTION (research ask 4)
-MATERIAL_COST_BDT_PER_PIECE = 180.0  # PLACEHOLDER: fabric + trims, ~65% of FOB (SPEC.md D2); charged on every piece
+# Prices on a CM basis (SPEC.md D12): the subcontractor is paid for cut-make; the EXPORTER supplies the fabric.
+# Interview (single-source expert input, Nov 2026; DATA_PROVENANCE.md section 6): sewing is about 150 BDT per
+# set (top + trousers); a T-shirt-only rate is not confirmed yet.
+SEWING_PRICE_BDT_PER_SET_REF = 150.0  # interview: per set (top + trousers)
+TEE_SHARE_OF_SET_PRICE = 0.40         # PLACEHOLDER: a T-shirt's share of a set's sewing price
+BASE_CM_PRICE_BDT = SEWING_PRICE_BDT_PER_SET_REF * TEE_SHARE_OF_SET_PRICE  # = 60 BDT, PLACEHOLDER
+FABRIC_BDT_PER_KG = 350.0             # interview: 300-400 BDT/kg; PLACEHOLDER midpoint
+FABRIC_KG_PER_TEE = 0.19              # PLACEHOLDER: 160 GSM basic tee incl. cutting waste
+TRIMS_BDT_PER_PIECE = 10.0            # PLACEHOLDER: label, thread, poly bag
+# Exporter-supplied material, charged on every piece made, buffer pieces included.
+MATERIAL_COST_BDT_PER_PIECE = FABRIC_BDT_PER_KG * FABRIC_KG_PER_TEE + TRIMS_BDT_PER_PIECE  # = 76.5 BDT
 SURPLUS_SALVAGE_BDT_PER_PIECE = 0.0  # PLACEHOLDER: conservative, buffer pieces carry full cost
 PRICE_LOGSD = 0.12
 PRICE_THETA_CORR = 0.20         # cheaper -> slightly less reliable
@@ -111,11 +121,27 @@ SETUP_DAYS_RANGE = (3, 7)
 DEMO_TOTAL_QTY = 150_000
 DEMO_OWN_CAPACITY = 100_000
 DEMO_SUBCONTRACT_QTY = DEMO_TOTAL_QTY - DEMO_OWN_CAPACITY
-DEMO_DEADLINE = date(2026, 12, 20)
+DEMO_DEADLINE = date(2027, 1, 31)   # buyer's stated ex-factory date = the planning deadline (interview)
 DEMO_FOB_USD = 2.40             # ASSUMPTION (research ask 8)
 DEMO_PENALTY_PCT_PER_WEEK = 5.0  # ASSUMPTION (research ask 5)
 DELIVERY_POINT_NAME = "Exporter consolidation point, Gazipur (district point, not a real factory)"
 DELIVERY_POINT_LATLNG = (24.00, 90.42)  # ASSUMPTION: approximate Gazipur point, to confirm
+
+# --- Success, quality and loss (interview, SPEC.md D12) -------------------------
+# Success = GOOD pieces (after QC) delivered by the deadline >= (1 - tolerance) x subcontracted quantity.
+DELIVERY_TOLERANCE_PCT = 0.02        # PLACEHOLDER (interview: a small shortfall is accepted); UI slider
+SAFETY_MARGIN_DEFAULT_PCT = 0.0      # interview: optional, default 0%; the manager's minimum over-allocation
+# Expected loss if the subcontracted part fails: a MANAGER INPUT, not parsed from the buyer email.
+# Default PLACEHOLDER = two weeks of the demo email's penalty (5%/week of FOB 2.40 USD x 150,000 pcs).
+DEFAULT_LOSS_ON_FAILURE_BDT = 4_400_000.0
+# QC (PLACEHOLDERS until the interview gives figures): per-factory defect rate and whole-lot rejection.
+QC_DEFECT_MEAN = 0.02                # mean share of delivered pieces rejected at QC
+QC_DEFECT_FACTORY_CONC = 40.0        # spread between factories (Beta concentration)
+QC_DEFECT_JOB_CONC = 200.0           # spread between jobs of one factory
+QC_DEFECT_THETA_COEF = -0.3          # more reliable factories reject slightly fewer pieces (logit shift per sd)
+QC_LOT_REJECT_MEAN = 0.02            # chance a whole delivered lot fails final QC (counts as 0 good pieces)
+QC_LOT_REJECT_CONC = 50.0
+QC_LOT_PRIOR_STRENGTH = 50.0         # reliability model: pooled Beta prior strength for lot rejection
 
 # --- News-driven disruptions (SPEC.md D7) -----------------------------------
 # FIXED TABLE: the LLM only picks a severity label from the text; these numbers are ours.

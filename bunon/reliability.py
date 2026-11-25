@@ -25,7 +25,7 @@ from bunon import config as C
 from bunon.data_gen import flag_bad_history_rows
 from bunon.schemas import BucketEval, ReliabilityEval, ReliabilityForecast, ShockParams
 
-MODEL_VERSION = "eb-2"  # eb-2: two-part fill (full / short), SPEC.md D2
+MODEL_VERSION = "eb-3"  # eb-2: two-part fill (SPEC.md D2); eb-3: + QC defect rate and lot rejection (D12)
 _Z90 = 1.2815515655446004
 _EPS = 0.01
 
@@ -134,6 +134,8 @@ def fit(history: pd.DataFrame, factory_ids: list[str], until: date | None = None
     acc = offers.assign(a=offers["accepted"].astype(bool)).groupby("factory_id")["a"].agg(["sum", "size"])
     a_acc, b_acc = _beta_prior(acc["sum"], acc["size"])
 
+    qc_fit = _fit_qc(jobs)
+
     n_all = jobs.groupby("factory_id").size()
     out: dict[str, ReliabilityForecast] = {}
     for fid in factory_ids:
@@ -181,8 +183,52 @@ def fit(history: pd.DataFrame, factory_ids: list[str], until: date | None = None
             p_catastrophe=p_cat,
             accept_prob=(a_acc + o_k) / (a_acc + b_acc + o_n),
             model_version=MODEL_VERSION,
+            **(qc_fit(fid) if qc_fit else {}),
         )
     return out
+
+
+def _fit_qc(jobs: pd.DataFrame):
+    """QC model (SPEC.md D12), from the exporter's QC records in the history.
+
+    Defect rate of a non-rejected lot: each factory's mean job rate is shrunk to the pooled mean
+    (normal-normal on the rate scale, empirical Bayes); one job's rate is then Beta with that mean and
+    the job-to-job spread plus the remaining uncertainty about the factory. Whole-lot rejection:
+    Beta-Binomial with a pooled prior. Returns None if the history has no QC columns."""
+    if "qc_rejected_qty" not in jobs or "lot_rejected" not in jobs:
+        return None
+    q = jobs.copy()
+    q["rej"] = pd.to_numeric(q["qc_rejected_qty"], errors="coerce")
+    q["deliv"] = q["delivered_qty"].astype(float)
+    q = q[q["rej"].notna() & (q["deliv"] > 0)]
+    q["lot"] = q["lot_rejected"].map(lambda v: bool(int(v)) if v is not None and v == v else False)
+    if q.empty:
+        return None
+    lots = q.groupby("factory_id")["lot"].agg(["sum", "size"])
+    lot_mean = float(q["lot"].mean())
+    a0, b0 = lot_mean * C.QC_LOT_PRIOR_STRENGTH, (1 - lot_mean) * C.QC_LOT_PRIOR_STRENGTH
+
+    ok = q[~q["lot"]].assign(rate=lambda d: d["rej"] / d["deliv"])
+    g = ok.groupby("factory_id")["rate"]
+    n_i, mbar, var_i = g.size(), g.mean(), g.var(ddof=1)
+    m0 = float(ok["rate"].mean())
+    within = float(np.average(var_i[n_i >= 2], weights=n_i[n_i >= 2] - 1))
+    many = n_i >= 3
+    if not many.any() or not np.isfinite(within):  # too little history to estimate the spread
+        return None
+    between = max(float(mbar[many].var() - np.mean(within / n_i[many])), 1e-6)
+    k = within / between  # pseudo-jobs at the pooled mean
+
+    def one(fid: str) -> dict:
+        n = int(n_i.get(fid, 0))
+        m = (n * float(mbar.get(fid, m0)) + k * m0) / (n + k)
+        var = within + between * k / (n + k)
+        conc = min(max(m * (1 - m) / var - 1, 2.0), 5_000.0)
+        lk, ln = (int(lots.loc[fid, "sum"]), int(lots.loc[fid, "size"])) if fid in lots.index else (0, 0)
+        la, lb = a0 + lk, b0 + ln - lk
+        return dict(qc_defect_mean=m, qc_defect_a=m * conc, qc_defect_b=(1 - m) * conc,
+                    p_lot_reject=la / (la + lb), p_lot_reject_a=la, p_lot_reject_b=lb)
+    return one
 
 
 def estimate_shocks(history: pd.DataFrame, factories: pd.DataFrame) -> ShockParams:

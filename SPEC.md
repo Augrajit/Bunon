@@ -5,8 +5,8 @@ The living specification. PLAN.md is the original plan. This file records what t
 ## Business rules (fixed)
 
 - The buyer's deadline is fixed. Only quantities, factory choice and plans change.
-- All-or-nothing: if on-time delivered pieces < the subcontract quantity Q, the order fails.
-- Compliance is a hard constraint: **RSC-covered OR valid BSCI audit** at the as-of date.
+- Success (since D12): the **good** pieces (after QC) delivered by the deadline must reach (1 − tolerance) × the subcontract quantity Q. Tolerance is a setting (placeholder 2%). Before D12: all on-time pieces ≥ Q.
+- Compliance is a hard constraint: **RSC-covered OR a BSCI audit still valid on the buyer's deadline** (since D12; before: valid on the data date).
 - Humans approve every decision. Nothing is sent automatically.
 - The LLM explains and plans. It never invents or edits numbers.
 
@@ -201,3 +201,51 @@ Every plan uses only Ashulia/Savar and Gazipur factories, because they are close
 - **Checks:** unit tests 121 passed; the sweep test now logs in, starts an order, runs every action and logs out at 20 settings; story walked with no API key in live and offline mode (no errors; cached memo; new text falls back to hand entry).
 - **19 Nov 2026 addendum: redesign after review.** The first theme read as generic (emoji brand, indigo pills, shadows, hover lift, numbered circles). Replaced with a restrained business look: Inter font, slate text (#0F172A), one deep-navy accent (#1E3A5F), flat white panels with hairline borders (6 px radius, no shadows), uppercase small labels, a "B" wordmark instead of the emoji. Hover now only darkens borders (no lift); the fade-in stays (220 ms, opacity only); both off under `prefers-reduced-motion`. Login: the photo fills the window behind a dark overlay, white sign-in card on the right, credit in the corner. Welcome: a photo banner with the greeting, then five flat "STEP 01-05" panels. The synthetic badge is kept on every page (outlined amber label). Chart colours follow the palette.
 - **Photo:** the user asked for a real photo of workers at sewing machines. The reference photo they shared had no known licence, so it is not used. Chosen instead: "Working conditions of Garment workers in Bangladesh" by Fahad Faisal, Wikimedia Commons, CC BY-SA 4.0 (credit with author, licence and source links shown on both pages; resized copy shared under the same licence; see DATA_PROVENANCE.md §4). The app falls back to the original SVG if `assets/factory_floor.jpg` is missing.
+
+### D12: 26 Nov 2026: interview inputs, good pieces within a tolerance, QC, January order (PLAN_V2, 26–28 Nov)
+
+**Context:** PLAN_V2.md was approved on 26 Nov (trust-layer direction; decisions listed at its top). This entry is the first milestone: the interview inputs and the new success rule, before the app is restructured around the order timeline. Interview: one anonymised expert (DATA_PROVENANCE.md §6), single source, so every number stays a labelled placeholder.
+
+**Changes:**
+- **Success rule:** P(good pieces delivered by the deadline ≥ (1 − tolerance) × Q). Tolerance in `OptimizerParams.tolerance_pct` (default `DELIVERY_TOLERANCE_PCT` = 2%, placeholder); each plan carries `min_good_qty`. UI slider "Accepted shortfall".
+- **QC:** synthetic history gains `qc_rejected_qty` and `lot_rejected` (separate random stream: every earlier synthetic value is unchanged; verified by comparing the old and new DB). The reliability model (`eb-3`) learns a per-factory defect rate (empirical Bayes, shrunk to the pooled mean) and a whole-lot rejection chance (Beta-Binomial). The simulation draws both; a rejected lot counts as 0 good pieces. The optimiser's expected yield `q_effective` includes the good share.
+- **Prices on a CM basis:** the subcontractor is paid cut-make only; the exporter supplies fabric. CM placeholder 60 BDT (150 BDT per set × 40%); material 350 BDT/kg × 0.19 kg + 10 BDT trims = 76.5 BDT per piece, charged on every piece made (was 180). Correction to PLAN_V2 audit item 6(f): the cost model was already CM-shaped (material was charged as exporter-supplied); only the values were off.
+- **Loss on failure** is a manager input (`OrderConstraints.loss_on_failure_bdt`, sidebar number field), no longer computed from the email's penalty clause. Default placeholder 4,400,000 BDT (≈ the old two-week penalty, so the optimiser's risk weight is about where it was).
+- **Safety margin** (`min_buffer_pct`, default 0%): a floor on the buffer the search may pick. Bunon can still recommend a larger buffer.
+- **January order:** order date (planning day 0) 3 Jan 2027, buyer deadline 31 Jan 2027 (was 20 Nov → 20 Dec 2026). `DATA_AS_OF` (20 Nov 2026) is now separate from the planning date `AS_OF`. Demo email: PO NB-2701, "no later than 31 January 2027". The window is 2 days shorter (28 vs 30 days).
+- **Compliance at the deadline:** a BSCI audit must still be valid on the deadline. On this order the candidate count goes from 231 to **221** (shorter window and the stricter rule together).
+- **Bug fix (since D7): event re-plans counted the event's delay twice** (once by cutting slack in the optimiser's view, again in the simulation), and also cut capacity by the output factor. Now `optimizer.search_with_events` optimises on the adjusted view but scores every plan like the current one (original slack, event applied once), and capacity shrinks only for days lost beyond the slack. Used by the news step and the what-if `solve_plan`. The app now says when keeping the current plan is at least as good ("Do not re-plan for this event alone").
+- **Demo fixtures aligned with the new plan:** the 4 demo replies now name the new plan's quantities, and the Bangla reject is from F0824 (F2214 is no longer in the plan). These are interim; the hand-written personas (`data/demo/personas.json`, format committed) replace them. **F2184's Banglish counter (9,000 of 12,400) now has no feasible re-plan:** with the other four factories locked, Gazipur would hold 62.6% of the pieces (cap 60%) and the 5-factory limit leaves no room for a new one. The app says "No feasible re-plan"; the README demo path uses F1064's delay counter instead.
+- Sweep hardened: it now fails if intake is not cached or the plan section does not render (it had passed hollow when the email changed). The infeasible re-plan case moved to a unit test (decline on day 12 with max 4 factories), since with the January window max 3 factories has no plan at all.
+
+**Before → after on the demo order** (seed 42, 20,000 simulations, target 90%, defaults):
+
+| | Before (Dec order, D10) | After (Jan order, D12) |
+|---|---|---|
+| Candidates | 231 | 221 |
+| Naive: declared capacity + lowest price | 4.6% | 1.2% |
+| Naive + the same buffer | 89.5% (20%) | 77.8% (25%) |
+| **Bunon** | **91.4%** (20% buffer, 12,417,585 BDT) | **87.5%** (25% buffer, 8,237,537 BDT): **below the 90% target** |
+| Naive rule, buffer to match Bunon | 22.5%, +192,021 BDT | 32.5%, +250,477 BDT |
+| Largest factory declines on day 3 (locked re-plan) | 91.1% | 84.0% (F1856 declines) |
+| News: Gazipur flood (high) | current 0% → re-plan 83.0% | |
+| News: nationwide hartal (medium, 2 days) | current 52.3%; best new plan 41.9% → app advises keeping the current plan | |
+
+Costs fell because material dropped from 180 to 76.5 BDT per piece (the CM rate rose from 30 to 60).
+
+**Why Bunon now misses 90% (attribution, same January order, 25% buffer ceiling):** without QC, 90.2% at tolerance 0 and 91.8% at 2%. With QC defects only: 91.4%. With whole-lot rejection only: 88.5%. With both: 87.5%. **The whole-lot rejection placeholder (about 2% per lot, five lots) is the main cause:** one rejected lot of ~13,000 pieces outweighs the 25% buffer in about one run in ten. This is the most sensitive placeholder in the model and needs a real figure from the interview. It was **not** tuned to restore 90% (project rule: calibrate to realism, not to results).
+
+**Tests:** 137 (from 121): `tests/test_quality.py` (12, incl. the hash-seed check below; good pieces vs tolerance, lot rejection, no-QC fallback, plan threshold, QC learnt from history, compliance at the deadline, loss as manager input, safety margin, January dates, event re-plan scoring, event capacity), `tests/test_personas.py` (4). Changed expectations: January dates in the intake test, the new reply quantities, and the infeasible re-plan case. Sweep: now 24 settings (adds tolerance 0% and 5%, safety margin 25%, loss 0), offline, with the cache refreshed live (about 20 calls on fictional text).
+
+**Doc fixes (audit item 6):** README decisions range and results; PROMPTS.md tier wording (Gemini 3.5 Flash-Lite has a free tier per Google's docs; this project has used a paid key since D4; the current key's tier is being checked); DATA_PROVENANCE.md §2 history description brought in line with the code (it still described the pre-D2 fill model and Eid as a quantity loss), duplicate section number fixed, interview logged as §6.
+
+**Milestone review (fresh reviewer subagent, 26 Nov):** reproduced every number above and found no weakening of the no-numbers rule, the approval rule or privacy. Findings fixed before commit:
+- **Blocker:** re-plan diffs were sorted by quantity only; the new plan has a tie (F0824 and F2184, 12,400 each), so the order followed Python's per-run hash seed and changed the re-plan memo prompt and its cache key. Under two of six seeds the offline demo fell back to the template. Now sorted by (quantity, factory id); a test runs the re-plan under three hash seeds, and an offline app walk under the two failing seeds hits the cache for every answer.
+- `warm_cache` now warms the locked re-plan the app actually runs (it warmed the exclude-and-re-solve variant).
+- The sweep covers the three new sidebar controls at their ends.
+- `replan_from_reply` now includes the QC good share in its expected yield, like the other two places.
+- RESEARCH_ASKS.md lists the new placeholders (items 11–15; whole-lot rejection marked the most sensitive).
+- Nits: config cross-reference fixed; a plan mixing factories with and without a QC model now raises instead of silently dropping QC; `_fit_qc` returns no QC model when the history is too thin to estimate the spread.
+- Not changed: news and what-if re-plans simulate each grid point twice (optimiser view, then re-scoring); acceptable at today's run time, to revisit with the rescue module.
+
+**Open:** the nationwide-hartal case shows the optimiser minimises cost plus a risk penalty and does not maximise probability directly, so its best plan under a correlated national event can be worse than the current one; the app now says so. To revisit with the rescue module (PLAN_V2 §5).

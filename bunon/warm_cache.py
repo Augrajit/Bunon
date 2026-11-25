@@ -1,7 +1,10 @@
-"""Fill data/llm_cache with the scripted demo's three LLM calls, so the deployed app runs offline.
+"""Fill data/llm_cache with every scripted demo LLM answer, so the deployed app runs offline.
 
-Needs GEMINI_API_KEY in the environment or in .env (gitignored). Makes at most 5 live calls
-(intake, memo, re-plan memo, plus up to one retry each for the memos).
+Covers: intake, the initial and re-plan memos, 2 steering examples, the demo factory replies (and their
+re-plan memos), the 3 news items and the 3 what-if questions. Needs GEMINI_API_KEY in the environment or in
+.env (gitignored). Cached answers are reused, so a re-run only calls the model for what changed; a full
+refresh is roughly 30-60 live calls (each what-if question can take several). Re-run after changing a
+prompt, a demo input, or anything that changes the engine's numbers (they are part of the memo prompts).
 
 Run:  python -m bunon.warm_cache
 """
@@ -41,7 +44,7 @@ def main() -> None:
     memo = ag.write_memo(fs, "initial", client)
     print(f"\nmemo (initial): {memo.source}, attempts {memo.attempts}, errors {memo.errors or 'none'}\n{memo.rendered_md}")
 
-    rp = op.replan_exclude(w, order, p, rec, op.largest_line(rec), reason="declined on day 3")
+    rp = op.replan_locked(w, order, p, rec, op.largest_line(rec), days_elapsed=3)  # what the app's button runs
     memo2 = ag.write_memo(ag.factsheet_for_replan(fs, rp), "replan", client)
     print(f"\nmemo (replan): {memo2.source}, attempts {memo2.attempts}, errors {memo2.errors or 'none'}\n{memo2.rendered_md}")
     examples = ("Use no more than three factories and keep new factories under 10%.",
@@ -54,6 +57,9 @@ def main() -> None:
     planned = {ln.factory_id: ln.qty for ln in rec.plan.lines}
     replies = json.loads((C.ROOT / "data" / "demo" / "factory_replies.json").read_text(encoding="utf-8"))
     for r in replies:
+        if r["factory_id"] not in planned:
+            print(f"reply {r['id']}: {r['factory_id']} is not in the plan; skipped")
+            continue
         res = ag.parse_reply(r["text"], planned[r["factory_id"]], client)
         print(f"\nreply {r['id']} ({r['language']}, expected {r['expected']}): "
               f"{res.meta.source if res.meta else 'failed'} -> {res.decision} (LLM: {res.llm_decision})"
@@ -64,6 +70,9 @@ def main() -> None:
             qty = res.quantity.value if res.quantity.status == "ok" else None
             delay = res.delay_days.value if res.delay_days.status == "ok" else None
             rp2 = op.replan_from_reply(w, order, p, rec, r["factory_id"], res.decision, qty, delay, days_elapsed=3)
+            if rp2 is None or rp2.new.risk is None:  # the app shows "No feasible re-plan" and writes no memo
+                print("  re-plan: no feasible re-plan; no memo")
+                continue
             m = ag.write_memo(ag.factsheet_for_replan(fs, rp2), "replan", client)
             print(f"  re-plan: {rp2.reason}; P {rp2.new.risk.p_meet_qty:.3f}; cost "
                   f"{rp2.new.plan.cost_total - rec.plan.cost_total:+,.0f}; memo {m.source} {m.errors or ''}")

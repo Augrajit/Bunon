@@ -24,7 +24,7 @@ needs_db = pytest.mark.skipif(not C.PUBLIC_DB.exists(), reason="run `python -m b
 @pytest.fixture(scope="module")
 def cleaned():
     raw = pd.read_csv(C.RAW_CSV, dtype=str, keep_default_na=False, encoding="utf-8")
-    return dg.clean_osh(raw, C.AS_OF)
+    return dg.clean_osh(raw, C.DATA_AS_OF)
 
 
 @pytest.fixture(scope="module")
@@ -94,7 +94,7 @@ def test_ids_are_unique_and_stable(cleaned):
     public, mapping, _ = cleaned
     assert public["factory_id"].is_unique
     raw = pd.read_csv(C.RAW_CSV, dtype=str, keep_default_na=False, encoding="utf-8")
-    _, mapping2, _ = dg.clean_osh(raw, C.AS_OF)
+    _, mapping2, _ = dg.clean_osh(raw, C.DATA_AS_OF)
     pd.testing.assert_frame_equal(mapping, mapping2)
 
 

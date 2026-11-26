@@ -481,3 +481,73 @@ def test_quoted_rates_price_the_split_and_a_late_ship_date_is_a_delay(world, bun
                                  "ship_date": (finish + timedelta(days=3)).isoformat(), "story_day": 2})
     o = next(x for x in book.offer_terms(oid) if x.factory_id == "F1856")
     assert (o.delay_days, o.price) == (3, 58.0)
+
+
+# --- AI-written messages and warning under the placeholder rule (D21) --------------------------------------
+
+def _req_facts(bundle):
+    r = lp.sourcing_list(bundle)[0]
+    return r, ag.message_facts("request", bundle.order, qty=r.qty, finish_by=r.finish_by)
+
+
+def test_ai_request_draft_renders_only_plan_numbers(tmp_path, bundle):
+    r, fs = _req_facts(bundle)
+    text = "Dear Sir, can you make {{req.qty}} pcs ({{req.gsm}} GSM, fabric from us), finished by {{req.finish_by}}?"
+    d = ag.write_message("request", fs, "English", "TEMPLATE", fake(tmp_path, {"text": text}))
+    assert d.source == "live" and f"{r.qty:,}" in d.text and f"{r.finish_by:%d %b %Y}" in d.text
+    assert set(tn_numbers(d.text)) <= {float(r.qty), float(bundle.order.gsm), float(r.finish_by.day),
+                                       float(r.finish_by.year)}
+
+
+@pytest.mark.parametrize("text, why", [
+    ("Bhai, {{req.qty}} pcs, 5 din er moddhe, {{req.finish_by}}", "literal number"),
+    ("Bhai, dui hajar pcs aro lagbe: {{req.qty}} pcs by {{req.finish_by}}", "number word"),
+    ("Bhai, {{req.qty}} pcs parben?", "missing required"),
+    ("Bhai {{fac:F1856}}, {{req.qty}} pcs by {{req.finish_by}}", "do not name"),
+    ("Bhai, {{req.price}} taka rate e {{req.qty}} pcs by {{req.finish_by}}", "unknown fact key"),
+])
+def test_ai_draft_breaking_the_rule_falls_back_to_the_template(tmp_path, bundle, text, why):
+    _, fs = _req_facts(bundle)
+    d = ag.write_message("request", fs, "Banglish", "TEMPLATE", fake(tmp_path, {"text": text}))
+    assert d.source == "template" and d.text == "TEMPLATE" and any(why in e for e in d.errors), d.errors
+
+
+def test_bangla_number_words_are_caught():
+    assert tn_bn("আরও দুই হাজার পিস") == ["দুই", "হাজার"]
+    assert tn_bn("Bhai, aro panch hajar pcs") == ["panch", "hajar"]
+    assert tn_bn("Bhai, at the factory, tin shed") == []  # ambiguous words are not flagged
+
+
+def tn_bn(text):
+    from bunon import textnum as tn
+    return tn.bn_number_words(text)
+
+
+def test_offline_miss_drafts_with_the_template_and_draft_round_marks_the_source(tmp_path, bundle, book):
+    _, fs = _req_facts(bundle)
+    d = ag.write_message("request", fs, "English", "TEMPLATE", LLMClient(mode="offline", cache_dir=tmp_path))
+    assert d.source == "template" and d.text == "TEMPLATE"
+    oid = book.confirm_order(bundle.order, "Merchandiser", sv.PlanSettings(), None)
+    text = "Dear Sir, please confirm {{req.qty}} pcs by {{req.finish_by}} and your rate."
+    drafts = book.draft_round(oid, bundle, ps.load(), fake(tmp_path / "f", {"text": text}))
+    assert len(drafts) == 6 and all(m["draft_of"] == "llm" and m["sent_day"] is None for m in drafts)
+    assert all(f"{book.requests(oid)[m['factory_id']]['qty']:,}" in m["text"] for m in drafts)
+
+
+def test_ai_warning_cites_only_forecast_facts(tmp_path, world, bundle):
+    res, cands = lp.split_from_offers(world, bundle, answer_key_offers(bundle))
+    fc = lp.forecast_after_update(world, bundle, res.recommended, cands, "F1064", 3_500, 2, lp.UPDATE_DAY)
+    level = lp.warning_level(fc, 0.90)
+    assert level == "below target"
+    fs = ag.warning_facts(fc, 2, 0.90, 16, C.AS_OF + __import__("datetime").timedelta(days=16), "F2314", level)
+    ok = {"headline": "{{fac:F1064}} is falling behind.",
+          "explanation": "It reports {{warn.pieces_done}} pieces done and {{warn.delay}} lost, so it will be "
+                         "{{warn.shortfall}} short. The order's chance drops to {{warn.p_after}}. A rescue is "
+                         "possible until {{warn.last_date}}."}
+    w = ag.write_warning(fs, fake(tmp_path, ok))
+    assert w.source == "live" and "3,300" in w.explanation and "81.8%" in w.explanation and "19 Jan 2027" in w.explanation
+    bad = dict(ok, explanation="It will be about 3,300 short; chance {{warn.p_after}}, {{warn.shortfall}}.")
+    w = ag.write_warning(fs, fake(tmp_path / "b", bad))
+    assert w.source == "template" and "3,300" in w.explanation and w.errors
+    assert lp.warning_level(lp.forecast_after_update(world, bundle, res.recommended, cands, "F1064", 13_100, 0,
+                                                     lp.UPDATE_DAY), 0.90) == "on track"

@@ -284,8 +284,10 @@ class OrderBook:
         return self.store.events(order_id)
 
     # --- the loop: sourcing round -------------------------------------------------------------------
-    def draft_round(self, order_id: str, b: PlanBundle, pf: ps.PersonaFile) -> list[dict]:
-        """Create the sourcing round's request drafts once (template text, numbers from the plan). Not sent."""
+    def draft_round(self, order_id: str, b: PlanBundle, pf: ps.PersonaFile, client=None) -> list[dict]:
+        """Create the sourcing round's request drafts once. Not sent. With an LLM client, each draft is written by
+        the LLM under the placeholder rule (`agent.write_message`; numbers from the plan); otherwise, or if the
+        LLM's draft fails the checks, the deterministic template."""
         if not self.store.rows("sourcing_rounds", order_id):
             reqs = lp.sourcing_list(b)
             lang = {p.factory_id: p.language for p in pf.personas}
@@ -297,10 +299,15 @@ class OrderBook:
                 "requested_date": json.dumps({r.factory_id: r.finish_by.isoformat() for r in reqs})})
             for r in reqs:
                 language = lang.get(r.factory_id, "English")
+                text, source = lp.draft_request(r, language, b.order), "template"
+                if client is not None:
+                    fs = ag.message_facts("request", b.order, qty=r.qty, finish_by=r.finish_by)
+                    d = ag.write_message("request", fs, language, text, client)
+                    text, source = d.text, ("llm" if d.source != "template" else "template")
                 self.store.insert("messages", {
                     "msg_id": f"{order_id}:req-{r.factory_id}", "order_id": order_id, "factory_id": r.factory_id,
-                    "direction": "out", "kind": "request", "text": lp.draft_request(r, language, b.order),
-                    "language": language, "draft_of": "template", "story_day": day, "is_simulated": 0})
+                    "direction": "out", "kind": "request", "text": text,
+                    "language": language, "draft_of": source, "story_day": day, "is_simulated": 0})
             self._event(order_id, "requests_drafted", f"{len(reqs)} request drafts ready for approval", None)
         return [m for m in self.store.messages(order_id) if m["kind"] == "request"]
 
@@ -495,7 +502,7 @@ class OrderBook:
         return rows[-1] if rows else None
 
     def send_message(self, order_id: str, factory_id: str, text: str, role: str, msg_id: str,
-                     kind: str = "rescue_request") -> None:
+                     kind: str = "rescue_request", draft_of: str = "template") -> None:
         """A human-approved message to one factory (shown in its in-app inbox). Never sent automatically."""
         _require_exporter(role, "send a message")
         d = self.day(order_id)
@@ -504,7 +511,7 @@ class OrderBook:
             return
         self.store.insert("messages", {"msg_id": msg_id, "order_id": order_id, "factory_id": factory_id,
                                        "direction": "out", "kind": kind, "text": text,
-                                       "draft_of": "template",
+                                       "draft_of": draft_of,
                                        "approved_by_role": role, "approved_day": d, "sent_day": d,
                                        "story_day": d, "is_simulated": 0})
         self._event(order_id, "message_sent", f"Message to {factory_id} approved and sent in the app", role,

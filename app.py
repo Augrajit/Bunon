@@ -1173,14 +1173,19 @@ def section_sourcing(args, oid: str) -> bool:
     """Day 0: request drafts for the plan's factories plus a standby; a human approves before anything goes."""
     b = run_plans(*args)
     st.header("Day 0 · Sourcing round", anchor="sourcing")
+    if not book().store.rows("sourcing_rounds", oid):
+        with st.spinner("Drafting the requests…"):
+            book().draft_round(oid, b, persona_file(), LLMClient())
     drafts = book().draft_round(oid, b, persona_file())
     reqs = book().requests(oid)
     st.caption("Bunon asks the factories in the plan for their planned pieces, plus the best proven factory "
-               "outside the plan as a standby. Drafts use a fixed template whose numbers come from the plan; "
-               "nothing is sent until you approve. (LLM-written drafts come next, under the same no-numbers rule.)")
+               "outside the plan as a standby, each in its own language. The LLM writes the words only: every "
+               "number is a placeholder filled in from the plan, and a draft that breaks the rule falls back to a "
+               "fixed template. Nothing is sent until you approve.")
     st.dataframe(pd.DataFrame([{"Factory": m["factory_id"], "Asked for (pcs)": reqs[m["factory_id"]]["qty"],
                                 "Finish by": reqs[m["factory_id"]]["finish_by"], "Language": m["language"],
-                                "Draft": m["text"], "Status": "sent" if m["sent_day"] is not None else "draft"}
+                                "Draft": m["text"], "Written by": "AI (checked)" if m["draft_of"] == "llm"
+                                else "template", "Status": "sent" if m["sent_day"] is not None else "draft"}
                                for m in drafts]), hide_index=True, width="stretch")
     if book().round_sent(oid):
         st.success("Requests approved and sent in the app (each factory sees it in its inbox).")
@@ -1321,15 +1326,26 @@ def section_update(args, oid: str, offers: tuple, split_pt) -> tuple | None:
     if fc.shortfall <= 0:
         st.success(f"**{fc.factory_id} is on track** for its {fc.planned:,} pieces. No rescue needed.")
         return fc, last, opts
-    st.warning(f"**{fc.factory_id} is behind.** It has finished {fc.pieces_done:,} of {fc.planned:,} pieces "
-               f"({fc.rate_seen:,.0f} a day so far against {fc.rate_plan:,.0f} planned)"
-               + (f" and reports {delay} days lost" if delay else "") + f". At this rate it makes about "
-               f"{fc.projected:,} pieces by its ship-by day, {fc.shortfall:,} short. "
-               + (f"A rescue is still possible until day {last} ({book().date_of(last):%d %b}), e.g. at {last_by}."
-                  if last is not None else "No factory outside the plan can still make the shortfall in time."))
-    st.caption("Every number above comes from the update's quoted figures and the simulation; the explanation is "
-               "a fixed template (an LLM-written explanation with the same placeholder rule comes later).")
+    w = llm_once("Explaining the forecast…", _warning_text, args, offers, m["factory_id"], done, delay,
+                 m["story_day"])
+    st.warning(f"**{w.headline}** {w.explanation}")
+    st.caption(f"Level set by code: **{lp.warning_level(fc, run_plans(*args).settings.target)}**. "
+               f"{SOURCE_BADGE[w.source]}. Every number comes from the update's figures and the simulation; the "
+               "LLM writes only the words around placeholders, and the manager chooses what to do.")
     return fc, last, opts
+
+
+def _warning_text(args: tuple, offers: tuple, fid: str, done: int, delay, day: int):
+    fc, (last, last_by), _ = _forecast(args, offers, fid, done, delay, day)
+    target = run_plans(*args).settings.target
+    fs = ag.warning_facts(fc, delay, target, last, book().date_of(last) if last is not None else None, last_by,
+                          lp.warning_level(fc, target))
+    return ag.write_warning(fs, LLMClient())
+
+
+def _write_msg(args: tuple, kind: str, extra: int, total: int, lang: str, template: str):
+    fs = ag.message_facts(kind, run_plans(*args).order, extra=extra, total=total)
+    return ag.write_message(kind, fs, lang, template, LLMClient())
 
 
 def section_rescue(args, oid: str, fc, opts) -> bool:
@@ -1375,8 +1391,11 @@ def section_rescue(args, oid: str, fc, opts) -> bool:
              if d["new_qty"] > d["old_qty"] and d["factory_id"] != fc.factory_id]
     lang = {p.factory_id: p.language for p in persona_file().personas}
     sent = {m["factory_id"] for m in book().store.messages(oid) if m["kind"] == "rescue_request"}
-    drafts = [(f, n, lp.draft_rescue_request(f, n, b.order, lang.get(f, "English"))) for f, n in extra]
+    written = {f: llm_once("Drafting the rescue requests…", _write_msg, args, "rescue", n, 0, lang.get(f, "English"),
+                           lp.draft_rescue_request(f, n, b.order, lang.get(f, "English"))) for f, n in extra}
+    drafts = [(f, n, written[f].text) for f, n in extra]
     st.dataframe(pd.DataFrame([{"To": f, "Extra pieces": n, "Draft": t,
+                                "Written by": "template" if written[f].source == "template" else "AI (checked)",
                                 "Status": "sent" if f in sent else "draft"} for f, n, t in drafts]),
                  hide_index=True, width="stretch")
     if all(f in sent for f, _, _ in drafts):
@@ -1392,7 +1411,8 @@ def section_rescue(args, oid: str, fc, opts) -> bool:
         return True
     if st.button("Approve and send the rescue requests", type="primary", key="send_rescue"):
         for f, _, t in drafts:
-            book().send_message(oid, f, t, st.session_state["role"], f"rescue-{f}-day{book().day(oid)}")
+            book().send_message(oid, f, t, st.session_state["role"], f"rescue-{f}-day{book().day(oid)}",
+                                draft_of="template" if written[f].source == "template" else "llm")
         book().advance_to(oid, lp.UPDATE_DAY + 1, "rescue requests answered", _role_or_none())
         st.rerun()
     return False
@@ -1402,9 +1422,13 @@ def _surge_request(oid: str, fc) -> bool:
     """Overtime chosen: a template request to the late factory, sent only when a human approves it."""
     extra = lp.surge_pieces(fc)
     lang = {p.factory_id: p.language for p in persona_file().personas}.get(fc.factory_id, "English")
-    text = lp.draft_surge_request(fc.factory_id, extra, fc.projected + extra, run_plans(*current_args()).order, lang)
+    args = current_args()
+    d = llm_once("Drafting the overtime request…", _write_msg, args, "surge", extra, fc.projected + extra, lang,
+                 lp.draft_surge_request(fc.factory_id, extra, fc.projected + extra, run_plans(*args).order, lang))
+    text = d.text
     sent = any(m["kind"] == "surge_request" for m in book().store.messages(oid))
     st.dataframe(pd.DataFrame([{"To": fc.factory_id, "Extra pieces": extra, "Draft": text,
+                                "Written by": "template" if d.source == "template" else "AI (checked)",
                                 "Status": "sent" if sent else "draft"}]), hide_index=True, width="stretch")
     if sent:
         st.caption("Sent in the app. The overtime is a placeholder model (research ask 18); QC is pre-filled "
@@ -1414,7 +1438,8 @@ def _surge_request(oid: str, fc) -> bool:
         st.info("Switch to an exporter role to approve the request.")
     elif st.button("Approve and send the overtime request", type="primary", key="send_surge"):
         book().send_message(oid, fc.factory_id, text, st.session_state["role"],
-                            f"surge-{fc.factory_id}-day{book().day(oid)}", kind="surge_request")
+                            f"surge-{fc.factory_id}-day{book().day(oid)}", kind="surge_request",
+                            draft_of="template" if d.source == "template" else "llm")
         st.rerun()
     return False
 

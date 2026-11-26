@@ -226,6 +226,13 @@ def last_rescue_day(world: op.World, b, shortfall: int, exclude: set[str],
     return best if best else (None, None)
 
 
+def warning_level(fc: Forecast, target: float) -> str:
+    """The warning's level is set by code, never by the LLM: on track / watch / below target."""
+    if fc.shortfall <= 0:
+        return "on track"
+    return "below target" if fc.p_after < target else "watch"
+
+
 # --- rescue options ------------------------------------------------------------------------------------------
 
 @dataclass(frozen=True)

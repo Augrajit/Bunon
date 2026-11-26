@@ -91,3 +91,15 @@ _NUMBER_WORDS = re.compile(
 def literal_numbers(text: str) -> list[str]:
     """Digits or number words in text: forbidden in memo prose outside placeholders."""
     return _DIGITS.findall(text) + [m.group(0) for m in _NUMBER_WORDS.finditer(text)]
+
+
+# Number words in Banglish and Bangla, for messages written in those languages. Words that are also common
+# English or Bangla words ("at", "sat", "tin", "char", "noy", "নয়" = "not") are left out on purpose.
+_BN_NUMBER_WORDS = re.compile(
+    r"\b(ek|dui|panch|choy|dosh|bish|tirish|chollish|ponchash|shoto|sho|hajar|hazar|lakh|lac|koti)\b|"
+    r"(এক|দুই|তিন|চার|পাঁচ|ছয়|সাত|আট|দশ|বিশ|শত|শো|হাজার|লাখ|লক্ষ|কোটি|অর্ধেক|দ্বিগুণ)", re.IGNORECASE)
+
+
+def bn_number_words(text: str) -> list[str]:
+    """Banglish and Bangla number words (forbidden in AI-written messages, next to literal_numbers)."""
+    return [m.group(0) for m in _BN_NUMBER_WORDS.finditer(text)]

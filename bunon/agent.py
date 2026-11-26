@@ -345,7 +345,8 @@ def factory_ids(fs: FactSheet) -> set[str]:
 MEMO_VERSION = "memo_v1"
 _PH = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
 # A fact key written outside braces would print as raw text, e.g. "line.F0288.fail_share".
-_BARE_KEY = re.compile(r"\b(?:order|funnel|plan|base|basebuf|match|line|district|old|new|diff|replan|c\d+)\.[A-Za-z0-9_.]+")
+_BARE_KEY = re.compile(r"\b(?:order|funnel|plan|base|basebuf|match|line|district|old|new|diff|replan|req|res|surge|"
+                       r"warn|c\d+)\.[A-Za-z0-9_.]+")
 
 
 class MemoLLM(BaseModel):
@@ -525,6 +526,239 @@ def write_memo(fs: FactSheet, kind: Literal["initial", "replan"], client: LLMCli
     memo = template_memo(kind, fs)
     assert not validate_memo(memo, fs), validate_memo(memo, fs)
     return DecisionMemo(kind, memo, _render_md(memo, fs), "template", meta, 0, errors)
+
+
+# =============================================================================
+# Messages to factories and the warning text, written by the LLM under the placeholder rule (D21)
+# =============================================================================
+
+MESSAGE_VERSION = "message_v1"
+WARNING_VERSION = "warning_v1"
+MessageKindOut = Literal["request", "rescue", "surge"]
+
+
+class MessageLLM(BaseModel):
+    text: str = Field(description="The message, with every number and date as a {{key}} placeholder")
+
+
+_LANG_NOTE = {
+    "English": "Write simple, polite business English.",
+    "Banglish": ("Write Banglish: Bangla written in Latin letters, the way merchandisers chat with factories "
+                 "(e.g. 'bhai', 'parben', 'janaben'). Do not use Bangla script."),
+    "Bangla": "Write in Bangla script. Keep the placeholders exactly as given, in Latin letters.",
+}
+
+_PURPOSE = {
+    "request": ("Ask the factory whether it can make {{req.qty}} pieces of a basic crew-neck T-shirt for a "
+                "subcontract order, fabric supplied by the exporter<GSM>, with production complete by "
+                "{{req.finish_by}}. Ask it to confirm the quantity it can take and its rate per piece."),
+    "rescue": ("The factory already works on this order. Urgently ask whether it can take {{res.extra}} more pieces "
+               "of the same T-shirt, fabric supplied by the exporter, still before the buyer's deadline "
+               "{{res.deadline}}. Ask it to confirm."),
+    "surge": ("The factory is behind on this order. Ask, without blaming, whether its line can add overtime to make "
+              "{{surge.extra}} more pieces, {{surge.total}} pieces in all, before the buyer's deadline "
+              "{{surge.deadline}}; the exporter pays the overtime premium. Ask it to confirm."),
+}
+REQUIRED_KEYS = {"request": ("req.qty", "req.finish_by"), "rescue": ("res.extra", "res.deadline"),
+                 "surge": ("surge.extra", "surge.deadline")}
+
+MESSAGE_PROMPT = """You write a short message from a garment exporter's merchandiser to a subcontract factory.
+{language_note}
+
+PURPOSE: {purpose}
+
+STRICT RULES (an automatic checker enforces them; violating output is discarded):
+1. Do NOT write any digit or any number word in any language or script (e.g. two, hajar, dui, দুই, হাজার).
+2. Every number and date must be a placeholder with a key from the FACTS list, in double braces, e.g.
+   {{{{req.qty}}}}. It is replaced by the exact value shown; write units the value lacks yourself ("pcs").
+3. You must use these placeholders: {required}.
+4. Do not offer a price, an advance or any term that is not in the PURPOSE. Do not name any factory.
+5. At most {words} words. Plain and polite, like a message in the factory's in-app inbox. No subject line.
+6. The message is only a draft: a person reviews and approves it before it is sent.
+
+FACTS (key = value: meaning):
+{facts}
+{retry}"""
+
+
+def message_facts(kind: MessageKindOut, order, *, qty: int | None = None, finish_by: date | None = None,
+                  extra: int | None = None, total: int | None = None) -> FactSheet:
+    """The numbers a message may cite, all from code (plan, forecast, order)."""
+    if kind == "request":
+        fs = {"req.qty": Fact(qty, "qty", "pieces we ask this factory to make"),
+              "req.finish_by": Fact(finish_by, "date", "date its production must be complete")}
+        if order.gsm:
+            fs["req.gsm"] = Fact(order.gsm, "int", "fabric weight in GSM (grams per square metre)")
+        return fs
+    if kind == "rescue":
+        return {"res.extra": Fact(extra, "qty", "extra pieces we ask it to take"),
+                "res.deadline": Fact(order.deadline, "date", "the buyer's deadline")}
+    return {"surge.extra": Fact(extra, "qty", "extra pieces we ask it to make with overtime"),
+            "surge.total": Fact(total, "qty", "pieces it would make in all, with the overtime"),
+            "surge.deadline": Fact(order.deadline, "date", "the buyer's deadline")}
+
+
+def validate_message(kind: MessageKindOut, text: str, fs: FactSheet, max_words: int = 90) -> list[str]:
+    errors = check_text("message", text, fs)
+    if any(k.strip().startswith("fac:") for k in _PH.findall(text)):
+        errors.append("message: do not name a factory")
+    bare = _PH.sub(" ", text)
+    words = tn.bn_number_words(bare)  # digits and English number words: already reported by check_text
+    if words:
+        errors.append(f"message: number word(s) {sorted(set(words))[:5]} outside placeholders")
+    used = {k.strip() for k in _PH.findall(text)}
+    missing = [k for k in REQUIRED_KEYS[kind] if k not in used]
+    if missing:
+        errors.append(f"message: missing required placeholder(s) {missing}")
+    if not text.strip():
+        errors.append("message: empty")
+    if len(bare.split()) > max_words:
+        errors.append(f"message: longer than {max_words} words")
+    return errors
+
+
+@dataclass
+class Draft:
+    text: str                                   # rendered: every number filled in from the facts
+    source: Literal["cache", "live", "template"]
+    errors: list[str]
+
+
+def write_message(kind: MessageKindOut, fs: FactSheet, language: str, template: str,
+                  client: LLMClient | None = None) -> Draft:
+    """An LLM-written message under the placeholder rule; one retry; else the deterministic template (code)."""
+    client = client or LLMClient()
+    purpose = _PURPOSE[kind].replace("<GSM>", " ({{req.gsm}} GSM)" if "req.gsm" in fs else "")
+    words = 120 if language == "Bangla" else 90
+
+    def prompt(retry: str) -> str:
+        return MESSAGE_PROMPT.format(language_note=_LANG_NOTE.get(language, _LANG_NOTE["English"]),
+                                     purpose=purpose, required=", ".join("{{" + k + "}}" for k in REQUIRED_KEYS[kind]),
+                                     words=words, facts=_facts_block(fs), retry=retry)
+
+    p = prompt("")
+    assert_pseudonymous(p)
+    errors: list[str] = []
+    for attempt in (1, 2):
+        try:
+            out, meta, _ = client.complete_json(f"message_{kind}_{language.lower()}", MESSAGE_VERSION, p, MessageLLM)
+        except (CacheMiss, LLMError) as e:
+            errors.append(f"attempt {attempt}: {type(e).__name__}: {e}")
+            break
+        errs = validate_message(kind, out.text, fs, words)
+        if not errs:
+            return Draft(render_text(out.text, fs), meta.source, errors)
+        errors += [f"attempt {attempt}: {e}" for e in errs]
+        p = prompt("\nYOUR PREVIOUS ANSWER WAS REJECTED FOR THESE REASONS; FIX THEM:\n- " + "\n- ".join(errs))
+    return Draft(template, "template", errors)
+
+
+class WarningLLM(BaseModel):
+    headline: str = Field(description="One short sentence: what is wrong")
+    explanation: str = Field(description="Two to four sentences for the production manager")
+
+
+WARNING_PROMPT = """A subcontract factory sent a daily update on a garment order. The exporter's system has already
+re-forecast the order. Explain the result to the exporter's production manager in plain English.
+
+STRICT RULES (an automatic checker enforces them; violating output is discarded):
+1. Do NOT write any digit or any number word (two, five, hundred, percent, half, double ...).
+2. Every number and date must be a placeholder with a key from the FACTS list, in double braces, e.g.
+   {{{{warn.shortfall}}}}. It is replaced by the exact value shown; write units the value lacks ("pieces").
+   Refer to the factory only as {{{{fac:{factory}}}}}.
+3. You must use {{{{warn.shortfall}}}} and {{{{warn.p_after}}}}.{last_rule}
+4. Do not compute or compare numbers yourself. Do not choose a rescue option: the manager decides.
+5. Say what the factory reported, what that means for the order, and until when a rescue is still possible.
+6. Do not blame the factory; a stated reason is the factory's own account. All data here is simulated.
+
+FACTS (key = value: meaning):
+{facts}
+{retry}"""
+
+
+def warning_facts(fc, delay: int | None, target: float, last_day: int | None, last_date: date | None,
+                  last_by: str | None, level: str) -> FactSheet:
+    """Facts for the warning text, all from loop.forecast_after_update and loop.last_rescue_day (code)."""
+    fs: FactSheet = {
+        "warn.level": Fact(level, "text", "warning level set by code"),
+        "warn.factory": Fact(fc.factory_id, "text", "the factory that sent the update"),
+        "warn.pieces_done": Fact(fc.pieces_done, "qty", "pieces it reports finished so far"),
+        "warn.planned": Fact(fc.planned, "qty", "pieces it was allocated"),
+        "warn.rate_seen": Fact(round(fc.rate_seen), "qty", "pieces a day so far"),
+        "warn.rate_plan": Fact(round(fc.rate_plan), "qty", "pieces a day the plan needed"),
+        "warn.projected": Fact(fc.projected, "qty", "pieces it will make by its ship-by day at this rate"),
+        "warn.shortfall": Fact(fc.shortfall, "qty", "pieces short of its allocation"),
+        "warn.p_before": Fact(fc.p_before, "prob", "chance the order succeeds before the update"),
+        "warn.p_after": Fact(fc.p_after, "prob", "chance the order succeeds after the update"),
+        "warn.target": Fact(target, "prob", "the target chance"),
+        "warn.expected_good": Fact(round(fc.expected_good_after), "qty", "expected good pieces for the order"),
+        "warn.min_good": Fact(fc.min_good, "qty", "good pieces the order needs"),
+    }
+    if delay:
+        fs["warn.delay"] = Fact(delay, "days", "days late the factory reports")
+    if last_day is not None:
+        fs["warn.last_date"] = Fact(last_date, "date", "last day a rescue is still possible")
+        if last_by:
+            fs["warn.last_by"] = Fact(last_by, "text", "a factory outside the plan that could still make the shortfall")
+    return fs
+
+
+def template_warning(fs: FactSheet) -> WarningLLM:
+    f = "{{fac:" + str(fs["warn.factory"].value) + "}}"
+    expl = (f + " has finished {{warn.pieces_done}} of {{warn.planned}} pieces ({{warn.rate_seen}} a day so far "
+            "against {{warn.rate_plan}} planned)"
+            + (" and reports {{warn.delay}} lost" if "warn.delay" in fs else "")
+            + ". At this rate it makes about {{warn.projected}} pieces by its ship-by day, {{warn.shortfall}} short. "
+            "The chance the order succeeds moves from {{warn.p_before}} to {{warn.p_after}}. ")
+    expl += ("A rescue is still possible until {{warn.last_date}}." if "warn.last_date" in fs
+             else "No factory outside the plan can still make the shortfall in time.")
+    return WarningLLM(headline=f + " is behind.", explanation=expl)
+
+
+def validate_warning(w: WarningLLM, fs: FactSheet) -> list[str]:
+    errors = check_text("headline", w.headline, fs) + check_text("explanation", w.explanation, fs)
+    used = {k.strip() for k in _PH.findall(w.headline + " " + w.explanation)}
+    for k in ("warn.shortfall", "warn.p_after"):
+        if k not in used:
+            errors.append(f"missing required placeholder {k}")
+    if not w.headline.strip() or not w.explanation.strip():
+        errors.append("headline and explanation must not be empty")
+    return errors
+
+
+@dataclass
+class WarningText:
+    headline: str                          # rendered markdown
+    explanation: str                       # rendered markdown
+    source: Literal["cache", "live", "template"]
+    errors: list[str]
+
+
+def write_warning(fs: FactSheet, client: LLMClient | None = None) -> WarningText:
+    client = client or LLMClient()
+    last_rule = " Also use {{warn.last_date}}." if "warn.last_date" in fs else ""
+
+    def prompt(retry: str) -> str:
+        return WARNING_PROMPT.format(factory=fs["warn.factory"].value, last_rule=last_rule,
+                                     facts=_facts_block(fs), retry=retry)
+
+    p = prompt("")
+    assert_pseudonymous(p)
+    errors: list[str] = []
+    for attempt in (1, 2):
+        try:
+            out, meta, _ = client.complete_json("warning", WARNING_VERSION, p, WarningLLM)
+        except (CacheMiss, LLMError) as e:
+            errors.append(f"attempt {attempt}: {type(e).__name__}: {e}")
+            break
+        errs = validate_warning(out, fs)
+        if not errs:
+            return WarningText(render_text(out.headline, fs), render_text(out.explanation, fs), meta.source, errors)
+        errors += [f"attempt {attempt}: {e}" for e in errs]
+        p = prompt("\nYOUR PREVIOUS ANSWER WAS REJECTED FOR THESE REASONS; FIX THEM:\n- " + "\n- ".join(errs))
+    t = template_warning(fs)
+    assert not validate_warning(t, fs), validate_warning(t, fs)
+    return WarningText(render_text(t.headline, fs), render_text(t.explanation, fs), "template", errors)
 
 
 # =============================================================================

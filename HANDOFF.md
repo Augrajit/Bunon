@@ -134,7 +134,7 @@ Check it works: open the Factory app view at phone width (`resize_window` mobile
 3.5 Fix known issue 5: start capacity windows on `loop.REPLY_DAY` in `split_from_offers` (pass a start day into `build_candidates` or shrink `window_days`). Record before/after numbers in SPEC.md.
 
 ### Milestone 4: track record (10–16 Dec)
-4.1 **Record across orders.** `OrderBook.factory_track_record(factory_id) -> dict` over all orders in the store: acceptance rate, on-time rate, QC pass rate, average reported delay, from `source='platform'` events/rows only; synthetic history shown separately (`service.factory_record`). Test: metrics recompute exactly from rows; simulated persona events are labelled.
+4.1 **Record across orders.** **Done (SPEC.md D18)** as `OrderBook.factory_platform_record(factory_id) -> dict`, within one visitor store (a shared store across exporters is not built). Planned: over all orders in the store: acceptance rate, on-time rate, QC pass rate, average reported delay, from `source='platform'` events/rows only; synthetic history shown separately (`service.factory_record`). Test: metrics recompute exactly from rows; simulated persona events are labelled.
 4.2 **Delay attribution** (cut a, `agent.suggest_attribution`, task `attribution_v1`): input the update texts and recorded news events in the same district and days; output a category with a quote. **Code rule:** `outside_event` only if a matching recorded event id exists, else at most `unclear`. Human decides (exporter role); the factory can dispute (factory role) → `attributions` row. Tests for both branches.
 4.3 **Factory controls sharing** (`share_settings`): factory role sets per-field visibility; the exporter view hides private fields. Test.
 

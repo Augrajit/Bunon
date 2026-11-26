@@ -342,3 +342,9 @@ Costs fell because material dropped from 180 to 76.5 BDT per piece (the CM rate 
 **Numbers:** none change at defaults (the scripted path is untouched); no prompt change; the cache is unaffected.
 
 **Tests:** 170 unit (from 167): a reply needs a sent request and a factory role, and the first answer stands; a factory's own answer replaces its scripted reply and is a platform event; updates are stored as typed, once a day, and counted on the track record. New click-through `tests/test_factory_app.py` (`-m sweep`): F0824 accepts in the factory app instead of its scripted decline, the exporter's offers show it as typed, then F1856 posts an on-track update and the timeline goes straight to QC.
+
+### D18: 26 Nov 2026: a factory's record across orders (HANDOFF task 4.1)
+
+**What:** `OrderBook.factory_platform_record(factory_id)`: over every order in the visitor's store, the requests the factory was sent, how many it answered and took (accept or counter), deliveries checked at QC and the share on time, the QC pass rate (pieces-weighted) and the delays reported, computed from the platform rows through `track_record`. The Factory app shows it as **"My record on Bunon"** (labelled simulated) above the synthetic-history record, which stays separate. No engine or prompt change.
+
+**Tests:** 172: two orders (one delivered on day 24, one on day 27, after the due day 25) → 2 of 2 answered, on time 50%, QC pass 2,950 / 3,000; an unknown factory has no record.

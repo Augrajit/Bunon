@@ -372,3 +372,19 @@ def test_published_demo_numbers(world, bundle):
     assert opts["move"].p_after == pytest.approx(0.856, abs=0.0005)
     assert round(opts["move"].cost_delta_bdt) == 33_757 and opts["move"].note == "F2829 +3,300"
     assert opts["accept_shortfall"].allowed
+
+
+def test_factory_platform_record_recomputes_across_orders(bundle, book):
+    """HANDOFF task 4.1: a factory's record over every order in the store, from platform rows only."""
+    pf = ps.load()
+    for received, rejected, day in ((1_000, 50, 24), (2_000, 0, 27)):
+        oid = book.confirm_order(bundle.order, "Merchandiser", sv.PlanSettings(), None)
+        book.draft_round(oid, bundle, pf)
+        book.approve_round(oid, "Merchandiser")
+        book.factory_reply(oid, "F1856", "accept", None, None, "", "Factory owner")
+        book.record_qc(oid, "F1856", received, rejected, False, "Quality inspector", day)
+    r = book.factory_platform_record("F1856")
+    assert (r["orders_asked"], r["answered"], r["took_work"], r["deliveries"]) == (2, 2, 2, 2)
+    assert r["acceptance_rate"] == 1.0 and r["on_time_rate"] == 0.5  # day 27 is after the due day
+    assert r["qc_pass_rate"] == pytest.approx(2_950 / 3_000)
+    assert book.factory_platform_record("F9999")["orders_asked"] == 0

@@ -632,6 +632,16 @@ def view_factory() -> None:
                         f"{m['text']}")
         if oid:
             factory_forms(oid, fid, msgs)
+        pr = book().factory_platform_record(fid)
+        if pr["orders_asked"]:
+            st.markdown("**My record on Bunon** <span class='bn-badge'>Simulated</span>", unsafe_allow_html=True)
+            p1, p2 = st.columns(2)
+            p1.metric("Requests answered", f"{pr['answered']} of {pr['orders_asked']}")
+            p2.metric("On time", "—" if pr["on_time_rate"] is None else f"{pr['on_time_rate']:.0%}")
+            p3, p4 = st.columns(2)
+            p3.metric("QC pass", "—" if pr["qc_pass_rate"] is None else f"{pr['qc_pass_rate']:.1%}")
+            p4.metric("Delays reported", f"{pr['delays_reported']}")
+            st.caption("From this demo's orders only (requests, answers, updates, QC on the platform).")
         st.markdown("**My record** " + SYNTH)
         r = sv.factory_record(history(), fid)
         if r["jobs"]:

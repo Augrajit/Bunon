@@ -551,6 +551,31 @@ class OrderBook:
                         "lot_rejected": None if q is None else bool(q["lot_rejected"])})
         return out
 
+    def factory_platform_record(self, factory_id: str) -> dict:
+        """One factory's record across every order in this store, from platform rows only (requests it was sent,
+        its answers, updates and QC). Simulated personas count here too, so the app labels the result simulated."""
+        asked = answered = took = qc_n = on_time = delays = 0
+        good = received = 0
+        for oid in self.store.order_ids():
+            tr = {r["factory_id"]: r for r in self.track_record(oid)}
+            r = tr.get(factory_id)
+            if r is None:
+                continue
+            asked += 1
+            answered += r["answered"]
+            took += r["decision"] in ("accept", "counter")
+            delays += r["delays_reported"]
+            if r["delivered_on_time"] is not None:
+                qc_n += 1
+                on_time += r["delivered_on_time"]
+            for q in self.store.rows("qc_records", oid):
+                if q["factory_id"] == factory_id:
+                    good, received = good + q["good"], received + q["received"]
+        return {"orders_asked": asked, "answered": answered, "took_work": took,
+                "acceptance_rate": took / answered if answered else None,
+                "deliveries": qc_n, "on_time_rate": on_time / qc_n if qc_n else None,
+                "qc_pass_rate": good / received if received else None, "delays_reported": delays}
+
     # --- the exporter's side of the record: payments (PLAN_V2 cut b) ----------------------------------------
     def amounts_due(self, order_id: str) -> list[dict]:
         """What the exporter owes each factory once QC is recorded: good pieces x the agreed unit price (code),

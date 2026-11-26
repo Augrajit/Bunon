@@ -94,10 +94,13 @@ def literal_numbers(text: str) -> list[str]:
 
 
 # Number words in Banglish and Bangla, for messages written in those languages. Words that are also common
-# English or Bangla words ("at", "sat", "tin", "char", "noy", "নয়" = "not") are left out on purpose.
+# words are left out on purpose, as "one" is in English: "ek"/"এক" ("ekta order" = "an order"), "at", "sat",
+# "tin", "char", "noy", "নয়" (= "not"). Bangla words must stand alone (optionally with the counters টি/টা), so
+# "বিশেষ" (special) or "আটকে" (stuck) do not count.
 _BN_NUMBER_WORDS = re.compile(
-    r"\b(ek|dui|panch|choy|dosh|bish|tirish|chollish|ponchash|shoto|sho|hajar|hazar|lakh|lac|koti)\b|"
-    r"(এক|দুই|তিন|চার|পাঁচ|ছয়|সাত|আট|দশ|বিশ|শত|শো|হাজার|লাখ|লক্ষ|কোটি|অর্ধেক|দ্বিগুণ)", re.IGNORECASE)
+    r"\b(dui|panch|choy|dosh|bish|tirish|chollish|ponchash|shoto|sho|hajar|hazar|lakh|lac|koti)\b|"
+    r"(?<![ঀ-৿])(দুই|তিন|চার|পাঁচ|ছয়|সাত|আট|দশ|বিশ|শত|শো|হাজার|লাখ|লক্ষ|কোটি|অর্ধেক|দ্বিগুণ)(?:টি|টা)?"
+    r"(?![ঀ-৿])", re.IGNORECASE)
 
 
 def bn_number_words(text: str) -> list[str]:

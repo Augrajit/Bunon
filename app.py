@@ -1328,7 +1328,7 @@ def section_update(args, oid: str, offers: tuple, split_pt) -> tuple | None:
         return fc, last, opts
     w = llm_once("Explaining the forecast…", _warning_text, args, offers, m["factory_id"], done, delay,
                  m["story_day"])
-    st.warning(f"**{w.headline}** {w.explanation}")
+    st.warning(w.headline + "\n\n" + w.explanation)
     st.caption(f"Level set by code: **{lp.warning_level(fc, run_plans(*args).settings.target)}**. "
                f"{SOURCE_BADGE[w.source]}. Every number comes from the update's figures and the simulation; the "
                "LLM writes only the words around placeholders, and the manager chooses what to do.")

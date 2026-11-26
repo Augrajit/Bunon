@@ -516,6 +516,8 @@ def test_bangla_number_words_are_caught():
     assert tn_bn("আরও দুই হাজার পিস") == ["দুই", "হাজার"]
     assert tn_bn("Bhai, aro panch hajar pcs") == ["panch", "hajar"]
     assert tn_bn("Bhai, at the factory, tin shed") == []  # ambiguous words are not flagged
+    assert tn_bn("একটি অর্ডার, বিশেষ অনুরোধ, কাজ আটকে আছে") == []  # "a/an", "special", "stuck"
+    assert tn_bn("আরও দুইটি লাইন") == ["দুইটি"]
 
 
 def tn_bn(text):
@@ -541,13 +543,16 @@ def test_ai_warning_cites_only_forecast_facts(tmp_path, world, bundle):
     assert level == "below target"
     fs = ag.warning_facts(fc, 2, 0.90, 16, C.AS_OF + __import__("datetime").timedelta(days=16), "F2314", level)
     ok = {"headline": "{{fac:F1064}} is falling behind.",
-          "explanation": "It reports {{warn.pieces_done}} pieces done and {{warn.delay}} lost, so it will be "
-                         "{{warn.shortfall}} short. The order's chance drops to {{warn.p_after}}. A rescue is "
-                         "possible until {{warn.last_date}}."}
+          "explanation": "It reports {{warn.pieces_done}} pieces done and {{warn.delay}} lost, so it will make "
+                         "{{warn.projected}}, {{warn.shortfall}} short. The order's chance drops to {{warn.p_after}}. "
+                         "A rescue is possible until {{warn.last_date}}."}
     w = ag.write_warning(fs, fake(tmp_path, ok))
     assert w.source == "live" and "3,300" in w.explanation and "81.8%" in w.explanation and "19 Jan 2027" in w.explanation
     bad = dict(ok, explanation="It will be about 3,300 short; chance {{warn.p_after}}, {{warn.shortfall}}.")
     w = ag.write_warning(fs, fake(tmp_path / "b", bad))
     assert w.source == "template" and "3,300" in w.explanation and w.errors
+    vague = dict(ok, explanation=ok["explanation"].replace("{{warn.pieces_done}} pieces", "some pieces"))
+    w = ag.write_warning(fs, fake(tmp_path / "c", vague))
+    assert w.source == "template" and any("vague" in e or "warn.pieces_done" in e for e in w.errors)
     assert lp.warning_level(lp.forecast_after_update(world, bundle, res.recommended, cands, "F1064", 13_100, 0,
                                                      lp.UPDATE_DAY), 0.90) == "on track"

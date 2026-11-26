@@ -133,6 +133,9 @@ def test_every_action_at_extreme_settings(name, over, monkeypatch, tmp_path):
             offers = next(df.value for df in at.dataframe if "Read by" in df.value.columns)
             assert "read by hand" not in set(offers["Decision"]), offers  # every reply replays from the cache
             assert offers.loc[offers["Factory"] == "F2829", "Decision"].iloc[0] == "accept"  # D20: a rate is not a counter
+            sourcing = next(df.value for df in at.dataframe if "Asked for (pcs)" in df.value.columns)
+            assert set(sourcing["Written by"]) == {"AI (checked)"}, sourcing  # D21: AI drafts replay from the cache
+            assert any("Level set by code" in c.value and "cached answer" in c.value for c in at.caption)
 
     # show the maths: engine detail, steering, and the what-ifs on the first plan
     at.session_state["view"] = "Show the maths"

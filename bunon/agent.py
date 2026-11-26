@@ -666,7 +666,8 @@ STRICT RULES (an automatic checker enforces them; violating output is discarded)
 2. Every number and date must be a placeholder with a key from the FACTS list, in double braces, e.g.
    {{{{warn.shortfall}}}}. It is replaced by the exact value shown; write units the value lacks ("pieces").
    Refer to the factory only as {{{{fac:{factory}}}}}.
-3. You must use {{{{warn.shortfall}}}} and {{{{warn.p_after}}}}.{last_rule}
+3. You must use these placeholders: {required}. Never replace a number with a vague word ("some", "a few",
+   "several", "many"): cite the placeholder instead.
 4. Do not compute or compare numbers yourself. Do not choose a rescue option: the manager decides.
 5. Say what the factory reported, what that means for the order, and until when a rescue is still possible.
 6. Do not blame the factory; a stated reason is the factory's own account. All data here is simulated.
@@ -715,12 +716,23 @@ def template_warning(fs: FactSheet) -> WarningLLM:
     return WarningLLM(headline=f + " is behind.", explanation=expl)
 
 
+_VAGUE = re.compile(r"\b(a few|few|several|some|many|a lot of|lots of|a number of)\b", re.IGNORECASE)
+
+
+def warning_required(fs: FactSheet) -> list[str]:
+    return [k for k in ("warn.pieces_done", "warn.delay", "warn.projected", "warn.shortfall", "warn.p_after",
+                        "warn.last_date") if k in fs]
+
+
 def validate_warning(w: WarningLLM, fs: FactSheet) -> list[str]:
     errors = check_text("headline", w.headline, fs) + check_text("explanation", w.explanation, fs)
     used = {k.strip() for k in _PH.findall(w.headline + " " + w.explanation)}
-    for k in ("warn.shortfall", "warn.p_after"):
+    for k in warning_required(fs):
         if k not in used:
             errors.append(f"missing required placeholder {k}")
+    vague = _VAGUE.findall(_PH.sub(" ", w.headline + " " + w.explanation))
+    if vague:
+        errors.append(f"vague amount(s) {sorted(set(v.lower() for v in vague))} instead of a placeholder")
     if not w.headline.strip() or not w.explanation.strip():
         errors.append("headline and explanation must not be empty")
     return errors
@@ -736,10 +748,10 @@ class WarningText:
 
 def write_warning(fs: FactSheet, client: LLMClient | None = None) -> WarningText:
     client = client or LLMClient()
-    last_rule = " Also use {{warn.last_date}}." if "warn.last_date" in fs else ""
+    required = ", ".join("{{" + k + "}}" for k in warning_required(fs))
 
     def prompt(retry: str) -> str:
-        return WARNING_PROMPT.format(factory=fs["warn.factory"].value, last_rule=last_rule,
+        return WARNING_PROMPT.format(factory=fs["warn.factory"].value, required=required,
                                      facts=_facts_block(fs), retry=retry)
 
     p = prompt("")

@@ -531,7 +531,7 @@ def write_memo(fs: FactSheet, kind: Literal["initial", "replan"], client: LLMCli
 # Factory replies (English, Bangla, Banglish) -> accept / reject / counter
 # =============================================================================
 
-REPLY_VERSION = "reply_v1"
+REPLY_VERSION = "reply_v2"  # v2 (D20): price and ship date, each quoted
 
 
 class QuotedText(BaseModel):
@@ -544,6 +544,8 @@ class ReplyLLM(BaseModel):
     decision_span: str = Field(description="Exact words copied from the reply that show the decision")
     quantity: IntField = Field(description="Pieces the factory says it can supply, if it states a number")
     delay_days: IntField = Field(description="Days late the factory says delivery will be, if it states a number")
+    price_bdt_per_piece: FloatField = Field(default_factory=FloatField, description="Price per piece in BDT the factory asks for, if it states one")
+    ship_date: DateField = Field(default_factory=DateField, description="Calendar date the factory says it will deliver or finish, if it states one")
     conditions: list[QuotedText] = Field(default_factory=list,
                                          description="Other conditions (price, fabric, advance payment...)")
 
@@ -562,6 +564,10 @@ Rules:
   original script; do not translate the quote).
 - quantity: only if the reply states a number of pieces (e.g. "9 hajar" -> 9000). delay_days: only if the
   reply states a number of days. Otherwise null for both value and source_span.
+- price_bdt_per_piece: only if the reply states the price per piece the factory asks for ("taka", "tk", "BDT"
+  per piece). If the reply names two prices (e.g. "not 50, 56 needed"), take the one the factory asks for.
+- ship_date: only if the reply states a calendar date for delivery or completion, as YYYY-MM-DD (dates in
+  replies are day first, e.g. 25/01/2027). A relative date ("on the agreed date") is not a date: null.
 - Never compute, infer or guess a number. Write conditions in plain English, each with its own quote.
 
 REPLY START
@@ -580,13 +586,16 @@ class ReplyResult:
     conditions: list[FieldCheck]
     notes: list[str]
     meta: CallMeta | None
+    price: FieldCheck = field(default_factory=lambda: FieldCheck(None, None, "missing"))
+    ship_date: FieldCheck = field(default_factory=lambda: FieldCheck(None, None, "missing"))
 
 
-def validate_reply(reply: str, out: ReplyLLM, planned_qty: int) -> ReplyResult:
-    """Quote checks as in intake, then the code (not the LLM) settles the effective decision."""
+def validate_reply(reply: str, out: ReplyLLM, planned_qty: int, planned_price: float | None = None) -> ReplyResult:
+    """Quote checks as in intake, then the code (not the LLM) settles the effective decision.
+    `planned_price` is our planned CM rate for this factory (code); a quoted rate is compared with it."""
     notes: list[str] = []
 
-    def num(f: IntField, name: str) -> FieldCheck:
+    def num(f, name: str, as_int: bool = True) -> FieldCheck:
         if f.value is None:
             return FieldCheck(None, None, "missing")
         if not f.source_span or not tn.contains(reply, f.source_span):
@@ -595,32 +604,60 @@ def validate_reply(reply: str, out: ReplyLLM, planned_qty: int) -> ReplyResult:
         if not tn.states_number(f.source_span, float(f.value)):
             notes.append(f"{name}: the quote does not state {f.value}; ignored.")
             return FieldCheck(None, f.source_span, "rejected", f"quote does not state {f.value}")
-        return FieldCheck(int(f.value), f.source_span, "ok")
+        return FieldCheck(int(f.value) if as_int else float(f.value), f.source_span, "ok")
 
     qty, delay = num(out.quantity, "quantity"), num(out.delay_days, "delay_days")
+    price = num(out.price_bdt_per_piece, "price", as_int=False)
+    if price.status == "ok" and not C.PRICE_RANGE_BDT[0] <= price.value <= C.PRICE_RANGE_BDT[1]:
+        notes.append(f"price: {price.value:g} BDT per piece is outside the usual range; please check it.")
+    ship = FieldCheck(None, None, "missing")
+    if out.ship_date.value is not None:
+        try:
+            d = date.fromisoformat(out.ship_date.value)
+        except ValueError:
+            d = None
+        span = out.ship_date.source_span
+        if d is None or not span or not tn.contains(reply, span) or not tn.states_date(span, d):
+            notes.append("ship date: the quote does not state that date; ignored.")
+            ship = FieldCheck(None, span, "rejected", "quote does not state the date")
+        else:
+            ship = FieldCheck(d, span, "ok")
     conds = [FieldCheck(c.text, c.source_span, "ok" if tn.contains(reply, c.source_span) else "rejected")
              for c in out.conditions]
     if not tn.contains(reply, out.decision_span):
         notes.append("decision: the quoted words are not in the reply. Please read the reply and decide by hand.")
-        return ReplyResult(None, out.decision, out.decision_span, qty, delay, conds, notes, None)
+        return ReplyResult(None, out.decision, out.decision_span, qty, delay, conds, notes, None, price, ship)
 
     decision = out.decision
     if decision != "reject":
         lower = qty.status == "ok" and qty.value < planned_qty
         late = delay.status == "ok" and delay.value > 0
-        if decision == "accept" and (lower or late):
+        dear = cheap = False
+        if price.status == "ok" and planned_price:
+            dear = price.value > planned_price * (1 + C.PRICE_MATCH_TOLERANCE)
+            cheap = not dear
+        # conditions other than the price itself (a condition quoting the same rate is the price)
+        other = [c for c in conds if c.status == "ok"
+                 and not (price.status == "ok" and tn.states_number(c.source_span or "", float(price.value)))]
+        if decision == "accept" and (lower or late or dear):
             decision = "counter"
-            notes.append("The reply says yes but states " + ("a lower quantity" if lower else "a delay")
+            notes.append("The reply says yes but states " + ("a lower quantity" if lower else "a delay" if late
+                                                              else "a rate above our planned rate")
                          + ": treated as a counter-offer.")
+        elif decision == "counter" and cheap and not (lower or late or other):
+            decision = "accept"
+            notes.append("The only term stated is a rate at or within "
+                         f"{C.PRICE_MATCH_TOLERANCE:.0%} of our planned rate: treated as an acceptance.")
         if qty.status == "ok" and qty.value == 0:
             decision = "reject"
             notes.append("The reply offers zero pieces: treated as a rejection.")
-        if decision == "counter" and not (lower or late or any(c.status == "ok" for c in conds)):
-            notes.append("Counter-offer without a verified quantity, delay or condition: please read the reply.")
-    return ReplyResult(decision, out.decision, out.decision_span, qty, delay, conds, notes, None)
+        if decision == "counter" and not (lower or late or dear or other):
+            notes.append("Counter-offer without a verified quantity, delay, rate or condition: please read the reply.")
+    return ReplyResult(decision, out.decision, out.decision_span, qty, delay, conds, notes, None, price, ship)
 
 
-def parse_reply(reply: str, planned_qty: int, client: LLMClient | None = None) -> ReplyResult:
+def parse_reply(reply: str, planned_qty: int, client: LLMClient | None = None,
+                planned_price: float | None = None) -> ReplyResult:
     client = client or LLMClient()
     prompt = REPLY_PROMPT.format(qty_text=f"{planned_qty:,}", reply=reply.strip())
     assert_pseudonymous(prompt)
@@ -630,7 +667,7 @@ def parse_reply(reply: str, planned_qty: int, client: LLMClient | None = None) -
         miss = FieldCheck(None, None, "missing")
         return ReplyResult(None, None, None, miss, miss, [],
                            [f"LLM unavailable ({why_no_llm(e)}). Read the reply and decide by hand."], None)
-    res = validate_reply(reply, out, planned_qty)
+    res = validate_reply(reply, out, planned_qty, planned_price)
     res.meta = meta
     return res
 

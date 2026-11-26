@@ -412,3 +412,55 @@ def test_surge_request_carries_only_forecast_numbers(bundle):
         assert "945" in t and "10,745" in t
         assert set(tn_numbers(t)) <= {945.0, 10_745.0, float(bundle.order.deadline.day),
                                       float(bundle.order.deadline.year)}
+
+
+# --- offer parser v2: price and ship date, each quoted; the code settles the decision (D20) ------------------
+
+def _offer(decision, span, qty=None, qspan=None, price=None, pspan=None, ship=None, sspan=None, conds=()):
+    return {"decision": decision, "decision_span": span, "quantity": {"value": qty, "source_span": qspan},
+            "delay_days": {"value": None, "source_span": None},
+            "price_bdt_per_piece": {"value": price, "source_span": pspan},
+            "ship_date": {"value": ship, "source_span": sspan},
+            "conditions": [{"text": t, "source_span": s} for t, s in conds]}
+
+
+F2829 = "Hello, we can take up to 15,200 pcs basic tee for this order and deliver on time. Rate 60 BDT per piece."
+F2184 = "12,400 pcs korte parbo bhai, but rate 50 e hobe na, 56 taka lagbe."
+EXAMPLE = "Bhai, 8000 pcs nite parbo, rate 62 taka, delivery 25/01/2027."
+
+
+def test_a_rate_near_our_planned_rate_is_not_a_counter(tmp_path):
+    """Known issue 1 (D14): F2829 stating its rate, in answer to "your rate", was read as a counter-offer."""
+    out = _offer("counter", "we can take up to 15,200 pcs", 15_200, "up to 15,200 pcs", 60, "Rate 60 BDT per piece",
+                 conds=[("rate 60 BDT per piece", "Rate 60 BDT per piece")])
+    r = ag.parse_reply(F2829, 15_200, fake(tmp_path, out), planned_price=59.68)
+    assert r.price.status == "ok" and r.price.value == 60 and r.decision == "accept" and r.notes
+    r = ag.parse_reply(F2829, 15_200, fake(tmp_path / "b", out), planned_price=50.0)  # well above our rate
+    assert r.decision == "counter"
+
+
+def test_a_higher_rate_makes_a_yes_a_counter_and_the_asked_price_is_kept(tmp_path):
+    out = _offer("accept", "12,400 pcs korte parbo", 12_400, "12,400 pcs", 56, "56 taka lagbe")
+    r = ag.parse_reply(F2184, 12_400, fake(tmp_path, out), planned_price=50.18)
+    assert r.decision == "counter" and r.price.value == 56
+    bad = _offer("counter", "56 taka lagbe", 12_400, "12,400 pcs", 50, "56 taka lagbe")  # 50 is not what is asked
+    r = ag.parse_reply(F2184, 12_400, fake(tmp_path / "b", bad), planned_price=50.18)
+    assert r.price.status == "rejected" and r.price.value is None
+
+
+def test_ship_date_must_be_stated_day_first(tmp_path):
+    out = _offer("counter", "8000 pcs nite parbo", 8_000, "8000 pcs", 62, "rate 62 taka", "2027-01-25",
+                 "delivery 25/01/2027")
+    r = ag.parse_reply(EXAMPLE, 10_000, fake(tmp_path, out), planned_price=55.0)
+    assert r.ship_date.status == "ok" and str(r.ship_date.value) == "2027-01-25" and r.decision == "counter"
+    wrong = _offer("counter", "8000 pcs nite parbo", 8_000, "8000 pcs", ship="2027-25-01", sspan="delivery 25/01/2027")
+    assert ag.parse_reply(EXAMPLE, 10_000, fake(tmp_path / "b", wrong)).ship_date.status == "rejected"
+    other = _offer("counter", "8000 pcs nite parbo", 8_000, "8000 pcs", ship="2027-01-26", sspan="delivery 25/01/2027")
+    assert ag.parse_reply(EXAMPLE, 10_000, fake(tmp_path / "c", other)).ship_date.value is None
+
+
+def test_a_price_outside_the_usual_range_is_flagged_not_dropped(tmp_path):
+    text = "Ok 13,100 pcs, rate 250 taka."
+    out = _offer("counter", "Ok 13,100 pcs", 13_100, "13,100 pcs", 250, "rate 250 taka")
+    r = ag.parse_reply(text, 13_100, fake(tmp_path, out), planned_price=50.0)
+    assert r.price.value == 250 and any("outside the usual range" in n for n in r.notes)

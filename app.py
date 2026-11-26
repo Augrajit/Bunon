@@ -600,10 +600,13 @@ def view_factory() -> None:
     st.caption("What a subcontract factory sees on its phone: requests from exporters, a short daily update, and "
                "its own track record. Free for factories. In this demo every factory is a simulated persona.")
     ids: list[str] = []
-    if "order_id" in st.session_state:
-        allocs = book().store.allocations(st.session_state["order_id"])
-        if allocs:
-            ids = [ln["factory_id"] for ln in allocs[-1]["lines"]]
+    oid = st.session_state.get("order_id")
+    if oid:
+        ids = list(book().requests(oid))  # the factories asked in this order's sourcing round
+        if not ids:
+            allocs = book().store.allocations(oid)
+            if allocs:
+                ids = [ln["factory_id"] for ln in allocs[-1]["lines"]]
     if not ids:
         try:
             ids = [p.factory_id for p in personas.load().personas if p.factory_id != "TBD"]
@@ -627,6 +630,8 @@ def view_factory() -> None:
         for m in msgs:
             st.markdown(f"Day {m['story_day']} · {'↘ from exporter' if m['direction'] == 'out' else '↗ you'}: "
                         f"{m['text']}")
+        if oid:
+            factory_forms(oid, fid, msgs)
         st.markdown("**My record** " + SYNTH)
         r = sv.factory_record(history(), fid)
         if r["jobs"]:
@@ -640,6 +645,46 @@ def view_factory() -> None:
             st.caption("No past jobs on record.")
         st.caption("From synthetic history. On the platform, only verified events (offers, deliveries, QC results) "
                    "will count, and you choose what other exporters can see.")
+
+
+def factory_forms(oid: str, fid: str, msgs: list[dict]) -> None:
+    """The factory answers a request and posts its daily update. The numbers are typed by the factory itself,
+    so no AI reads them; the exporter still approves everything that follows."""
+    req = book().requests(oid).get(fid)
+    sent = any(m["kind"] == "request" and m["direction"] == "out" for m in msgs)
+    if req is None or not sent:
+        return
+    is_factory = st.session_state["role"] in FACTORY_ROLES
+    offer = next((o for o in book().store.rows("offers", oid) if o["factory_id"] == fid), None)
+    if offer is None:
+        st.markdown("**Answer the request**")
+        if not is_factory:
+            st.caption("Switch to a factory role to answer.")
+            return
+        with st.form(f"answer_{fid}", border=False):
+            choice = st.radio("Your answer", ("Accept", "Counter-offer", "Decline"), horizontal=True)
+            qty = st.number_input("Pieces you can make", 0, 200_000, int(req["qty"]), step=100)
+            late = st.number_input("Days late (0 if on time)", 0, 30, 0)
+            note = st.text_input("Message to the exporter (optional)")
+            if st.form_submit_button("Send answer", type="primary"):
+                dec = {"Accept": "accept", "Counter-offer": "counter", "Decline": "reject"}[choice]
+                book().factory_reply(oid, fid, dec, int(qty), int(late), note, st.session_state["role"])
+                st.rerun()
+        return
+    st.caption(f"Your answer: {offer['decision']}" + (f", {offer['qty']:,} pieces" if offer["qty"] else ""))
+    if offer["decision"] == "reject":
+        return
+    st.markdown("**Daily update**")
+    if not is_factory:
+        st.caption("Switch to a factory role to post an update.")
+        return
+    with st.form(f"update_{fid}", border=False):
+        done = st.number_input("Pieces finished so far", 0, 200_000, 0, step=100)
+        late = st.number_input("Days late (0 if on time)", 0, 30, 0, key=f"late_upd_{fid}")
+        why = st.text_input("Reason, if late (optional)")
+        if st.form_submit_button(f"Post update for day {book().day(oid)}", type="primary"):
+            book().factory_update(oid, fid, int(done), int(late), why, st.session_state["role"])
+            st.rerun()
 
 
 # =============================================================================
@@ -1150,7 +1195,15 @@ def section_offers(args, oid: str) -> tuple | None:
     book().receive(oid, persona_file(), "offer_reply", list(reqs))
     have = {o["factory_id"] for o in book().store.rows("offers", oid)}
     rows = []
+    typed = {o.factory_id: o for o in book().offer_terms(oid)}
     for m in [m for m in book().store.messages(oid) if m["direction"] == "in" and m["kind"] == "offer_reply"]:
+        if m["draft_of"] == sv.FACTORY_FORM:  # typed by the factory in its app: its own numbers, no AI reading
+            o = typed[m["factory_id"]]
+            rows.append({"Factory": m["factory_id"], "Reply": m["text"], "Decision": o.decision,
+                         "Pieces": "" if o.qty is None else f"{o.qty:,}",
+                         "Days late": "" if not o.delay_days else str(o.delay_days), "Conditions (quoted)": "",
+                         "Read by": "typed by the factory", "Source": "factory app"})
+            continue
         res = llm_once("Reading the replies…", _parse_offer, m["text"], reqs[m["factory_id"]]["qty"])
         if m["factory_id"] not in have:
             book().record_offer(oid, m, res)
@@ -1212,29 +1265,35 @@ def section_update(args, oid: str, offers: tuple, split_pt) -> tuple | None:
         st.info("No updates today.")
         return None
     m = msgs[-1]
-    res = llm_once("Reading the update…", _parse_update, m["text"], qty[m["factory_id"]])
-    if not any(u["update_id"] == m["msg_id"] for u in book().store.rows("progress_updates", oid)):
-        book().record_update(oid, m, res)
-    st.markdown(f"**{m['factory_id']}** ({_simulated_tag(m)}): “{m['text']}”")
-    if res.meta:
-        st.caption(SOURCE_BADGE[res.meta.source])
-    for note in res.notes:
-        st.warning(note)
-    icon = {"ok": "✅ found in update", "missing": "— not stated", "rejected": "⚠️ check failed"}
-    st.dataframe(pd.DataFrame([
-        {"Item": "Pieces finished so far", "Value": "" if res.pieces_done.value is None else f"{res.pieces_done.value:,}",
-         "Quote": res.pieces_done.source_span or "", "Check": icon[res.pieces_done.status]},
-        {"Item": "Days late", "Value": "" if res.delay_days.value is None else str(res.delay_days.value),
-         "Quote": res.delay_days.source_span or "", "Check": icon[res.delay_days.status]},
-        {"Item": "Reason given", "Value": res.cause.value or "", "Quote": res.cause.source_span or "",
-         "Check": icon[res.cause.status]}]), hide_index=True, width="stretch")
-    if res.pieces_done.status != "ok":
-        st.info("The update states no verified number of finished pieces: ask the factory before re-forecasting.")
-        return None
-    delay = res.delay_days.value if res.delay_days.status == "ok" else None
+    if m["draft_of"] == sv.FACTORY_FORM:  # typed by the factory in its app: used as typed, no AI reading
+        u = next(u for u in book().store.rows("progress_updates", oid) if u["update_id"] == m["msg_id"])
+        st.markdown(f"**{m['factory_id']}** (typed in the factory app): “{m['text']}”")
+        st.caption("The factory typed these numbers itself, so no AI reading is needed.")
+        done, delay = u["pieces_done_cum"], (u["delay_days"] or None)
+    else:
+        res = llm_once("Reading the update…", _parse_update, m["text"], qty[m["factory_id"]])
+        if not any(u["update_id"] == m["msg_id"] for u in book().store.rows("progress_updates", oid)):
+            book().record_update(oid, m, res)
+        st.markdown(f"**{m['factory_id']}** ({_simulated_tag(m)}): “{m['text']}”")
+        if res.meta:
+            st.caption(SOURCE_BADGE[res.meta.source])
+        for note in res.notes:
+            st.warning(note)
+        icon = {"ok": "✅ found in update", "missing": "— not stated", "rejected": "⚠️ check failed"}
+        st.dataframe(pd.DataFrame([
+            {"Item": "Pieces finished so far", "Value": "" if res.pieces_done.value is None else f"{res.pieces_done.value:,}",
+             "Quote": res.pieces_done.source_span or "", "Check": icon[res.pieces_done.status]},
+            {"Item": "Days late", "Value": "" if res.delay_days.value is None else str(res.delay_days.value),
+             "Quote": res.delay_days.source_span or "", "Check": icon[res.delay_days.status]},
+            {"Item": "Reason given", "Value": res.cause.value or "", "Quote": res.cause.source_span or "",
+             "Check": icon[res.cause.status]}]), hide_index=True, width="stretch")
+        if res.pieces_done.status != "ok":
+            st.info("The update states no verified number of finished pieces: ask the factory before re-forecasting.")
+            return None
+        delay = res.delay_days.value if res.delay_days.status == "ok" else None
+        done = res.pieces_done.value
     # Forecast as of the day the update was sent, so later days do not change an approved rescue.
-    fc, (last, last_by), opts = _forecast(args, offers, m["factory_id"], res.pieces_done.value, delay,
-                                          m["story_day"])
+    fc, (last, last_by), opts = _forecast(args, offers, m["factory_id"], done, delay, m["story_day"])
     book().record_forecast(oid, fc, last)
     k = st.columns(4)
     k[0].metric(f"{fc.factory_id}: pieces by its ship-by day", f"{fc.projected:,}", f"{-fc.shortfall:,} vs plan",
@@ -1244,6 +1303,9 @@ def section_update(args, oid: str, offers: tuple, split_pt) -> tuple | None:
     k[3].metric("Last day to rescue", f"day {last}" if last is not None else "—",
                 help=f"{book().date_of(last):%d %b %Y}" if last is not None else "No factory outside the plan can "
                      "still make the shortfall in time.")
+    if fc.shortfall <= 0:
+        st.success(f"**{fc.factory_id} is on track** for its {fc.planned:,} pieces. No rescue needed.")
+        return fc, last, opts
     st.warning(f"**{fc.factory_id} is behind.** It has finished {fc.pieces_done:,} of {fc.planned:,} pieces "
                f"({fc.rate_seen:,.0f} a day so far against {fc.rate_plan:,.0f} planned)"
                + (f" and reports {delay} days lost" if delay else "") + f". At this rate it makes about "
@@ -1258,6 +1320,9 @@ def section_update(args, oid: str, offers: tuple, split_pt) -> tuple | None:
 def section_rescue(args, oid: str, fc, opts) -> bool:
     """Day 12: rescue options with their chance and cost; a production manager decides."""
     st.header(f"Day {lp.UPDATE_DAY} · Rescue", anchor="rescue")
+    if fc.shortfall <= 0:
+        st.caption("No shortfall projected, so nothing to rescue.")
+        return True
     b = run_plans(*args)
     st.dataframe(pd.DataFrame([{"Option": o.title, "Chance of success": "" if o.p_after is None else f"{o.p_after:.1%}",
                                 "Extra cost": "" if o.cost_delta_bdt is None else bdt(o.cost_delta_bdt),

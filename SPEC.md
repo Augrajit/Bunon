@@ -330,3 +330,15 @@ Costs fell because material dropped from 180 to 76.5 BDT per piece (the CM rate 
 **What:** `track_record` gains `delays_reported` (updates with a verified delay), `delays_without_cause` (a delay whose cause did not pass the quote check) and `cause_repeats` (delays citing a cause already given on this order, compared case- and space-insensitively). The table says "No specific cause given" and "Same cause again", never "excuse". No engine or prompt change; cache unaffected.
 
 **Tests:** 167: three delays (two "power cut", one without a cause) and one on-time update → 3 delays, 1 without a cause, 1 repeat.
+
+### D17: 26 Nov 2026: the factory side in the phone view (PLAN_V2 milestone 5–9 Dec, tasks 2.1–2.2 of HANDOFF.md)
+
+**What:** in the Factory app, a factory role (Factory owner or Floor supervisor) can answer a request it was sent (accept, counter-offer, decline; pieces it can make; days late; an optional message) and post a daily update (pieces finished, days late, reason). `OrderBook.factory_reply` and `OrderBook.factory_update` (factory roles only, checked in the service) store the numbers **as the factory typed them**: no AI reads them, so there is nothing to quote-check. The code still settles the decision with the reply parser's rule (`service.settle_decision`: a yes with fewer pieces or a delay is a counter; zero pieces is a decline). The first answer per factory stands; one update per factory per story day. Events carry `source='platform'` and the factory role.
+
+**How the exporter sees it:** a factory that answered for itself gets no scripted persona reply (`receive` skips it); the offers table says "typed by the factory"; the daily-update section uses the latest update in the split, typed or scripted. If a factory is on track, the app says so, offers no rescue and goes on to QC (before this, a zero shortfall still showed "is behind").
+
+**Limits:** the factory role is not tied to one factory (the demo picks the factory in a list); the exporter sees updates from day 12 on; one update drives the forecast at a time (HANDOFF task 3.1).
+
+**Numbers:** none change at defaults (the scripted path is untouched); no prompt change; the cache is unaffected.
+
+**Tests:** 170 unit (from 167): a reply needs a sent request and a factory role, and the first answer stands; a factory's own answer replaces its scripted reply and is a platform event; updates are stored as typed, once a day, and counted on the track record. New click-through `tests/test_factory_app.py` (`-m sweep`): F0824 accepts in the factory app instead of its scripted decline, the exporter's offers show it as typed, then F1856 posts an on-track update and the timeline goes straight to QC.

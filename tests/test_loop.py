@@ -295,3 +295,57 @@ def test_delays_and_causes_are_counted_by_code(bundle, book):
     r = next(x for x in book.track_record(oid) if x["factory_id"] == f)
     assert (r["delays_reported"], r["delays_without_cause"], r["cause_repeats"]) == (3, 1, 1)
     assert r["delay_reported_days"] == 3
+
+
+# --- the factory side: a factory answers and posts updates itself (numbers it typed, no LLM) ----------------
+
+def _sent_round(bundle, book):
+    oid = book.confirm_order(bundle.order, "Merchandiser", sv.PlanSettings(), None)
+    book.draft_round(oid, bundle, ps.load())
+    return oid
+
+
+def test_factory_reply_needs_a_sent_request_and_a_factory_role(bundle, book):
+    oid = _sent_round(bundle, book)
+    f = "F1856"
+    with pytest.raises(ValueError):
+        book.factory_reply(oid, f, "accept", None, None, "", "Factory owner")  # drafted, not sent yet
+    book.approve_round(oid, "Merchandiser")
+    with pytest.raises(PermissionError):
+        book.factory_reply(oid, f, "accept", None, None, "", "Merchandiser")
+    with pytest.raises(ValueError):
+        book.factory_reply(oid, "F9999", "accept", None, None, "", "Factory owner")
+    asked = book.requests(oid)[f]["qty"]
+    assert book.factory_reply(oid, f, "accept", asked - 1_000, None, "Can do less", "Factory owner") == "counter"
+    assert book.factory_reply(oid, f, "reject", 0, None, "", "Factory owner") == "counter"  # first answer stands
+    o = next(x for x in book.offer_terms(oid) if x.factory_id == f)
+    assert (o.decision, o.qty) == ("counter", asked - 1_000)
+
+
+def test_a_factory_answer_replaces_its_scripted_reply(bundle, book):
+    oid = _sent_round(bundle, book)
+    book.approve_round(oid, "Merchandiser")
+    book.factory_reply(oid, "F0824", "accept", None, 3, "Yes, 3 days late", "Floor supervisor")
+    book.advance_to(oid, lp.REPLY_DAY, "replies", "Merchandiser")
+    got = book.receive(oid, ps.load(), "offer_reply", list(book.requests(oid)))
+    assert "F0824" not in {m["factory_id"] for m in got} and len(got) == 5
+    o = next(x for x in book.offer_terms(oid) if x.factory_id == "F0824")
+    assert (o.decision, o.delay_days) == ("counter", 3)
+    ev = [e for e in book.timeline(oid) if e["kind"] == "offer_reply_received"]
+    assert ev[0]["source"] == "platform" and ev[0]["actor_role"] == "Floor supervisor"
+
+
+def test_factory_update_is_stored_as_typed_once_a_day(bundle, book):
+    oid = _sent_round(bundle, book)
+    book.approve_round(oid, "Merchandiser")
+    with pytest.raises(PermissionError):
+        book.factory_update(oid, "F1064", 100, 0, "", "Production manager")
+    with pytest.raises(ValueError):
+        book.factory_update(oid, "F1064", -1, 0, "", "Factory owner")
+    book.advance_to(oid, 8, "update", "Merchandiser")
+    book.factory_update(oid, "F1064", 2_000, 1, "Fabric late", "Factory owner")
+    book.factory_update(oid, "F1064", 2_500, 1, "Fabric late", "Factory owner")  # same day: first one stands
+    ups = [u for u in book.store.rows("progress_updates", oid) if u["parse_status"] == "typed by factory"]
+    assert len(ups) == 1 and ups[0]["pieces_done_cum"] == 2_000 and ups[0]["cause_category"] == "Fabric late"
+    tr = next(r for r in book.track_record(oid) if r["factory_id"] == "F1064")
+    assert tr["delays_reported"] == 1 and tr["delays_without_cause"] == 0

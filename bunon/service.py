@@ -31,7 +31,7 @@ from bunon import personas as ps
 from bunon import optimizer as op
 from bunon import reliability as rl
 from bunon.schemas import BufferPoint, Candidate, OptimizerParams, OrderConstraints, ReplanResult
-from bunon.store import EXPORTER_ROLES, Store
+from bunon.store import EXPORTER_ROLES, FACTORY_ROLES, Store
 
 DECLINE_DAY = 3  # the scripted decline and the demo replies arrive on story day 3
 
@@ -179,6 +179,24 @@ def _require_exporter(role: str, what: str) -> None:
         raise PermissionError(f"only an exporter role can {what} (got {role!r})")
 
 
+def _require_factory(role: str, what: str) -> None:
+    if role not in FACTORY_ROLES:
+        raise PermissionError(f"only a factory role can {what} (got {role!r})")
+
+
+FACTORY_FORM = "factory_form"  # messages.draft_of for text a factory typed into the app's form (no LLM involved)
+
+
+def settle_decision(decision: str, qty: int | None, delay: int | None, requested: int) -> str:
+    """The code settles the decision (same rule as agent.validate_reply): a yes with fewer pieces or a delay is a
+    counter-offer; zero pieces is a rejection."""
+    if decision == "reject" or qty == 0:
+        return "reject"
+    if decision == "accept" and ((qty is not None and qty < requested) or (delay or 0) > 0):
+        return "counter"
+    return decision
+
+
 # --- the order's state and timeline ------------------------------------------------------------------------
 
 class OrderBook:
@@ -311,10 +329,14 @@ class OrderBook:
     def receive(self, order_id: str, pf: ps.PersonaFile, kind: str, factory_ids: list[str]) -> list[dict]:
         """Simulated factories answer: persona messages of this kind up to today's story day become inbound
         messages (labelled simulated). Returns the new ones."""
-        d, have = self.day(order_id), {m["msg_id"] for m in self.store.messages(order_id)}
+        msgs = self.store.messages(order_id)
+        d, have = self.day(order_id), {m["msg_id"] for m in msgs}
+        own = {m["factory_id"] for m in msgs if m["kind"] == kind and m["draft_of"] == FACTORY_FORM}
         lang = {p.factory_id: p.language for p in pf.personas}
         new = []
         for fid in factory_ids:
+            if fid in own:  # the factory answered for itself in the app: its scripted message is not used
+                continue
             for m in ps.messages_for(pf, fid, kind):
                 mid = f"{order_id}:{m.msg_id}"
                 if m.story_day <= d and mid not in have:
@@ -343,6 +365,67 @@ class OrderBook:
                 "update_id": f"{order_id}:offer-delay-{msg['factory_id']}", "order_id": order_id,
                 "factory_id": msg["factory_id"], "story_day": msg["story_day"], "text": msg["text"],
                 "delay_days": delay, "is_simulated": 1, "parse_status": "from offer"})
+
+    # --- the factory side (phone view): numbers the factory types itself, so no LLM reads them -------------
+    def factory_reply(self, order_id: str, factory_id: str, decision: str, qty: int | None, delay_days: int | None,
+                      text: str, role: str) -> str:
+        """A factory answers a request it was sent. Returns the decision the code settled."""
+        _require_factory(role, "answer a request")
+        req = self.requests(order_id).get(factory_id)
+        sent = any(m["kind"] == "request" and m["factory_id"] == factory_id and m["sent_day"] is not None
+                   for m in self.store.messages(order_id))
+        if req is None or not sent:
+            raise ValueError(f"{factory_id} has no request to answer")
+        if decision not in ("accept", "reject", "counter"):
+            raise ValueError(f"unknown decision {decision!r}")
+        if (qty is not None and qty < 0) or (delay_days is not None and delay_days < 0):
+            raise ValueError("pieces and days late cannot be negative")
+        done = next((o for o in self.store.rows("offers", order_id) if o["factory_id"] == factory_id), None)
+        if done is not None:
+            return done["decision"]
+        decision = settle_decision(decision, qty, delay_days, req["qty"])
+        d = self.day(order_id)
+        mid = f"{order_id}:form-offer-{factory_id}"
+        self.store.insert("messages", {"msg_id": mid, "order_id": order_id, "factory_id": factory_id,
+                                       "direction": "in", "kind": "offer_reply", "author_role": role,
+                                       "text": text.strip() or f"{decision}", "draft_of": FACTORY_FORM,
+                                       "story_day": d, "is_simulated": 0})
+        self.store.insert("offers", {
+            "offer_id": f"{order_id}:offer-{factory_id}", "order_id": order_id, "msg_id": mid,
+            "factory_id": factory_id, "decision": decision, "qty": None if decision == "reject" else qty,
+            "conditions": "[]", "quotes": "{}", "parse_status": "typed by factory", "story_day": d})
+        if delay_days and decision != "reject":
+            self.store.insert("progress_updates", {
+                "update_id": f"{order_id}:offer-delay-{factory_id}", "order_id": order_id, "factory_id": factory_id,
+                "story_day": d, "text": text, "delay_days": delay_days, "is_simulated": 0,
+                "parse_status": "from offer"})
+        self._event(order_id, "offer_reply_received", f"{factory_id} answered in the app: {decision}", role,
+                    subject=factory_id)
+        return decision
+
+    def factory_update(self, order_id: str, factory_id: str, pieces_done: int, delay_days: int, cause_text: str,
+                       role: str) -> None:
+        """A factory posts its daily update in the app (once per factory per story day)."""
+        _require_factory(role, "post a daily update")
+        if factory_id not in self.requests(order_id):
+            raise ValueError(f"{factory_id} has no work on this order")
+        if pieces_done < 0 or delay_days < 0:
+            raise ValueError("pieces and days late cannot be negative")
+        d = self.day(order_id)
+        mid = f"{order_id}:form-update-{factory_id}-day{d}"
+        if any(m["msg_id"] == mid for m in self.store.messages(order_id)):
+            return
+        cause = cause_text.strip() or None
+        text = f"{pieces_done:,} pieces finished" + (f", {delay_days} days late" if delay_days else ", on time")             + (f": {cause}" if cause else "")
+        self.store.insert("messages", {"msg_id": mid, "order_id": order_id, "factory_id": factory_id,
+                                       "direction": "in", "kind": "progress_update", "author_role": role,
+                                       "text": text, "draft_of": FACTORY_FORM, "story_day": d, "is_simulated": 0})
+        self.store.insert("progress_updates", {
+            "update_id": mid, "order_id": order_id, "factory_id": factory_id, "story_day": d, "text": text,
+            "pieces_done_cum": pieces_done, "delay_days": delay_days, "cause_text": cause, "cause_category": cause,
+            "quotes": "{}", "parse_status": "typed by factory", "is_simulated": 0})
+        self._event(order_id, "progress_update_received", f"{factory_id} posted an update in the app", role,
+                    subject=factory_id)
 
     def offer_terms(self, order_id: str) -> list[lp.OfferTerms]:
         offers = {o["factory_id"]: o for o in self.store.rows("offers", order_id)}

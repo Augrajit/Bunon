@@ -63,7 +63,7 @@ Generated only for the 1,748 T-shirt-capable open factories, from the **public**
 |---|---|
 | `declared_daily_capacity` | workers × U(0.55, 0.70) sewing share × 40 pcs/operator/day (**assumption**) × d |
 | `declared_spare_daily` | 35% fully booked (0). Otherwise min(Beta(2, 200) × declared, 1,000). **Calibrated, not measured** (see §3) |
-| `unit_price_bdt` | CM (cut-make) rate: 60 BDT (**placeholder** from the expert interview, §6: about 150 BDT per set × 40% for a T-shirt) × lognormal, sd 12%, rank correlation with θ about +0.2 (cheaper is slightly less reliable). Realised: p10 51.1, median 60.0, p90 69.6. Was 30 BDT before SPEC.md D12 |
+| `unit_price_bdt` | CM (cut-make) rate: 60 BDT, a **placeholder derived by Bunon** from the interview's per-set figure (calculation in §6.1; the interviewee gave no T-shirt rate) × lognormal, sd 12%, rank correlation with θ about +0.2 (cheaper is slightly less reliable). Realised: p10 51.1, median 60.0, p90 69.6. Was 30 BDT before SPEC.md D12 |
 | `min_batch` | from {500, 1,000, 2,000, 3,000}, larger for bigger factories |
 | `setup_days` | U{3..7} |
 
@@ -99,8 +99,8 @@ Every assumption lives in `bunon/config.py`, marked `ASSUMPTION` or `PLACEHOLDER
 | pcs per sewing operator per day | 40 | placeholder |
 | sewing share of workers | 55–70% | placeholder |
 | fully booked share / spare share / cap | 35% / Beta(2, 200) / 1,000 pcs/day | placeholder, calibrated |
-| CM price, basic tee | 60 BDT (150 BDT per set × 40%) | interview (per-set rate) + placeholder (T-shirt share) |
-| exporter-supplied material | 350 BDT/kg × 0.19 kg + 10 BDT trims = 76.5 BDT/pc | interview (300–400 BDT/kg) + placeholders |
+| CM price, basic tee | 60 BDT | **placeholder derived by Bunon** from the interview's ~150 BDT per set (§6.1); not stated by the interviewee |
+| exporter-supplied material | 76.5 BDT per piece | **placeholder derived by Bunon** from the interview's 300–400 BDT/kg fabric price (§6.1); not stated by the interviewee |
 | delivery tolerance | 2% (success = good pieces ≥ 98% of Q) | interview (principle) + placeholder (value) |
 | QC defect rate / whole-lot rejection | mean 2% / mean 2% | placeholder |
 | expected loss if the subcontracted part fails | 4,400,000 BDT default; a manager input in the app | placeholder |
@@ -136,7 +136,34 @@ What it changed:
 - **Success rule:** an order succeeds if the good pieces delivered by the deadline reach (1 − tolerance) × the subcontracted quantity, not 100% of it. Tolerance placeholder 2%, adjustable in the app.
 - **Quality:** QC rejects some pieces, and a whole lot can occasionally fail; only good pieces count. Defect rate and lot rejection are placeholders (2% each).
 - **Delays** are frequent but usually short (1–2 days). Buyers often keep a hidden cushion of 5–7 days, but **Bunon plans to the buyer's stated date** and does not use that cushion.
-- **Prices:** sewing about 150 BDT per set (top + trousers); a T-shirt-only rate is not confirmed (placeholder 40% of a set). Fabric 300–400 BDT/kg (placeholder 350 BDT/kg × 0.19 kg per shirt). On a CM basis the exporter supplies the fabric (to be confirmed).
+- **Prices (as stated):** sewing about 150 BDT per **set** (top + trousers); fabric 300–400 BDT per **kg**. The interviewee did **not** give a T-shirt sewing rate or a material cost per shirt; the two per-piece figures Bunon uses are its own placeholders derived from these (§6.1). On a CM basis the exporter supplies the fabric (to be confirmed).
 - **Loss on failure** is the manager's estimate, entered in the app; it is not read from the buyer email.
 - **Safety margin** (minimum over-allocation) is optional, default 0%.
 - **Delivery point:** subcontractors deliver to the exporter's own factory (the Gazipur point).
+
+### 6.1 How the two per-piece prices were derived (Bunon's placeholders, not interview figures)
+
+Only the two inputs marked "interview" were said by the interviewee. Every other number in these calculations is Bunon's own assumption, chosen on 26 Nov 2026 before any result was computed, and labelled `PLACEHOLDER` in `bunon/config.py`.
+
+**CM (sewing) price per T-shirt: 60 BDT**
+
+| Step | Value | Source |
+|---|---|---|
+| Sewing price per set (top + trousers) | 150 BDT | interview ("about 150 BDT per set") |
+| Share of a set's sewing price that a basic T-shirt takes | 40% | **Bunon assumption**: a basic tee has fewer operations than trousers (no fly, pockets or waistband), so somewhat under half |
+| CM per T-shirt = 150 × 0.40 | **60 BDT** | derived placeholder (`BASE_CM_PRICE_BDT`) |
+
+Each factory's synthetic price then varies around 60 BDT (lognormal, sd 12%; realised p10 51.1, median 60.0, p90 69.6).
+
+**Exporter-supplied material per T-shirt: 76.5 BDT**
+
+| Step | Value | Source |
+|---|---|---|
+| Fabric price | 300–400 BDT/kg | interview |
+| Price used | 350 BDT/kg | **Bunon assumption**: midpoint of the stated range |
+| Fabric per shirt | 0.19 kg | **Bunon estimate**: about 1.2 m² of 160 GSM single jersey per adult basic tee including cutting waste (1.2 × 0.160 kg ≈ 0.19 kg); not measured |
+| Fabric cost = 350 × 0.19 | 66.5 BDT | derived |
+| Trims (label, thread, poly bag) | 10 BDT | **Bunon assumption**, no source |
+| Material per shirt = 66.5 + 10 | **76.5 BDT** | derived placeholder (`MATERIAL_COST_BDT_PER_PIECE`) |
+
+The material cost is the same at every factory (the exporter supplies it), so it does not change which factories are chosen; it does set the price of every buffer piece. Both figures, and the three Bunon assumptions inside them, are in RESEARCH_ASKS.md (items 4 and 14) for confirmation.

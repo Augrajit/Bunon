@@ -59,14 +59,14 @@ SPARE_DAILY_CAP = 1_000         # ASSUMPTION: at most about one line offered to 
 # Prices on a CM basis (SPEC.md D12): the subcontractor is paid for cut-make; the EXPORTER supplies the fabric.
 # Interview (single-source expert input, Nov 2026; DATA_PROVENANCE.md section 6): sewing is about 150 BDT per
 # set (top + trousers); a T-shirt-only rate is not confirmed yet.
-SEWING_PRICE_BDT_PER_SET_REF = 150.0  # interview: per set (top + trousers)
-TEE_SHARE_OF_SET_PRICE = 0.40         # PLACEHOLDER: a T-shirt's share of a set's sewing price
-BASE_CM_PRICE_BDT = SEWING_PRICE_BDT_PER_SET_REF * TEE_SHARE_OF_SET_PRICE  # = 60 BDT, PLACEHOLDER
-FABRIC_BDT_PER_KG = 350.0             # interview: 300-400 BDT/kg; PLACEHOLDER midpoint
-FABRIC_KG_PER_TEE = 0.19              # PLACEHOLDER: 160 GSM basic tee incl. cutting waste
-TRIMS_BDT_PER_PIECE = 10.0            # PLACEHOLDER: label, thread, poly bag
+SEWING_PRICE_BDT_PER_SET_REF = 150.0  # stated in the interview: about 150 BDT per set (top + trousers)
+TEE_SHARE_OF_SET_PRICE = 0.40         # PLACEHOLDER (Bunon assumption, not from the interview): tee's share of a set
+BASE_CM_PRICE_BDT = SEWING_PRICE_BDT_PER_SET_REF * TEE_SHARE_OF_SET_PRICE  # = 60 BDT, PLACEHOLDER derived by Bunon (DATA_PROVENANCE.md 6.1)
+FABRIC_BDT_PER_KG = 350.0             # PLACEHOLDER: midpoint of the interview's stated 300-400 BDT/kg
+FABRIC_KG_PER_TEE = 0.19              # PLACEHOLDER (Bunon estimate): ~1.2 m2 of 160 GSM jersey incl. cutting waste
+TRIMS_BDT_PER_PIECE = 10.0            # PLACEHOLDER (Bunon assumption, no source): label, thread, poly bag
 # Exporter-supplied material, charged on every piece made, buffer pieces included.
-MATERIAL_COST_BDT_PER_PIECE = FABRIC_BDT_PER_KG * FABRIC_KG_PER_TEE + TRIMS_BDT_PER_PIECE  # = 76.5 BDT
+MATERIAL_COST_BDT_PER_PIECE = FABRIC_BDT_PER_KG * FABRIC_KG_PER_TEE + TRIMS_BDT_PER_PIECE  # = 76.5 BDT, PLACEHOLDER derived by Bunon (DATA_PROVENANCE.md 6.1)
 SURPLUS_SALVAGE_BDT_PER_PIECE = 0.0  # PLACEHOLDER: conservative, buffer pieces carry full cost
 PRICE_LOGSD = 0.12
 PRICE_THETA_CORR = 0.20         # cheaper -> slightly less reliable

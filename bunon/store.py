@@ -229,7 +229,7 @@ class Store:
 
     # --- generic rows for the loop tables (columns checked against the schema) --------------------------
     LOOP_TABLES = frozenset(("sourcing_rounds", "messages", "offers", "progress_updates", "forecasts",
-                             "rescue_options", "qc_records", "payments"))
+                             "rescue_options", "qc_records", "payments", "attributions"))
 
     def _columns(self, table: str) -> set[str]:
         if table not in self.LOOP_TABLES:

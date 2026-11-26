@@ -53,6 +53,7 @@ The login page has a "Continue as demo exporter" button; nothing typed there is 
 | `bunon/reliability.py` | Empirical-Bayes forecast per factory (`eb-3`): on-time probability, delay distribution, capacity factor, defect rate and lot rejection. `fit(history, ids)`. |
 | `bunon/simulation.py` | Monte Carlo `simulate(plan, forecasts, slack, ...)` → P(good pieces after QC by the deadline ≥ (1 − tol) × Q), seeded. |
 | `bunon/optimizer.py` | `load_world`, `demo_order`, `build_candidates`, `solve_mip` (PuLP/CBC), `solve_baseline` (naive), `search_buffer`, `compare_three`, `baseline_to_match`, re-plans (`replan_exclude`, `replan_locked`, `replan_from_reply`), news events (`event_from_severity`, `adjust_for_events`, `search_with_events`, `assess_news`). |
+| `bunon/attribution.py` | Delay attribution rules (D23): `CATEGORIES`, `NewsEvent`, `Delay`, `matching_events` (district or national, during production). No LLM. |
 | `bunon/loop.py` | The order loop's engine steps: `sourcing_list`, `draft_request` / `draft_rescue_request` (templates), `OfferTerms`, `split_from_offers`, `Forecast`, `forecast_after_update`, `last_rescue_day`, `RescueOption`, `rescue_move`, `rescue_options`. Constants `REPLY_DAY=2`, `UPDATE_DAY=12`, `QC_DAY=26`. |
 
 ### LLM layer
@@ -77,7 +78,7 @@ The login page has a "Continue as demo exporter" button; nothing typed there is 
 `app.py` renders only. Login gate → welcome → role switcher → three views: **Order timeline** (`view_timeline`: intake, plan + memo + approval, then `section_sourcing`, `section_offers`, `section_split`, `section_update`, `section_rescue`, `section_qc`, `section_record`, then "Ask Bunon" and the event timeline), **Show the maths** (`view_maths`), **Factory app** (`view_factory`, phone frame). LLM steps are memoised per session with `llm_once`. Look and feel: `.streamlit/config.toml` plus the single `THEME_CSS` block. **Hosting quirk:** Streamlit Cloud keeps imported modules, so `app.py` hashes `bunon/*.py` and reloads a fixed list of modules; any new `bunon` module **must be added to that list** (a test in `tests/test_service.py` checks this).
 
 ### Tests (`tests/`)
-`test_engine.py` (optimizer, re-plans), `test_quality.py` (QC model), `test_agent.py` (quote rules, placeholder rule), `test_analyst.py`, `test_budget.py`, `test_data_gen.py` (privacy scan), `test_personas.py`, `test_service.py` (store, roles, cleanup, reload list), `test_loop.py` (the loop, payments, factory side), `test_app_sweep.py` (`-m sweep`, Streamlit AppTest click-through at 24 settings), `test_factory_app.py` (`-m sweep`, the factory forms).
+`test_engine.py` (optimizer, re-plans), `test_quality.py` (QC model), `test_agent.py` (quote rules, placeholder rule), `test_analyst.py`, `test_budget.py`, `test_data_gen.py` (privacy scan), `test_personas.py`, `test_service.py` (store, roles, cleanup, reload list), `test_loop.py` (the loop, payments, factory side, several updates), `test_attribution.py` (delay causes), `test_app_sweep.py` (`-m sweep`, Streamlit AppTest click-through at 24 settings), `test_factory_app.py` (`-m sweep`, the factory forms).
 
 ---
 
@@ -135,7 +136,7 @@ Check it works: open the Factory app view at phone width (`resize_window` mobile
 
 ### Milestone 4: track record (10–16 Dec)
 4.1 **Record across orders.** **Done (SPEC.md D18)** as `OrderBook.factory_platform_record(factory_id) -> dict`, within one visitor store (a shared store across exporters is not built). Planned: over all orders in the store: acceptance rate, on-time rate, QC pass rate, average reported delay, from `source='platform'` events/rows only; synthetic history shown separately (`service.factory_record`). Test: metrics recompute exactly from rows; simulated persona events are labelled.
-4.2 **Delay attribution** (cut a, `agent.suggest_attribution`, task `attribution_v1`): input the update texts and recorded news events in the same district and days; output a category with a quote. **Code rule:** `outside_event` only if a matching recorded event id exists, else at most `unclear`. Human decides (exporter role); the factory can dispute (factory role) → `attributions` row. Tests for both branches.
+4.2 **Done (SPEC.md D23)** as `bunon/attribution.py` (rules), `agent.suggest_attribution` (`attribution_v1`), `OrderBook.record_news / delays / decide_attribution / dispute_attribution`. Planned: **Delay attribution** (cut a, `agent.suggest_attribution`, task `attribution_v1`): input the update texts and recorded news events in the same district and days; output a category with a quote. **Code rule:** `outside_event` only if a matching recorded event id exists, else at most `unclear`. Human decides (exporter role); the factory can dispute (factory role) → `attributions` row. Tests for both branches.
 4.3 **Factory controls sharing** (`share_settings`): factory role sets per-field visibility; the exporter view hides private fields. Test.
 
 ### Milestone 5: polish and release (17–24 Dec)

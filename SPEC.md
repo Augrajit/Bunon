@@ -416,3 +416,45 @@ Costs fell because material dropped from 180 to 76.5 BDT per piece (the CM rate 
 The factory-app click-through now has F1856's on-time typed update next to F1064's late scripted one: the table lists both, the warning shows, and the buyer is told. Full sweep passed.
 
 **Not done:** a second scripted update day (needs the story-clock jumps of task 5.2). On the same story day a forecast row recorded before a second update keeps its earlier chance (`record_forecast` writes once per day and factory); `previous_p` reads only earlier days, so the drop rule is unaffected.
+
+### D23: 27 Nov 2026: delay attribution: the AI suggests, code rules cut, a person decides, the factory disputes (HANDOFF task 4.2, PLAN_V2 cut a)
+
+**Why:** a factory's record counted its delays and stated causes, but not whose doing a delay was. That matters for the next order. A late factory that was hit by a hartal is not the same as one that over-promised. PLAN_V2's rule is that the AI never decides against a party alone, and that "outside event" needs evidence.
+
+**What:**
+- **Code rules (`bunon/attribution.py`):** categories `factory`, `outside_event`, `exporter_side`, `unclear`. `matching_events` returns recorded news events in the factory's district or nationwide that run at some point between the day the split was agreed and the update.
+- **AI suggestion (`agent.suggest_attribution`, `attribution_v1`):**
+  - The prompt holds the update text and the matching events.
+  - The answer holds a category, a reason quoted from the update, cited event ids, and an explanation with no numbers.
+  - `validate_attribution` cuts the answer to `unclear` in two cases:
+    - `outside_event` with no cited event that actually matches (an invented id, or none cited);
+    - `factory` / `exporter_side` without a quote found in the update.
+  - An explanation containing a number is dropped. An offline miss gives no suggestion, and the person decides alone.
+- **Service:**
+  - `record_news` (an exporter role; the area, type and severity come from `parse_news`; the length is the stated days or the severity table's default; the same item twice is one event)
+  - `news_events`, `delays` (each factory's latest update with days late), `matching_events`, `record_suggestion`
+  - `decide_attribution`: an exporter role decides. The rule holds for people too: `outside_event` without a matching event raises an error.
+  - `dispute_attribution`: the factory's own role disputes, the dispute is kept on the row and in the timeline, and a new decision clears the flag.
+  - `track_record` gains `delay_causes` (decided categories) and `causes_disputed`.
+- **App:**
+  - Day 12 gets "Why is it late?": recorded news (record one of the demo items), the AI suggestion with its notes and matching events, and a radio + "Record the cause".
+  - The factory app shows the recorded cause with "Dispute this cause".
+  - The track record gets a "Cause decided" column. The rescue is not held up by this step.
+
+**At defaults (live, cached; F1064: "Line e current nai, 2 din late hobe"):**
+- **No news recorded:** the AI suggests the factory's side ("a localized power outage on their specific production line").
+- **Ashulia labour-unrest item recorded** (it matches by district and days): the AI says unclear, because unrest does not explain a power cut and no area-wide power cut is on record.
+- Either way a person records the cause. No engine number changes.
+
+**Tests:** 202 unit tests (from 196) in `tests/test_attribution.py`:
+- event matching by district / national / days
+- an outside event with a matching event is kept
+- an outside event without one is cut to unclear (nothing recorded, an invented id, or a match but none cited)
+- the factory's side without a quote from the update is cut, and an explanation with a number is dropped
+- an offline miss gives no suggestion
+- people decide (roles enforced; outside_event needs a matching, cited event)
+- the factory disputes, the record counts the decision and the dispute, and a second decision with evidence clears it
+
+The factory-app click-through now decides F1064's cause as the merchandiser, disputes it as the factory, and sees the dispute on the exporter side. The default sweep case asserts the suggestion replays from the cache. Full sweep passed.
+
+**Open question:** whether "Line e current nai" (no power on the line) is the factory's side or unclear without an area-wide record is a judgement call. The AI chose the factory's side and a person can change it. Should the team prefer that a stated power cut is always "unclear" without a record, add it to the prompt's unclear rule.

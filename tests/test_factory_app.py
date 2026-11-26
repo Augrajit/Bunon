@@ -66,10 +66,22 @@ def test_factory_answers_and_updates_in_the_app(monkeypatch, tmp_path):
     table = next(df.value for df in at.dataframe if "Pieces by its ship-by day" in df.value.columns)
     assert list(table["Factory"]) == ["F1064", "F1856"] and table["Short"].iloc[1] == "0"
     assert at.warning and not any("on track" in s.value for s in at.success)
+    # D23: the exporter records F1064's delay cause; F1064 disputes it in its app; the record shows the dispute
+    assert r.click(key="attr_decide_F1064"), r.problems
+    assert any("Recorded:" in s.value for s in at.success), r.problems
+    _as(at, "Factory owner")
+    at.selectbox(key="factory_view_id").set_value("F1064").run()
+    assert any("Cause recorded for your delay" in m.value for m in at.markdown), r.problems
+    at.text_input(key="dispute_text_F1064").set_value("The whole area had no power.")
+    assert r.click("Dispute this cause"), r.problems
+    assert any("You dispute this" in c.value for c in at.caption), r.problems
+    _as(at, "Merchandiser", "Order timeline")
+    assert any("The factory disputes this" in s.value for s in at.success), r.problems
     assert r.click(key="rescue_escalate_buyer") and r.click(key="go_day_qc"), r.problems
     assert not r.problems, "\n".join(r.problems)
     log = next(df.value for df in at.dataframe if "Who (role)" in df.value.columns)
     assert {"Factory owner", "Floor supervisor"} <= set(log["Who (role)"])
+    assert {"attribution_decided", "attribution_disputed"} <= set(log["Kind"])
 
 
 def test_overtime_rescue_is_drafted_and_sent_only_on_approval(monkeypatch, tmp_path):

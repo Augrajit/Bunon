@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict
 
 from bunon import agent as ag
 from bunon import analyst
+from bunon import attribution as at
 from bunon import config as C
 from bunon import decisions as dl
 from bunon import loop as lp
@@ -567,6 +568,14 @@ class OrderBook:
                     causes.setdefault(f, []).append(u["cause_category"].strip().lower())
                 else:
                     no_cause[f] = no_cause.get(f, 0) + 1
+        # causes decided by a person (D23), and how many the factory disputes
+        decided: dict[str, dict[str, int]] = {}
+        disputed: dict[str, int] = {}
+        for a in self.store.rows("attributions", order_id):
+            if a["human_decision"] and a["category"]:
+                c = decided.setdefault(a["factory_id"], {})
+                c[a["category"]] = c.get(a["category"], 0) + 1
+                disputed[a["factory_id"]] = disputed.get(a["factory_id"], 0) + a["disputed_by_factory"]
         out = []
         for f in self.requests(order_id):
             off, q = offers.get(f), qc.get(f)
@@ -579,6 +588,8 @@ class OrderBook:
                         "delays_reported": n_delays.get(f, 0),
                         "delays_without_cause": no_cause.get(f, 0),
                         "cause_repeats": len(causes.get(f, [])) - len(set(causes.get(f, []))),
+                        "delay_causes": decided.get(f, {}),
+                        "causes_disputed": disputed.get(f, 0),
                         "delivered_on_time": None if q is None else q["story_day"] <= due,
                         "qc_pass_rate": None if q is None or not q["received"] else q["good"] / q["received"],
                         "lot_rejected": None if q is None else bool(q["lot_rejected"])})
@@ -653,6 +664,99 @@ class OrderBook:
         return {"payments": len(rows), "on_time": len(on_time),
                 "on_time_rate": len(on_time) / len(rows) if rows else None,
                 "avg_days_late": sum(late) / len(late) if late else None}
+
+    # --- delay attribution (SPEC.md D23): AI suggests, code checks, an exporter role decides, the factory may dispute
+    def record_news(self, order_id: str, quote: str, area: str, kind: str, severity: str, duration_days: int | None,
+                    role: str, start_day: int | None = None) -> str:
+        """Record a news item on this order (read with `agent.parse_news`, confirmed by a person). Its length is
+        the stated days or the severity table's default (code). Returns its event id; the same item twice is one."""
+        _require_exporter(role, "record a news event")
+        if severity not in C.SEVERITY_TABLE:
+            raise ValueError(f"unknown severity {severity!r}")
+        if area not in dict(C.DISTRICT_KEYWORDS) and area != "national":
+            raise ValueError(f"unknown area {area!r}")
+        d = self.day(order_id)
+        start = d if start_day is None else start_day
+        if not 0 <= start <= d:
+            raise ValueError("a news event cannot start before the order or after today")
+        for e in self.news_events(order_id):
+            if e.quote == quote and e.area == area:
+                return e.event_id
+        days = duration_days if duration_days else C.SEVERITY_TABLE[severity]["default_days"]
+        eid = f"{order_id}:news-{len(self.news_events(order_id)) + 1}"
+        self._event(order_id, "news_recorded", f"News recorded: {kind.replace('_', ' ')} in {area}", role,
+                    subject=area, payload={"event_id": eid, "area": area, "kind": kind, "severity": severity,
+                                           "start_day": start, "end_day": start + days - 1, "quote": quote})
+        return eid
+
+    def news_events(self, order_id: str) -> list[at.NewsEvent]:
+        out = []
+        for e in self.store.events(order_id):
+            if e["kind"] == "news_recorded":
+                p = json.loads(e["payload"] or "{}")
+                out.append(at.NewsEvent(p["event_id"], p["area"], p["kind"], p["start_day"], p["end_day"], p["quote"]))
+        return out
+
+    def delays(self, order_id: str, districts: dict[str, str]) -> list[at.Delay]:
+        """Delays to attribute: each factory's latest daily update that states days late (delays stated with an
+        offer are not attributed here)."""
+        latest: dict[str, dict] = {}
+        for u in sorted(self.store.rows("progress_updates", order_id), key=lambda u: u["story_day"]):
+            if u["parse_status"] != "from offer":
+                latest[u["factory_id"]] = u
+        return [at.Delay(f"{order_id}:delay-{f}-day{u['story_day']}", f, districts.get(f, "unknown"), u["story_day"],
+                         u["delay_days"], u["text"], u["cause_text"])
+                for f, u in sorted(latest.items()) if u["delay_days"]]
+
+    def matching_events(self, order_id: str, delay: at.Delay) -> list[at.NewsEvent]:
+        return at.matching_events(self.news_events(order_id), delay.district, lp.REPLY_DAY, delay.day)
+
+    def attribution(self, order_id: str, delay_id: str) -> dict | None:
+        return next((a for a in self.store.rows("attributions", order_id) if a["delay_id"] == delay_id), None)
+
+    def record_suggestion(self, order_id: str, delay: at.Delay, res) -> None:
+        """Keep the AI's checked suggestion next to the delay (never a decision)."""
+        row = self.attribution(order_id, delay.delay_id) or {
+            "delay_id": delay.delay_id, "order_id": order_id, "factory_id": delay.factory_id}
+        sugg = json.dumps({"category": res.category, "suggested": res.suggested, "reason_quote": res.reason_quote,
+                           "evidence_event_ids": res.evidence_event_ids, "notes": res.notes,
+                           "source": res.meta.source if res.meta else "unavailable"}, ensure_ascii=False)
+        if row.get("ai_suggestion") == sugg:
+            return
+        self.store.insert("attributions", {**row, "ai_suggestion": sugg})
+
+    def decide_attribution(self, order_id: str, delay: at.Delay, category: str, role: str,
+                           evidence_event_ids: list[str] | None = None) -> None:
+        """An exporter role decides the cause. The code rule holds for people too: `outside_event` needs a
+        matching recorded event (cited). The factory's own words are kept as the reason."""
+        _require_exporter(role, "decide a delay's cause")
+        if category not in at.CATEGORIES:
+            raise ValueError(f"unknown category {category!r}")
+        match = {e.event_id for e in self.matching_events(order_id, delay)}
+        ev = [i for i in (evidence_event_ids or []) if i in match]
+        if category == "outside_event" and not ev:
+            raise ValueError("an outside event needs a recorded event in the factory's district during production")
+        row = self.attribution(order_id, delay.delay_id) or {
+            "delay_id": delay.delay_id, "order_id": order_id, "factory_id": delay.factory_id}
+        self.store.insert("attributions", {**row, "category": category, "human_decision": role,
+                                           "reason_quote": delay.cause_quote or delay.update_text,
+                                           "evidence_event_ids": json.dumps(ev if category == "outside_event" else []),
+                                           "disputed_by_factory": 0})
+        self._event(order_id, "attribution_decided", f"Delay at {delay.factory_id}: {at.LABELS[category]}", role,
+                    subject=delay.factory_id, payload={"delay_id": delay.delay_id, "category": category,
+                                                       "evidence_event_ids": ev})
+
+    def dispute_attribution(self, order_id: str, delay_id: str, factory_id: str, text: str, role: str) -> None:
+        """The factory disputes a decided cause; the dispute is kept on its record and in the timeline."""
+        _require_factory(role, "dispute a delay's cause")
+        row = self.attribution(order_id, delay_id)
+        if row is None or row["factory_id"] != factory_id or not row["human_decision"]:
+            raise ValueError("only a decided cause of this factory's own delay can be disputed")
+        if row["disputed_by_factory"]:
+            return
+        self.store.insert("attributions", {**row, "disputed_by_factory": 1})
+        self._event(order_id, "attribution_disputed", f"{factory_id} disputes the cause recorded for its delay", role,
+                    subject=factory_id, payload={"delay_id": delay_id, "text": text.strip()})
 
     def _event(self, order_id: str, kind: str, summary: str, role: str | None, subject: str | None = None,
                payload: dict | None = None, day: int | None = None, source: str = "platform") -> int:

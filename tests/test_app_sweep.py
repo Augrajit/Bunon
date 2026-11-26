@@ -136,6 +136,7 @@ def test_every_action_at_extreme_settings(name, over, monkeypatch, tmp_path):
             sourcing = next(df.value for df in at.dataframe if "Asked for (pcs)" in df.value.columns)
             assert set(sourcing["Written by"]) == {"AI (checked)"}, sourcing  # D21: AI drafts replay from the cache
             assert any("Level set by code" in c.value and "cached answer" in c.value for c in at.caption)
+            assert any("AI suggests" in i.value for i in at.info), "D23: the delay-cause suggestion replays"
 
     # show the maths: engine detail, steering, and the what-ifs on the first plan
     at.session_state["view"] = "Show the maths"

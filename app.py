@@ -26,7 +26,7 @@ def _reload_bunon_if_changed() -> None:
 
     import bunon
     order = ["config", "schemas", "textnum", "llm", "data_gen", "reliability", "simulation",
-             "optimizer", "agent", "analyst", "store", "decisions", "personas", "loop", "service"]
+             "optimizer", "agent", "analyst", "store", "decisions", "personas", "loop", "attribution", "service"]
     src = Path(bunon.__file__).parent
     digest = hashlib.sha1(b"".join((src / f"{m}.py").read_bytes() for m in order)).hexdigest()
     if getattr(bunon, "_source_digest", None) != digest:
@@ -41,6 +41,7 @@ _reload_bunon_if_changed()
 
 from bunon import agent as ag  # noqa: E402
 from bunon import analyst  # noqa: E402  (after the reload check, so names bind to current code)
+from bunon import attribution as at  # noqa: E402
 from bunon import config as C  # noqa: E402
 from bunon import decisions as dl
 from bunon import loop as lp
@@ -695,6 +696,16 @@ def factory_forms(oid: str, fid: str, msgs: list[dict]) -> None:
         if st.form_submit_button(f"Post update for day {book().day(oid)}", type="primary"):
             book().factory_update(oid, fid, int(done), int(late), why, st.session_state["role"])
             st.rerun()
+    for row in [a for a in book().store.rows("attributions", oid) if a["factory_id"] == fid and a["human_decision"]]:
+        st.markdown(f"**Cause recorded for your delay:** {at.LABELS[row['category']]}")
+        if row["disputed_by_factory"]:
+            st.caption("You dispute this; the exporter and your record show the dispute.")
+            continue
+        with st.form(f"dispute_{fid}", border=False):
+            why = st.text_input("Why you disagree", key=f"dispute_text_{fid}")
+            if st.form_submit_button("Dispute this cause"):
+                book().dispute_attribution(oid, row["delay_id"], fid, why, st.session_state["role"])
+                st.rerun()
 
 
 # =============================================================================
@@ -1378,6 +1389,74 @@ def _write_msg(args: tuple, kind: str, extra: int, total: int, lang: str, templa
     return ag.write_message(kind, fs, lang, template, LLMClient())
 
 
+def _suggest_cause(delay, events: tuple):
+    return ag.suggest_attribution(delay, list(events), LLMClient())
+
+
+def section_attribution(oid: str) -> None:
+    """Day 12: why is a factory late, for its record (D23). The AI suggests a cause with the factory's own words;
+    code rules cut what has no evidence; an exporter role decides; the factory can dispute in its app. Does not
+    hold up the rescue."""
+    f = world().factories
+    delays = book().delays(oid, dict(zip(f["factory_id"], f["district"])))
+    if not delays:
+        return
+    st.subheader("Why is it late? (for the factory's record)", anchor="attribution")
+    st.caption("The AI suggests a cause and quotes the factory's own words. It may say **outside event** only "
+               "when a news item recorded on this order covers the factory's district (or the whole country) "
+               "during production; otherwise at most **unclear**. A person decides, and the factory can dispute.")
+    events = book().news_events(oid)
+    with st.expander(f"News recorded on this order ({len(events)})"):
+        if events:
+            st.dataframe(pd.DataFrame([{"Area": e.area, "What": e.kind.replace("_", " "), "Days": f"{e.start_day}–"
+                                        f"{e.end_day}", "Words in the news": e.quote} for e in events]),
+                         hide_index=True, width="stretch")
+        if _role_or_none() is not None:
+            pick = st.selectbox("Record a news item (fictional demo items)", [n["id"] for n in NEWS],
+                                key="attr_news_pick")
+            if st.button("Read and record it", key="attr_news_record"):
+                nres = read_news(next(n["text"] for n in NEWS if n["id"] == pick))
+                if nres.area and nres.severity:
+                    book().record_news(oid, nres.type_span or pick, nres.area, nres.disruption_type or "other",
+                                       nres.severity, nres.duration.value if nres.duration.status == "ok" else None,
+                                       st.session_state["role"])
+                    st.rerun()
+                st.warning("The area or severity could not be read with a quote, so it was not recorded.")
+    for d in delays:
+        match = tuple(book().matching_events(oid, d))
+        res = llm_once("Suggesting a cause…", _suggest_cause, d, match)
+        book().record_suggestion(oid, d, res)
+        row = book().attribution(oid, d.delay_id)
+        st.markdown(f"**{d.factory_id}** reports {d.delay_days} days late" +
+                    (f", in its words: “{d.cause_quote}”" if d.cause_quote else ", with no reason given"))
+        if res.category:
+            ev = f" Evidence: {', '.join(i.split(':')[-1] for i in res.evidence_event_ids)}." if res.evidence_event_ids else ""
+            st.info(f"AI suggests: **{at.LABELS[res.category]}**." + ev + (f" {res.explanation}" if res.explanation
+                                                                            else ""))
+        for n in res.notes:
+            st.caption(n)
+        if res.meta:
+            st.caption(SOURCE_BADGE[res.meta.source] + " Matching recorded events: " + (
+                ", ".join(e.event_id.split(":")[-1] for e in match) if match else "none") + ".")
+        if row and row["human_decision"]:
+            st.success(f"Recorded: **{at.LABELS[row['category']]}** (decided by the {row['human_decision'].lower()})"
+                       + (". **The factory disputes this.**" if row["disputed_by_factory"] else "."))
+        if _role_or_none() is None:
+            st.caption("Switch to an exporter role to decide the cause.")
+            continue
+        c = st.columns([3, 1])
+        cats = list(at.CATEGORIES)
+        default = cats.index(row["category"] if row and row["category"] else res.category or "unclear")
+        cat = c[0].radio(f"Cause for {d.factory_id}", cats, index=default, horizontal=True,
+                         format_func=lambda k: at.LABELS[k], key=f"attr_cat_{d.factory_id}")
+        if c[1].button("Record the cause", key=f"attr_decide_{d.factory_id}"):
+            try:
+                book().decide_attribution(oid, d, cat, st.session_state["role"], [e.event_id for e in match])
+                st.rerun()
+            except ValueError as e:
+                st.error(str(e).capitalize() + ".")
+
+
 def section_rescue(args, oid: str, fc, opts) -> bool:
     """Day 12: rescue options with their chance and cost; a production manager decides."""
     st.header(f"Day {lp.UPDATE_DAY} · Rescue", anchor="rescue")
@@ -1531,13 +1610,15 @@ def section_record(oid: str) -> None:
                                 "Delays": r["delays_reported"],
                                 "No specific cause given": r["delays_without_cause"],
                                 "Same cause again": r["cause_repeats"],
+                                "Cause decided": ", ".join(at.LABELS[k] for k in r["delay_causes"])
+                                + (" (disputed)" if r["causes_disputed"] else ""),
                                 "Delivered on time": "" if r["delivered_on_time"] is None
                                 else ("yes" if r["delivered_on_time"] else "no"),
                                 "QC pass": "" if r["qc_pass_rate"] is None else f"{r['qc_pass_rate']:.1%}"}
                                for r in tr]), hide_index=True, width="stretch")
     st.caption("Counted only from what happened on the platform in this order (requests, replies, updates, QC), "
                "never from rumours. Delays and their stated causes are counted by code; the AI only reads the "
-               "cause with a quote. In this demo the factories are simulated.")
+               "cause with a quote and suggests a category, which a person decides and the factory can dispute. In this demo the factories are simulated.")
 
 
 def section_payments(oid: str) -> None:
@@ -1633,6 +1714,7 @@ def view_timeline() -> None:
                 if split_pt is not None:
                     upd = section_update(args, oid, offers, split_pt)
                     if upd is not None:
+                        section_attribution(oid)
                         fc, _, opts = upd
                         if section_rescue(args, oid, fc, opts) and section_qc(args, oid):
                             section_record(oid)

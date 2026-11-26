@@ -111,11 +111,14 @@ def main() -> None:
     offers = []
     for r in lp.sourcing_list(b):
         for m in ps.messages_for(pf, r.factory_id, "offer_reply"):
-            res = ag.parse_reply(m.text, r.qty, client)
+            planned_price = next(c.unit_price_bdt for c in b.cands if c.factory_id == r.factory_id)
+            res = ag.parse_reply(m.text, r.qty, client, planned_price=planned_price)
             qty, delay = sv.reply_terms(res)
-            offers.append(lp.OfferTerms(r.factory_id, res.decision or "none", qty, delay, r.qty))
+            price = res.price.value if res.price.status == "ok" else None
+            offers.append(lp.OfferTerms(r.factory_id, res.decision or "none", qty, delay, r.qty, price))
             print(f"loop offer {m.msg_id}: {res.meta.source if res.meta else 'failed'} -> {res.decision} "
-                  f"(expected {m.expected.decision}); qty {qty} (expected {m.expected.qty})")
+                  f"(expected {m.expected.decision}); qty {qty} (expected {m.expected.qty}); "
+                  f"price {price} (expected {m.expected.price_bdt_per_piece})")
     split, _ = lp.split_from_offers(w, b, offers)
     qty = {ln.factory_id: ln.qty for ln in split.recommended.plan.lines}
     for fid in qty:

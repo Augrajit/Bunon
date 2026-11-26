@@ -100,8 +100,9 @@ class OfferTerms:
     factory_id: str
     decision: str            # accept / counter / reject / none (no reply or unreadable)
     qty: int | None          # verified quantity from the reply, if any
-    delay_days: int | None   # verified delay from the reply, if any
+    delay_days: int | None   # verified delay from the reply, if any (or from a ship date after the asked date)
     requested: int
+    price: float | None = None  # verified rate per piece from the reply, if any (BDT)
 
 
 def split_from_offers(world: op.World, b, offers: list[OfferTerms]) -> tuple[PlanResult, list[Candidate]]:
@@ -122,9 +123,11 @@ def split_from_offers(world: op.World, b, offers: list[OfferTerms]) -> tuple[Pla
         slack = c.slack_days - (o.delay_days or 0)
         q_eff = (fc.fill_mean * rl.p_on_time(fc, slack) if slack >= 0
                  else fc.fill_mean * max(0.0, (c.window_days + slack) / c.window_days)) * fc.good_share
-        cands.append(c.model_copy(update={"window_capacity_risk_adj": cap, "window_capacity_declared": cap,
-                                          "min_batch": min(c.min_batch, cap), "slack_days": slack,
-                                          "q_effective": q_eff}))
+        upd = {"window_capacity_risk_adj": cap, "window_capacity_declared": cap,
+               "min_batch": min(c.min_batch, cap), "slack_days": slack, "q_effective": q_eff}
+        if o.price is not None:  # the factory's quoted rate replaces our synthetic rate for it
+            upd["unit_price_bdt"] = float(o.price)
+        cands.append(c.model_copy(update=upd))
     declined = [o.factory_id for o in offers if o.decision == "reject"]
     p = b.params.model_copy(update={"excluded_ids": sorted(set(b.params.excluded_ids) | set(declined))})
     res = op.search_buffer(world, b.order, p, b.settings.target, shocks=b.settings.shocks,

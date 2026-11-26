@@ -3,6 +3,7 @@ QC and the track record. Engine steps are code; the update parser follows the qu
 from __future__ import annotations
 
 import json
+from datetime import date, timedelta
 
 import pytest
 
@@ -50,7 +51,7 @@ def answer_key_offers(bundle) -> list[lp.OfferTerms]:
         m = ps.messages_for(pf, r.factory_id, "offer_reply")
         e = m[0].expected if m else None
         out.append(lp.OfferTerms(r.factory_id, e.decision if e else "none", e.qty if e else None,
-                                 e.delay_days if e else None, r.qty))
+                                 e.delay_days if e else None, r.qty, e.price_bdt_per_piece if e else None))
     return out
 
 
@@ -370,7 +371,7 @@ def test_published_demo_numbers(world, bundle):
     assert lp.last_rescue_day(world, bundle, fc.shortfall, excl, today=lp.UPDATE_DAY)[0] == 16
     opts = {o.kind: o for o in lp.rescue_options(world, bundle, pt, cands, fc, ["F0824"], lp.UPDATE_DAY)}
     assert opts["move"].p_after == pytest.approx(0.856, abs=0.0005)
-    assert round(opts["move"].cost_delta_bdt) == 33_757 and opts["move"].note == "F2829 +3,300"
+    assert round(opts["move"].cost_delta_bdt) == 34_813  # 33,757 before quoted rates (D20) and opts["move"].note == "F2829 +3,300"
     assert opts["accept_shortfall"].allowed
 
 
@@ -464,3 +465,19 @@ def test_a_price_outside_the_usual_range_is_flagged_not_dropped(tmp_path):
     out = _offer("counter", "Ok 13,100 pcs", 13_100, "13,100 pcs", 250, "rate 250 taka")
     r = ag.parse_reply(text, 13_100, fake(tmp_path, out), planned_price=50.0)
     assert r.price.value == 250 and any("outside the usual range" in n for n in r.notes)
+
+
+def test_quoted_rates_price_the_split_and_a_late_ship_date_is_a_delay(world, bundle, book):
+    offers = answer_key_offers(bundle)
+    res, cands = lp.split_from_offers(world, bundle, offers)
+    price = {c.factory_id: c.unit_price_bdt for c in cands}
+    assert price["F2829"] == 60.0 and price["F2184"] == 56.0 and price["F1856"] == 57.0
+    assert price["F1064"] == next(c.unit_price_bdt for c in bundle.cands if c.factory_id == "F1064")  # no rate quoted
+    oid = book.confirm_order(bundle.order, "Merchandiser", sv.PlanSettings(), None)
+    book.draft_round(oid, bundle, ps.load())
+    finish = date.fromisoformat(book.requests(oid)["F1856"]["finish_by"])
+    book.store.insert("offers", {"offer_id": f"{oid}:offer-F1856", "order_id": oid, "factory_id": "F1856",
+                                 "decision": "counter", "qty": 13_200, "price_bdt_per_piece": 58.0,
+                                 "ship_date": (finish + timedelta(days=3)).isoformat(), "story_day": 2})
+    o = next(x for x in book.offer_terms(oid) if x.factory_id == "F1856")
+    assert (o.delay_days, o.price) == (3, 58.0)

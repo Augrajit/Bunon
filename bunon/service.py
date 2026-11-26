@@ -355,10 +355,13 @@ class OrderBook:
         self.store.insert("offers", {
             "offer_id": f"{order_id}:offer-{msg['factory_id']}", "order_id": order_id, "msg_id": msg["msg_id"],
             "factory_id": msg["factory_id"], "decision": res.decision or "none", "qty": qty,
+            "price_bdt_per_piece": res.price.value if res.price.status == "ok" else None,
+            "ship_date": res.ship_date.value.isoformat() if res.ship_date.status == "ok" else None,
             "conditions": json.dumps([{"text": c.value, "quote": c.source_span, "status": c.status}
                                       for c in res.conditions], ensure_ascii=False),
             "quotes": json.dumps({"decision": res.decision_span, "qty": res.quantity.source_span,
-                                  "delay": res.delay_days.source_span}, ensure_ascii=False),
+                                  "delay": res.delay_days.source_span, "price": res.price.source_span,
+                                  "ship_date": res.ship_date.source_span}, ensure_ascii=False),
             "parse_status": res.meta.source if res.meta else "unavailable", "story_day": msg["story_day"]})
         if delay is not None:
             self.store.insert("progress_updates", {
@@ -431,9 +434,18 @@ class OrderBook:
         offers = {o["factory_id"]: o for o in self.store.rows("offers", order_id)}
         delays = {u["factory_id"]: u["delay_days"] for u in self.store.rows("progress_updates", order_id)
                   if u["parse_status"] == "from offer"}
-        return [lp.OfferTerms(f, offers[f]["decision"] if f in offers else "none",
-                              offers[f]["qty"] if f in offers else None, delays.get(f), r["qty"])
-                for f, r in self.requests(order_id).items()]
+        out = []
+        for f, r in self.requests(order_id).items():
+            o = offers.get(f)
+            delay = delays.get(f)
+            if o and o["ship_date"] and o["decision"] != "reject":
+                # a stated ship date after the asked finish date is a delay, counted in days by code
+                late = (date.fromisoformat(o["ship_date"]) - date.fromisoformat(r["finish_by"])).days
+                if late > 0 and (delay or 0) < late:
+                    delay = late
+            out.append(lp.OfferTerms(f, o["decision"] if o else "none", o["qty"] if o else None, delay, r["qty"],
+                                     o["price_bdt_per_piece"] if o else None))
+        return out
 
     # --- the loop: follow-up, rescue, QC, record ------------------------------------------------------
     def record_update(self, order_id: str, msg: dict, res) -> None:

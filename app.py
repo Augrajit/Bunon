@@ -1129,8 +1129,8 @@ def persona_file():
     return personas.load()
 
 
-def _parse_offer(text: str, qty: int):
-    return ag.parse_reply(text, qty, LLMClient())
+def _parse_offer(text: str, qty: int, planned_price: float | None = None):
+    return ag.parse_reply(text, qty, LLMClient(), planned_price=planned_price)
 
 
 def _parse_update(text: str, qty: int):
@@ -1214,18 +1214,23 @@ def section_offers(args, oid: str) -> tuple | None:
                          "Days late": "" if not o.delay_days else str(o.delay_days), "Conditions (quoted)": "",
                          "Read by": "typed by the factory", "Source": "factory app"})
             continue
-        res = llm_once("Reading the replies…", _parse_offer, m["text"], reqs[m["factory_id"]]["qty"])
+        price = next((c.unit_price_bdt for c in run_plans(*args).cands if c.factory_id == m["factory_id"]), None)
+        res = llm_once("Reading the replies…", _parse_offer, m["text"], reqs[m["factory_id"]]["qty"], price)
         if m["factory_id"] not in have:
             book().record_offer(oid, m, res)
         qty, delay = sv.reply_terms(res)
         rows.append({"Factory": m["factory_id"], "Reply": m["text"], "Decision": res.decision or "read by hand",
                      "Pieces": "" if qty is None else f"{qty:,}", "Days late": "" if delay is None else str(delay),
+                     "Rate (BDT/pc)": f"{res.price.value:g}" if res.price.status == "ok" else "",
+                     "Our planned rate": "" if price is None else f"{price:.1f}",
+                     "Ship date": f"{res.ship_date.value:%d %b}" if res.ship_date.status == "ok" else "",
                      "Conditions (quoted)": "; ".join(f"“{c.source_span}”" for c in res.conditions if c.status == "ok"),
                      "Read by": SOURCE_BADGE.get(res.meta.source, res.meta.source) if res.meta else "unavailable",
                      "Source": _simulated_tag(m)})
-    st.caption("The LLM classifies each reply and pulls out pieces and delay, each with a quote the code checks; "
-               "the code settles the decision. Prices in replies are shown as quoted conditions; reading them as "
-               "numbers comes with the offer parser (next milestone).")
+    st.caption("The LLM classifies each reply and pulls out pieces, delay, rate and ship date, each with a quote "
+               "the code checks; the code settles the decision (a rate more than "
+               f"{C.PRICE_MATCH_TOLERANCE:.0%} above our planned rate makes a yes a counter-offer). A quoted rate "
+               "replaces our synthetic rate in the split; a ship date after the asked date counts as a delay.")
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
     missing = [f for f in reqs if f not in {r["Factory"] for r in rows}]
     if missing:

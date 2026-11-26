@@ -111,6 +111,7 @@ def test_every_action_at_extreme_settings(name, over, monkeypatch, tmp_path):
     r.click(key="record_qc")
     at.session_state["role"] = "Merchandiser"
     at.run()
+    r.click(key="record_payments")
     for i in range(3):
         if r.click(key=f"whatif_ex_{i}"):
             r.click("Ask")
@@ -128,6 +129,7 @@ def test_every_action_at_extreme_settings(name, over, monkeypatch, tmp_path):
         if over == {}:  # default settings: the whole loop to the track record
             assert {"qc_recorded", "message_sent"} <= kinds and log["Day"].max() >= 24, sorted(kinds)
             assert any("Track record" in h.value for h in at.header)
+            assert "payment_recorded" in kinds, sorted(kinds)
 
     # show the maths: engine detail, steering, and the what-ifs on the first plan
     at.session_state["view"] = "Show the maths"

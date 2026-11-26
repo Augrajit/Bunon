@@ -105,7 +105,7 @@ Open questions for the product owner:
 Conventions for every task: engine code stays free of LLM calls and Streamlit; `OrderBook` methods check roles, write an event with the acting role, and are idempotent (re-running a Streamlit rerun must not duplicate rows); row ids are scoped as `f"{order_id}:..."`; any new `bunon` module goes into `app.py`'s reload list. After each task: `pytest -q`, commit, push to `v2`. At the end of a milestone: `pytest -m sweep`, update SPEC.md, README numbers if changed, reviewer.
 
 ### Milestone 1: thin loop (D14, done) — leftovers
-1.1 **Exporter payment record** (PLAN_V2 cut b). *Built after this handoff was written if SPEC.md D15 exists; check there first.*
+1.1 **Exporter payment record** (PLAN_V2 cut b). **Done (SPEC.md D15):** `amounts_due`, `record_payment(order_id, factory_id, role)` (pays on today's story day; the amount is computed), `exporter_record`, `section_payments`. What was planned:
    - `service.OrderBook.record_payment(order_id, factory_id, amount_bdt, due_day, paid_day, role)`: exporter roles only; `paid_day ≥ 0`; idempotent per factory; event `payment_recorded`.
    - `OrderBook.exporter_record(order_id) -> dict`: `{"payments": n, "on_time": k, "on_time_rate": k/n or None, "avg_days_late": float or None}`, computed only from the `payments` table.
    - Amount due per factory = approved allocation qty × the line's unit price (code, `due_day` = QC day + a payment term in `config.py`, marked PLACEHOLDER).

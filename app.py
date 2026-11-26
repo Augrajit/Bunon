@@ -518,8 +518,9 @@ def prototype_notice() -> None:
 
 VIEWS = ("Order timeline", "Show the maths")
 TIMELINE_NAV = (("order", "Day 0 · Order"), ("plans", "Day 0 · Plan"), ("sourcing", "Day 0 · Sourcing"),
-                ("offers", "Day 2 · Offers"), ("split", "Day 2 · Split"), ("update", "Day 9 · Update"),
-                ("rescue", "Day 9 · Rescue"), ("qc", "Day 26 · QC"), ("record", "Track record"),
+                ("offers", "Day 2 · Offers"), ("split", "Day 2 · Split"), ("update", "Day 12 · Update"),
+                ("rescue", "Day 12 · Rescue"), ("qc", "Day 26 · QC"), ("record", "Track record"),
+                ("payments", "Payments"),
                 ("whatif", "Ask Bunon"), ("timeline", "Timeline"))
 
 for _k, _v in SETTING_DEFAULTS:
@@ -1196,7 +1197,7 @@ def section_split(args, oid: str, offers: tuple) -> object | None:
 
 
 def section_update(args, oid: str, offers: tuple, split_pt) -> tuple | None:
-    """Day 9: a daily update arrives; the code projects that factory and re-simulates the order."""
+    """Day 12: a daily update arrives; the code projects that factory and re-simulates the order."""
     st.header(f"Day {lp.UPDATE_DAY} · Daily update and warning", anchor="update")
     if book().day(oid) < lp.UPDATE_DAY:
         if st.button(f"Next: day {lp.UPDATE_DAY}, a daily update arrives", type="primary", key="go_day_update"):
@@ -1255,7 +1256,7 @@ def section_update(args, oid: str, offers: tuple, split_pt) -> tuple | None:
 
 
 def section_rescue(args, oid: str, fc, opts) -> bool:
-    """Day 9: rescue options with their chance and cost; a production manager decides."""
+    """Day 12: rescue options with their chance and cost; a production manager decides."""
     st.header(f"Day {lp.UPDATE_DAY} · Rescue", anchor="rescue")
     b = run_plans(*args)
     st.dataframe(pd.DataFrame([{"Option": o.title, "Chance of success": "" if o.p_after is None else f"{o.p_after:.1%}",
@@ -1374,8 +1375,36 @@ def section_record(oid: str) -> None:
                                 "QC pass": "" if r["qc_pass_rate"] is None else f"{r['qc_pass_rate']:.1%}"}
                                for r in tr]), hide_index=True, width="stretch")
     st.caption("Counted only from what happened on the platform in this order (requests, replies, updates, QC), "
-               "never from rumours. In this demo the factories are simulated. Delay causes and the exporter's "
-               "payment record come in a later milestone.")
+               "never from rumours. In this demo the factories are simulated. Delay causes come in a later "
+               "milestone.")
+
+
+def section_payments(oid: str) -> None:
+    """The exporter's side of the record: what it owes each factory and whether it paid on time."""
+    st.header("Payments: the exporter's record", anchor="payments")
+    due = book().amounts_due(oid)
+    if not due:
+        st.caption("Nothing is due yet: payments follow the recorded QC.")
+        return
+    st.dataframe(pd.DataFrame([{"Factory": d["factory_id"], "Good pieces": d["good"],
+                                "CM (BDT/pc)": round(d["unit_price_bdt"], 1), "Amount (BDT)": round(d["amount_bdt"]),
+                                "Due (day)": d["due_day"],
+                                "Paid (day)": "" if d["paid_day"] is None else d["paid_day"]} for d in due]),
+                 hide_index=True, width="stretch")
+    st.caption(f"Amount = good pieces × the agreed CM rate, due {C.PAYMENT_TERM_DAYS} days after delivery "
+               "(placeholder term). Factories see whether an exporter pays on time, from these records only.")
+    unpaid = [d for d in due if d["paid_day"] is None]
+    if unpaid:
+        if st.session_state["role"] not in EXPORTER_ROLES:
+            st.info("Switch to an exporter role to record a payment.")
+        elif st.button(f"Record payment today (day {book().day(oid)}) to {len(unpaid)} factor"
+                       f"{'y' if len(unpaid) == 1 else 'ies'}", key="record_payments"):
+            for d in unpaid:
+                book().record_payment(oid, d["factory_id"], st.session_state["role"])
+            st.rerun()
+    rec = book().exporter_record(oid)
+    if rec["payments"]:
+        st.metric("Paid on time", f"{rec['on_time']} of {rec['payments']}")
 
 
 def view_timeline() -> None:
@@ -1446,6 +1475,7 @@ def view_timeline() -> None:
                         fc, _, opts = upd
                         if section_rescue(args, oid, fc, opts) and section_qc(args, oid):
                             section_record(oid)
+                            section_payments(oid)
     section_ask(args)
     section_timeline()
 

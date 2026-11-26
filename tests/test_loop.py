@@ -242,3 +242,42 @@ def test_factory_inbox_rows_are_order_scoped(bundle, book):
     b = book.confirm_order(bundle.order, "Merchandiser", sv.PlanSettings(), None)
     book.draft_round(b, bundle, pf)
     assert len(book.store.messages(a)) == len(book.store.messages(b)) == 6
+
+
+# --- the exporter's payment record (PLAN_V2 cut b) ---------------------------------------------------------
+
+def _through_qc(bundle, book):
+    oid = book.confirm_order(bundle.order, "Merchandiser", sv.PlanSettings(), None)
+    book.decide(oid, "plan", bundle.rec, "Initial plan", "approved", "Merchandiser", "test")
+    lines = bundle.rec.plan.lines
+    book.record_qc(oid, lines[0].factory_id, 1_000, 20, False, "Quality inspector", 24)
+    book.record_qc(oid, lines[1].factory_id, 500, 500, True, "Quality inspector", 26)
+    return oid, lines
+
+
+def test_amount_due_is_good_pieces_times_the_agreed_rate(bundle, book):
+    oid, lines = _through_qc(bundle, book)
+    due = {d["factory_id"]: d for d in book.amounts_due(oid)}
+    assert set(due) == {lines[0].factory_id, lines[1].factory_id}
+    a = due[lines[0].factory_id]
+    assert a["good"] == 980 and a["amount_bdt"] == pytest.approx(980 * lines[0].unit_price_bdt, abs=0.01)
+    assert a["due_day"] == 24 + C.PAYMENT_TERM_DAYS and a["paid_day"] is None
+    assert due[lines[1].factory_id]["amount_bdt"] == 0  # a rejected lot has no good pieces
+
+
+def test_payments_only_by_exporters_once_and_recomputed_from_rows(bundle, book):
+    oid, lines = _through_qc(bundle, book)
+    f0, f1 = lines[0].factory_id, lines[1].factory_id
+    with pytest.raises(PermissionError):
+        book.record_payment(oid, f0, "Factory owner")
+    with pytest.raises(ValueError):
+        book.record_payment(oid, lines[2].factory_id, "Merchandiser")  # no QC yet, nothing due
+    assert book.exporter_record(oid) == {"payments": 0, "on_time": 0, "on_time_rate": None, "avg_days_late": None}
+    book.advance_to(oid, 30, "pay", "Merchandiser")
+    book.record_payment(oid, f0, "Owner / director")
+    book.record_payment(oid, f0, "Owner / director")  # idempotent
+    book.advance_to(oid, 26 + C.PAYMENT_TERM_DAYS + 4, "pay late", "Merchandiser")
+    book.record_payment(oid, f1, "Merchandiser")
+    rec = book.exporter_record(oid)
+    assert rec == {"payments": 2, "on_time": 1, "on_time_rate": 0.5, "avg_days_late": 4}
+    assert sum(e["kind"] == "payment_recorded" for e in book.timeline(oid)) == 2

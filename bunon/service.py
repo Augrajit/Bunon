@@ -454,6 +454,51 @@ class OrderBook:
                         "lot_rejected": None if q is None else bool(q["lot_rejected"])})
         return out
 
+    # --- the exporter's side of the record: payments (PLAN_V2 cut b) ----------------------------------------
+    def amounts_due(self, order_id: str) -> list[dict]:
+        """What the exporter owes each factory once QC is recorded: good pieces x the agreed unit price (code),
+        due PAYMENT_TERM_DAYS after delivery. Nothing is typed by hand and nothing comes from an LLM."""
+        alloc = self.approved_allocation(order_id)
+        if alloc is None:
+            return []
+        price = {ln["factory_id"]: ln.get("unit_price_bdt") for ln in alloc["lines"]}
+        paid = {p["factory_id"]: p for p in self.store.rows("payments", order_id)}
+        out = []
+        for q in sorted(self.store.rows("qc_records", order_id), key=lambda r: r["factory_id"]):
+            f = q["factory_id"]
+            if price.get(f) is None:
+                continue
+            p = paid.get(f)
+            out.append({"factory_id": f, "good": q["good"], "unit_price_bdt": price[f],
+                        "amount_bdt": round(q["good"] * price[f], 2),
+                        "due_day": q["story_day"] + C.PAYMENT_TERM_DAYS,
+                        "paid_day": p["paid_day"] if p else None})
+        return out
+
+    def record_payment(self, order_id: str, factory_id: str, role: str) -> None:
+        """The exporter records that it paid a factory today (story clock). Exporter roles only; once per factory."""
+        _require_exporter(role, "record a payment")
+        due = next((d for d in self.amounts_due(order_id) if d["factory_id"] == factory_id), None)
+        if due is None:
+            raise ValueError(f"nothing is due to {factory_id} yet (record QC first)")
+        if due["paid_day"] is not None:
+            return
+        d = self.day(order_id)
+        self.store.insert("payments", {"payment_id": f"{order_id}:pay-{factory_id}", "order_id": order_id,
+                                       "factory_id": factory_id, "amount_bdt": due["amount_bdt"],
+                                       "due_day": due["due_day"], "paid_day": d})
+        self._event(order_id, "payment_recorded", f"Paid {factory_id} {due['amount_bdt']:,.0f} BDT "
+                    f"(due day {due['due_day']})", role, subject=factory_id)
+
+    def exporter_record(self, order_id: str) -> dict:
+        """The exporter's payment record on this order, computed only from the payments table."""
+        rows = self.store.rows("payments", order_id)
+        on_time = [r for r in rows if r["paid_day"] <= r["due_day"]]
+        late = [r["paid_day"] - r["due_day"] for r in rows if r["paid_day"] > r["due_day"]]
+        return {"payments": len(rows), "on_time": len(on_time),
+                "on_time_rate": len(on_time) / len(rows) if rows else None,
+                "avg_days_late": sum(late) / len(late) if late else None}
+
     def _event(self, order_id: str, kind: str, summary: str, role: str | None, subject: str | None = None,
                payload: dict | None = None, day: int | None = None, source: str = "platform") -> int:
         d = self.day(order_id) if day is None else day

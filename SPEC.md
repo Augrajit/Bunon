@@ -312,3 +312,13 @@ Costs fell because material dropped from 180 to 76.5 BDT per piece (the CM rate 
 **Not yet (later milestones, as planned):** LLM-written drafts and explanations (templates for now), price as a number, several updates per factory, attribution of delay cause, the exporter's payment record, persona text from the team.
 
 **Tests:** 164 (from 149): `tests/test_loop.py` (14, incl. move within offers, placeholder tagging and order-scoped rows; sourcing rule, draft numbers only from the plan, split never above an offer and without decliners, forecast arithmetic, last rescue day earlier for a bigger shortfall, accept-shortfall only within tolerance, update parser quote rules and offline fallback, the loop in the order book with role checks and the track record, placeholders flagged and covering the round). The sweep walks the whole loop at every setting (and to the track record at defaults), then the what-ifs under Show the maths. Cache: 10 new answers (6 offer replies, the update, 2 rescue replies, plus the superseded day-9 update), replayed offline under three hash seeds.
+
+### D15: 26 Nov 2026: the exporter's payment record (PLAN_V2 cut b)
+
+**Why:** the track record is two-sided (PLAN_V2 §0): factories should see whether an exporter pays on time, from platform records only.
+
+**What:** `OrderBook.amounts_due` (per factory with recorded QC: good pieces × the CM rate of the approved allocation, due `PAYMENT_TERM_DAYS` = 30 days after the delivery day, a PLACEHOLDER, research ask 17), `record_payment` (exporter roles only, paid on today's story day, once per factory, event `payment_recorded`) and `exporter_record` (payments, paid on time, average days late, computed only from the `payments` table). The app shows a **Payments** section after the track record. The amount is computed, never typed and never from an LLM; a rejected lot is owed nothing (0 good pieces; whether a rejected lot is paid for at all is part of research ask 13).
+
+**Numbers:** no engine number changes; no prompt changes; the cache is unaffected.
+
+**Tests:** 166 (from 164): the amount is good pieces × rate with the due day; only exporters pay, once, and the on-time rate and days late recompute from the rows. The default sweep case now records the payments.

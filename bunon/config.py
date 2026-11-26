@@ -184,6 +184,7 @@ DEMO_EMAIL_PATH = ROOT / "data" / "demo" / "buyer_email_en.txt"
 
 # --- Optimiser defaults (PLAN.md §5) --------------------------------------
 QC_DAYS = 3
+PAYMENT_TERM_DAYS = 30        # PLACEHOLDER: days after delivery the exporter pays a subcontractor (research ask 17)
 PLANNED_SLACK_DAYS = 4
 ROAD_CIRCUITY = 1.35            # ASSUMPTION
 ROAD_KM_PER_DAY = 200           # ASSUMPTION

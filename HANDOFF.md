@@ -129,7 +129,7 @@ Check it works: open the Factory app view at phone width (`resize_window` mobile
 ### Milestone 3: follow-up, warning, rescue (10–16 Dec)
 3.1 **Several updates per factory.** `loop.forecast_after_update` already takes one `(factory_id, pieces_done, delay_days, day)`; add `loop.forecast_from_updates(world, b, point, cands, updates: list[dict], day) -> list[Forecast]` that applies the latest update per factory, all taken as certain together (extend `_certain` to a set of ids). Test: two late factories → shortfall is the sum; on-plan updates leave P unchanged.
 3.2 **Warning module** (`loop.warning(fc, prev_p, target) -> Warning(severity, facts)`), severity from fixed thresholds in `config.py` (`WARN_DROP_PP`, PLACEHOLDER). Explanation text: `agent.write_warning` under the placeholder rule, template fallback. Test: no warning without a forecast drop; text has no digits outside placeholders.
-3.3 **Surge option** in `loop.rescue_options`: same factory adds overtime capacity `config.SURGE_SHARE` (PLACEHOLDER) at `config.SURGE_PRICE_FACTOR`; only if its projection plus surge covers the shortfall. Test: surge never exceeds capacity × (1 + share).
+3.3 **Done (SPEC.md D19)**; still to do: an overtime request draft and QC pre-fill with the surge. **Surge option** in `loop.rescue_options`: same factory adds overtime capacity `config.SURGE_SHARE` (PLACEHOLDER) at `config.SURGE_PRICE_FACTOR`; only if its projection plus surge covers the shortfall. Test: surge never exceeds capacity × (1 + share).
 3.4 **LLM-written rescue drafts**, as 2.4 (`rescue_request_v1`).
 3.5 Fix known issue 5: start capacity windows on `loop.REPLY_DAY` in `split_from_offers` (pass a start day into `build_candidates` or shrink `window_days`). Record before/after numbers in SPEC.md.
 

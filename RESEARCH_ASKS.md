@@ -27,5 +27,6 @@ Put answers in the team chat or straight into this file. I'll copy them into `co
 | 15 | **Expected loss if the subcontracted part fails** (penalty, air freight, lost margin, a cancelled order): what a manager would enter | BDT | 4,400,000 default; a manager input in the app | The optimiser's weight on risk |
 | 16 | **Share of a set's sewing price taken by the T-shirt alone**: if a set (top + trousers) is sewn for about 150 BDT, what part of that is the T-shirt? (Checks Bunon's 40% assumption behind the 60 BDT CM rate; DATA_PROVENANCE.md §6.1) | % of the set price | 40% (Bunon assumption) | Sets the CM rate of every factory |
 | 17 | **Payment terms to subcontractors**: how many days after delivery does an exporter usually pay a subcontract factory for CM, and how often is it late? | days | 30 (Bunon placeholder) | The exporter's side of the track record |
+| 18 | **Overtime (surge) at a late factory**: how much extra daily output can a subcontractor get from overtime, and what premium on the CM rate does it ask? | % of daily output, % of CM | +15% output, +25% CM (Bunon placeholders) | The "overtime at the same factory" rescue option |
 
 **Not needed:** anything about rumours, news, weather, maps or ERP systems. Those are out of scope for 20 Nov.

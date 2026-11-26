@@ -388,3 +388,19 @@ def test_factory_platform_record_recomputes_across_orders(bundle, book):
     assert r["acceptance_rate"] == 1.0 and r["on_time_rate"] == 0.5  # day 27 is after the due day
     assert r["qc_pass_rate"] == pytest.approx(2_950 / 3_000)
     assert book.factory_platform_record("F9999")["orders_asked"] == 0
+
+
+def test_surge_option_stays_within_the_placeholder_model(world, bundle):
+    """HANDOFF task 3.3: overtime never adds more than SURGE_SHARE a day over the days left, nor more than the
+    shortfall; it costs only the overtime premium on those pieces."""
+    res, cands = lp.split_from_offers(world, bundle, answer_key_offers(bundle))
+    pt = res.recommended
+    fc = lp.forecast_after_update(world, bundle, pt, cands, "F1064", 3_500, 2, lp.UPDATE_DAY)
+    extra = lp.surge_pieces(fc)
+    assert 0 < extra <= min(fc.shortfall, fc.rate_seen * C.SURGE_SHARE * fc.days_left)
+    surge = {o.kind: o for o in lp.rescue_options(world, bundle, pt, cands, fc, ["F0824"], lp.UPDATE_DAY)}["surge"]
+    price = next(ln.unit_price_bdt for ln in pt.plan.lines if ln.factory_id == "F1064")
+    assert surge.allowed and surge.cost_delta_bdt == pytest.approx(extra * price * (C.SURGE_PRICE_FACTOR - 1))
+    assert fc.p_after <= surge.p_after
+    late = lp.forecast_after_update(world, bundle, pt, cands, "F1064", 3_500, 30, lp.UPDATE_DAY)  # no days left
+    assert late.days_left == 0 and lp.surge_pieces(late) == 0

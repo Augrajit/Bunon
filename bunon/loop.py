@@ -135,6 +135,7 @@ class Forecast:
     p_after: float            # P(order succeeds) with this factory's projection, others as forecast
     expected_good_after: float
     min_good: int
+    days_left: int = 0        # production days left at the rate seen (after the stated delay)
 
 
 def _certain(world: op.World, factory_id: str) -> op.World:
@@ -165,16 +166,27 @@ def forecast_after_update(world: op.World, b, point: BufferPoint, cands: list[Ca
     projected = int(min(planned, pieces_done + rate_seen * days_left))
     shortfall = max(0, planned - projected)
 
-    lines = [ln.model_copy(update={"qty": projected}) if ln.factory_id == factory_id else ln for ln in point.plan.lines]
+    risk = _risk_with(world, b, point, cands, factory_id, projected)
+    return Forecast(factory_id, planned, pieces_done, day, rate_plan, rate_seen, projected, shortfall,
+                    point.risk.p_meet_qty, risk.p_meet_qty, risk.expected_good, risk.min_good_qty, days_left)
+
+
+def _risk_with(world: op.World, b, point: BufferPoint, cands: list[Candidate], factory_id: str, qty: int):
+    """Re-simulate the order with one factory making exactly `qty` (taken as certain), the rest as forecast."""
+    lines = [ln.model_copy(update={"qty": qty}) if ln.factory_id == factory_id else ln for ln in point.plan.lines]
     plan: AllocationPlan = point.plan.model_copy(update={"lines": [ln for ln in lines if ln.qty > 0]})
     slack = {x.factory_id: x.slack_days for x in cands}
     slack[factory_id] = 10_000
     dist = {x.factory_id: x.district for x in cands}
     win = {x.factory_id: x.window_days for x in cands} if b.settings.partial else None
     w2 = _certain(world, factory_id)
-    risk = simulate(plan, w2.forecasts, slack, dist, world.shocks if b.settings.shocks else None, window_days=win)
-    return Forecast(factory_id, planned, pieces_done, day, rate_plan, rate_seen, projected, shortfall,
-                    point.risk.p_meet_qty, risk.p_meet_qty, risk.expected_good, risk.min_good_qty)
+    return simulate(plan, w2.forecasts, slack, dist, world.shocks if b.settings.shocks else None, window_days=win)
+
+
+def surge_pieces(fc: Forecast) -> int:
+    """Extra pieces the late factory could make with overtime: SURGE_SHARE more a day at the rate seen, over the
+    days it has left, never above the shortfall. A placeholder model (research ask 18)."""
+    return int(min(fc.shortfall, fc.rate_seen * C.SURGE_SHARE * fc.days_left))
 
 
 def last_rescue_day(world: op.World, b, shortfall: int, exclude: set[str],
@@ -202,7 +214,7 @@ def last_rescue_day(world: op.World, b, shortfall: int, exclude: set[str],
 
 @dataclass(frozen=True)
 class RescueOption:
-    kind: str                 # move / accept_shortfall / escalate_buyer
+    kind: str                 # move / surge / accept_shortfall / escalate_buyer
     title: str
     p_after: float | None
     cost_delta_bdt: float | None
@@ -251,7 +263,8 @@ def rescue_move(world: op.World, b, point: BufferPoint, split_cands: list[Candid
 
 def rescue_options(world: op.World, b, point: BufferPoint, split_cands: list[Candidate], fc: Forecast,
                    excluded: list[str], day: int) -> list[RescueOption]:
-    """(1) move the shortfall (`rescue_move`); (2) accept the shortfall, only if the expected good pieces still
+    """(1) move the shortfall (`rescue_move`); (1b) overtime at the late factory (`surge_pieces`, placeholder
+    model); (2) accept the shortfall, only if the expected good pieces still
     meet the tolerance; (3) tell the buyer early. All chances on the same footing: the late factory's projection
     taken as certain, everyone else as forecast. Numbers from the optimiser and simulation only."""
     out: list[RescueOption] = []
@@ -265,6 +278,16 @@ def rescue_options(world: op.World, b, point: BufferPoint, split_cands: list[Can
     else:
         out.append(RescueOption("move", "Move the shortfall to other factories", None, None, None, False,
                                 "no feasible re-plan under the current limits"))
+    extra = surge_pieces(fc)
+    if extra > 0:
+        price = next(ln.unit_price_bdt for ln in point.plan.lines if ln.factory_id == fc.factory_id)
+        risk = _risk_with(world, b, point, split_cands, fc.factory_id, fc.projected + extra)
+        out.append(RescueOption("surge", "Overtime at the same factory", risk.p_meet_qty,
+                                extra * price * (C.SURGE_PRICE_FACTOR - 1), None, True,
+                                f"{fc.factory_id} +{extra:,} with overtime ({extra:,} of {fc.shortfall:,} short)"))
+    else:
+        out.append(RescueOption("surge", "Overtime at the same factory", None, None, None, False,
+                                "no production days left for overtime"))
     ok = fc.expected_good_after >= fc.min_good
     out.append(RescueOption("accept_shortfall", "Accept the shortfall", fc.p_after, 0.0, None, ok,
                             "expected good pieces still meet the tolerance" if ok

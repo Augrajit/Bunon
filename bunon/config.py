@@ -184,6 +184,8 @@ DEMO_EMAIL_PATH = ROOT / "data" / "demo" / "buyer_email_en.txt"
 
 # --- Optimiser defaults (PLAN.md §5) --------------------------------------
 QC_DAYS = 3
+SURGE_SHARE = 0.15             # PLACEHOLDER: extra daily output a factory gets from overtime (research ask 18)
+SURGE_PRICE_FACTOR = 1.25      # PLACEHOLDER: CM premium paid on overtime pieces (research ask 18)
 PAYMENT_TERM_DAYS = 30        # PLACEHOLDER: days after delivery the exporter pays a subcontractor (research ask 17)
 PLANNED_SLACK_DAYS = 4
 ROAD_CIRCUITY = 1.35            # ASSUMPTION

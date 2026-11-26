@@ -348,3 +348,11 @@ Costs fell because material dropped from 180 to 76.5 BDT per piece (the CM rate 
 **What:** `OrderBook.factory_platform_record(factory_id)`: over every order in the visitor's store, the requests the factory was sent, how many it answered and took (accept or counter), deliveries checked at QC and the share on time, the QC pass rate (pieces-weighted) and the delays reported, computed from the platform rows through `track_record`. The Factory app shows it as **"My record on Bunon"** (labelled simulated) above the synthetic-history record, which stays separate. No engine or prompt change.
 
 **Tests:** 172: two orders (one delivered on day 24, one on day 27, after the due day 25) → 2 of 2 answered, on time 50%, QC pass 2,950 / 3,000; an unknown factory has no record.
+
+### D19: 26 Nov 2026: overtime ("surge") rescue option (HANDOFF task 3.3)
+
+**What:** `loop.rescue_options` adds "Overtime at the same factory": the late factory makes `SURGE_SHARE` (15%, PLACEHOLDER) more a day at the rate seen over its remaining days (`Forecast.days_left`), never above the shortfall, at a `SURGE_PRICE_FACTOR` (1.25, PLACEHOLDER) premium on those pieces only; research ask 18. Its chance is re-simulated like the forecast (`loop._risk_with`, factored out of `forecast_after_update`; existing numbers unchanged, guarded by `test_published_demo_numbers`). Choosing it records the choice; no overtime message is drafted yet, and QC pre-fill still uses the projection without the surge.
+
+**At defaults:** F1064 +945 with overtime (945 of 3,300 short): **83.1% for +11,692 BDT**, between accepting the shortfall (81.8%) and moving it (85.6%, +33,757 BDT).
+
+**Tests:** 173; the full 24-setting sweep was not re-run after this change (default case and the factory click-through pass).

@@ -1370,13 +1370,16 @@ def section_record(oid: str) -> None:
     tr = book().track_record(oid)
     st.dataframe(pd.DataFrame([{"Factory": r["factory_id"], "Answered": "yes" if r["answered"] else "no",
                                 "Decision": r["decision"], "Delay reported (days)": r["delay_reported_days"],
+                                "Delays": r["delays_reported"],
+                                "No specific cause given": r["delays_without_cause"],
+                                "Same cause again": r["cause_repeats"],
                                 "Delivered on time": "" if r["delivered_on_time"] is None
                                 else ("yes" if r["delivered_on_time"] else "no"),
                                 "QC pass": "" if r["qc_pass_rate"] is None else f"{r['qc_pass_rate']:.1%}"}
                                for r in tr]), hide_index=True, width="stretch")
     st.caption("Counted only from what happened on the platform in this order (requests, replies, updates, QC), "
-               "never from rumours. In this demo the factories are simulated. Delay causes come in a later "
-               "milestone.")
+               "never from rumours. Delays and their stated causes are counted by code; the AI only reads the "
+               "cause with a quote. In this demo the factories are simulated.")
 
 
 def section_payments(oid: str) -> None:

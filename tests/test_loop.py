@@ -281,3 +281,17 @@ def test_payments_only_by_exporters_once_and_recomputed_from_rows(bundle, book):
     rec = book.exporter_record(oid)
     assert rec == {"payments": 2, "on_time": 1, "on_time_rate": 0.5, "avg_days_late": 4}
     assert sum(e["kind"] == "payment_recorded" for e in book.timeline(oid)) == 2
+
+
+def test_delays_and_causes_are_counted_by_code(bundle, book):
+    """PLAN_V2 §0 item 2: code counts delays, missing causes and repeated causes; nothing calls them excuses."""
+    oid = book.confirm_order(bundle.order, "Merchandiser", sv.PlanSettings(), None)
+    book.draft_round(oid, bundle, ps.load())
+    f = bundle.rec.plan.lines[0].factory_id
+    for i, (delay, cause) in enumerate([(2, "power cut"), (1, "Power cut "), (3, None), (0, None)]):
+        book.store.insert("progress_updates", {"update_id": f"{oid}:u{i}", "order_id": oid, "factory_id": f,
+                                               "story_day": 10 + i, "text": "t", "delay_days": delay,
+                                               "cause_category": cause, "is_simulated": 1})
+    r = next(x for x in book.track_record(oid) if x["factory_id"] == f)
+    assert (r["delays_reported"], r["delays_without_cause"], r["cause_repeats"]) == (3, 1, 1)
+    assert r["delay_reported_days"] == 3

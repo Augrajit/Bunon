@@ -322,3 +322,11 @@ Costs fell because material dropped from 180 to 76.5 BDT per piece (the CM rate 
 **Numbers:** no engine number changes; no prompt changes; the cache is unaffected.
 
 **Tests:** 166 (from 164): the amount is good pieces × rate with the due day; only exporters pay, once, and the on-time rate and days late recompute from the rows. The default sweep case now records the payments.
+
+### D16: 26 Nov 2026: delays and stated causes counted by code (PLAN_V2 §0 item 2)
+
+**Why:** "notices vague or repeated excuses" as an AI judgement is a fairness risk (it could penalise informal writing or Banglish). The AI only reads the stated cause with a quote (`update_v1`); code counts.
+
+**What:** `track_record` gains `delays_reported` (updates with a verified delay), `delays_without_cause` (a delay whose cause did not pass the quote check) and `cause_repeats` (delays citing a cause already given on this order, compared case- and space-insensitively). The table says "No specific cause given" and "Same cause again", never "excuse". No engine or prompt change; cache unaffected.
+
+**Tests:** 167: three delays (two "power cut", one without a cause) and one on-time update → 3 delays, 1 without a cause, 1 repeat.

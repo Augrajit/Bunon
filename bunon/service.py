@@ -439,9 +439,18 @@ class OrderBook:
         offers = {x["factory_id"]: x for x in self.store.rows("offers", order_id)}
         qc = {x["factory_id"]: x for x in self.store.rows("qc_records", order_id)}
         delays: dict[str, int] = {}
+        n_delays: dict[str, int] = {}
+        no_cause: dict[str, int] = {}
+        causes: dict[str, list[str]] = {}
         for u in self.store.rows("progress_updates", order_id):
             if u["delay_days"]:
-                delays[u["factory_id"]] = max(delays.get(u["factory_id"], 0), u["delay_days"])
+                f = u["factory_id"]
+                delays[f] = max(delays.get(f, 0), u["delay_days"])
+                n_delays[f] = n_delays.get(f, 0) + 1
+                if u["cause_category"]:
+                    causes.setdefault(f, []).append(u["cause_category"].strip().lower())
+                else:
+                    no_cause[f] = no_cause.get(f, 0) + 1
         out = []
         for f in self.requests(order_id):
             off, q = offers.get(f), qc.get(f)
@@ -449,6 +458,11 @@ class OrderBook:
                         "decision": ("no reply" if off is None else
                                      "unreadable (read by hand)" if off["decision"] == "none" else off["decision"]),
                         "delay_reported_days": delays.get(f, 0),
+                        # counted by code, never judged by the LLM: how many delays, how many without a stated
+                        # cause, and how many repeat a cause already given on this order
+                        "delays_reported": n_delays.get(f, 0),
+                        "delays_without_cause": no_cause.get(f, 0),
+                        "cause_repeats": len(causes.get(f, [])) - len(set(causes.get(f, []))),
                         "delivered_on_time": None if q is None else q["story_day"] <= due,
                         "qc_pass_rate": None if q is None or not q["received"] else q["good"] / q["received"],
                         "lot_rejected": None if q is None else bool(q["lot_rejected"])})

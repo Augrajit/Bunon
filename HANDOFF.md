@@ -86,7 +86,7 @@ The login page has a "Continue as demo exporter" button; nothing typed there is 
 Known issues:
 1. ~~F2829's standby reply parsed as counter~~: fixed in D20 (a rate within 2% of our planned rate is an accept).
 2. ~~Prices read only as free text~~: since D20 the rate and ship date are quoted numbers; the rate prices the split.
-3. Request drafts, rescue drafts and the warning text are fixed templates, not LLM-written.
+3. ~~Drafts and the warning are fixed templates~~: since D21 the LLM writes them under the placeholder rule, with the templates as fallback.
 4. `last_rescue_day` may name a factory that was never asked ("until when could anyone still make this", not "who will").
 5. The planner's capacity windows start on day 0, slightly optimistic against production starting on day 2.
 6. Only one scripted update per order; the forecast handles one late factory at a time.
@@ -122,15 +122,15 @@ Conventions for every task: engine code stays free of LLM calls and Streamlit; `
    - `service.record_offer` stores `price_bdt_per_piece`, `ship_date`; `loop.OfferTerms` gains `price`; `split_from_offers` uses the offered price instead of the candidate's synthetic price when present.
    - Tests in English, Banglish and Bangla for each field (persona `expected` answer keys); F2829's reply → accept; F2184 → counter on price.
    - Then re-warm the cache (rule 3) and update PROMPTS.md (A2 reply_v2).
-2.4 **LLM-written request drafts** (`agent.write_request`, task `request_v1`): input a `FactSheet` with `{{qty}}`, `{{finish_by}}`, `{{gsm}}`, the factory as `{{fac:F…}}` and the language; output text with placeholders only; `check_text` → one retry → `loop.draft_request` template. Test: a draft with a digit is rejected and falls back; rendered drafts contain exactly the plan's numbers.
+2.4 **Done (SPEC.md D21)** as `agent.write_message(kind, facts, language, template)` (`message_v1`). Planned: input a `FactSheet` with `{{qty}}`, `{{finish_by}}`, `{{gsm}}`, the factory as `{{fac:F…}}` and the language; output text with placeholders only; `check_text` → one retry → `loop.draft_request` template. Test: a draft with a digit is rejected and falls back; rendered drafts contain exactly the plan's numbers.
 2.5 **Persona swap.** When the team delivers text: replace messages in `data/demo/personas.json`, set `placeholder: false`, run `python -m bunon.personas` (checks every expected number is written in the text), re-warm, adjust `loop.UPDATE_DAY` only if their update is on another day, record in SPEC.md.
 Check it works: open the Factory app view at phone width (`resize_window` mobile, or a narrow browser), answer a request as Factory owner, see it in the exporter's offers table.
 
 ### Milestone 3: follow-up, warning, rescue (10–16 Dec)
 3.1 **Several updates per factory.** `loop.forecast_after_update` already takes one `(factory_id, pieces_done, delay_days, day)`; add `loop.forecast_from_updates(world, b, point, cands, updates: list[dict], day) -> list[Forecast]` that applies the latest update per factory, all taken as certain together (extend `_certain` to a set of ids). Test: two late factories → shortfall is the sum; on-plan updates leave P unchanged.
-3.2 **Warning module** (`loop.warning(fc, prev_p, target) -> Warning(severity, facts)`), severity from fixed thresholds in `config.py` (`WARN_DROP_PP`, PLACEHOLDER). Explanation text: `agent.write_warning` under the placeholder rule, template fallback. Test: no warning without a forecast drop; text has no digits outside placeholders.
+3.2 **Done in part (SPEC.md D21):** `agent.write_warning` (`warning_v1`) and `loop.warning_level` (on track / watch / below target, from the target, no new threshold). Still open: a warning on a drop between two updates. Planned: **Warning module** (`loop.warning(fc, prev_p, target) -> Warning(severity, facts)`), severity from fixed thresholds in `config.py` (`WARN_DROP_PP`, PLACEHOLDER). Explanation text: `agent.write_warning` under the placeholder rule, template fallback. Test: no warning without a forecast drop; text has no digits outside placeholders.
 3.3 **Done (SPEC.md D19)**, including the overtime request draft; still to do: QC pre-fill with the surge, and an LLM-written version of the draft (3.4). **Surge option** in `loop.rescue_options`: same factory adds overtime capacity `config.SURGE_SHARE` (PLACEHOLDER) at `config.SURGE_PRICE_FACTOR`; only if its projection plus surge covers the shortfall. Test: surge never exceeds capacity × (1 + share).
-3.4 **LLM-written rescue drafts**, as 2.4 (`rescue_request_v1`).
+3.4 **Done (SPEC.md D21):** rescue and overtime requests through `agent.write_message`.
 3.5 Fix known issue 5: start capacity windows on `loop.REPLY_DAY` in `split_from_offers` (pass a start day into `build_candidates` or shrink `window_days`). Record before/after numbers in SPEC.md.
 
 ### Milestone 4: track record (10–16 Dec)

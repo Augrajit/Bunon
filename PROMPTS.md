@@ -130,6 +130,18 @@ Source: `bunon/agent.py` (`NEWS_PROMPT`, schema `NewsLLM`). The prompt lists the
 | Nationwide hartal (English) | national ← "nationwide" | 2 ← "2 days" | medium | 91.4% → 10.9% | 49.1%, target not reachable |
 | Gazipur flood (Bangla) | gazipur ← "গাজীপুরের" | none stated ("সপ্তাহজুড়ে" = all week) → default | high | 91.4% → 0.0% | 91.3%, +101,098 BDT |
 
+### A2f. `message_v1`: messages to factories (request, rescue, overtime) in English, Banglish or Bangla
+
+- **Where:** `agent.write_message` (SPEC.md D21), called by `OrderBook.draft_round` and the rescue section.
+- **Prompt:** the purpose (ask for pieces by a date and the factory's rate; ask for extra pieces; ask for overtime without blaming), a language note (Banglish = Bangla in Latin letters, as merchandisers chat; Bangla in Bangla script with placeholders kept in Latin letters), and strict rules: no digit or number word in any language or script, numbers and dates only as `{{key}}` placeholders from the FACTS list, required placeholders, no price or terms beyond the purpose, no factory named, a word limit, "a person approves before it is sent".
+- **Checks in code:** `check_text`, Banglish and Bangla number words, required placeholders, no `{{fac:…}}`, word limit → one retry with the errors → the fixed template.
+
+### A2g. `warning_v1`: the warning text after a daily update
+
+- **Where:** `agent.write_warning` (SPEC.md D21). Facts from `loop.forecast_after_update` and `loop.last_rescue_day`; level from `loop.warning_level` (code).
+- **Prompt rules:** no digits or number words; placeholders only; required placeholders (pieces done, delay, projection, shortfall, chance after, last rescue date) and no vague amounts in their place; do not choose a rescue option; do not blame the factory; the data is simulated.
+- **Checks in code:** `check_text`, required placeholders, a vague-amount list ("some", "a few", "several", "many") → one retry → the fixed template in placeholder form.
+
 ### A2e. `update_v1`: a factory's daily progress update → pieces finished, days late, reason
 
 - **Where:** `agent.parse_update` (SPEC.md D14). Input: the update text and the factory's allocated pieces (as context).

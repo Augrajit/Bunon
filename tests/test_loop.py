@@ -349,3 +349,26 @@ def test_factory_update_is_stored_as_typed_once_a_day(bundle, book):
     assert len(ups) == 1 and ups[0]["pieces_done_cum"] == 2_000 and ups[0]["cause_category"] == "Fabric late"
     tr = next(r for r in book.track_record(oid) if r["factory_id"] == "F1064")
     assert tr["delays_reported"] == 1 and tr["delays_without_cause"] == 0
+
+
+# --- the published demo numbers (README, SPEC D14, the video script) ---------------------------------------
+
+def test_published_demo_numbers(world, bundle):
+    """HANDOFF task 5.1: if this fails, the engine or the fixture changed: update README.md, SPEC.md and the
+    video script with the new numbers (and re-warm the cache), never the other way round."""
+    assert bundle.rec.risk.p_meet_qty == pytest.approx(0.875, abs=0.0005)
+    offers = answer_key_offers(bundle)
+    res, cands = lp.split_from_offers(world, bundle, offers)
+    pt = res.recommended
+    assert pt.risk.p_meet_qty == pytest.approx(0.841, abs=0.0005)
+    assert {ln.factory_id: ln.qty for ln in pt.plan.lines}["F2829"] == 9_900
+    fc = lp.forecast_after_update(world, bundle, pt, cands, "F1064", 3_500, 2, lp.UPDATE_DAY)
+    assert (fc.projected, fc.shortfall) == (9_800, 3_300)
+    assert fc.p_after == pytest.approx(0.818, abs=0.0005)
+    assert round(fc.expected_good_after) == 51_719 and fc.min_good == 49_000
+    excl = {ln.factory_id for ln in pt.plan.lines} | {"F0824"}
+    assert lp.last_rescue_day(world, bundle, fc.shortfall, excl, today=lp.UPDATE_DAY)[0] == 16
+    opts = {o.kind: o for o in lp.rescue_options(world, bundle, pt, cands, fc, ["F0824"], lp.UPDATE_DAY)}
+    assert opts["move"].p_after == pytest.approx(0.856, abs=0.0005)
+    assert round(opts["move"].cost_delta_bdt) == 33_757 and opts["move"].note == "F2829 +3,300"
+    assert opts["accept_shortfall"].allowed

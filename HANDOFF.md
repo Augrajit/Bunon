@@ -139,7 +139,7 @@ Check it works: open the Factory app view at phone width (`resize_window` mobile
 4.3 **Factory controls sharing** (`share_settings`): factory role sets per-field visibility; the exporter view hides private fields. Test.
 
 ### Milestone 5: polish and release (17–24 Dec)
-5.1 Demo fixture frozen: a test asserts the README/SPEC demo numbers (split 84.1%, projected 9,800, shortfall 3,300, P 81.8%, last rescue day 16, move 85.6% / +33,757 BDT) so script, README and video stay consistent. Update them whenever the engine or fixture changes.
+5.1 **Done:** `tests/test_loop.py::test_published_demo_numbers`. Demo fixture frozen: a test asserts the README/SPEC demo numbers (split 84.1%, projected 9,800, shortfall 3,300, P 81.8%, last rescue day 16, move 85.6% / +33,757 BDT) so script, README and video stay consistent. Update them whenever the engine or fixture changes.
 5.2 Story-clock jump buttons for the 3-minute pitch (PLAN_V2 §7): "Day 2 replies", "Day 12 update", "Day 26 QC" each replays to that checkpoint.
 5.3 Real-user test (one merchandiser, paid tier if real text, consent), notes in SPEC.md.
 5.4 Docs pass (README, SPEC, PROMPTS, DATA_PROVENANCE), video under 181 s.

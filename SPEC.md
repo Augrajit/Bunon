@@ -356,3 +356,20 @@ Costs fell because material dropped from 180 to 76.5 BDT per piece (the CM rate 
 **At defaults:** F1064 +945 with overtime (945 of 3,300 short): **83.1% for +11,692 BDT**, between accepting the shortfall (81.8%) and moving it (85.6%, +33,757 BDT).
 
 **Tests:** 174 unit; the full 24-setting sweep passed on 26 Nov (25 click-throughs incl. the factory app); a new click-through chooses overtime, checks the draft stays a draft until approved, then sends it and goes on to QC.
+
+### D20: 26 Nov 2026: the offer parser reads rate and ship date (`reply_v2`, HANDOFF task 2.3)
+
+**Why:** offers carried prices only as free-text conditions, and F2829's standby reply ("Rate 60 BDT per piece", in answer to "your rate") was classified as a counter-offer (known issue from D14).
+
+**What:**
+- `agent.ReplyLLM` gains `price_bdt_per_piece` and `ship_date`, each with a verbatim quote; `REPLY_VERSION = "reply_v2"`; the prompt explains both (PROMPTS.md A2b). `validate_reply(..., planned_price)` checks the rate with `states_number` and the date with `states_date` (day first); a rate outside `PRICE_RANGE_BDT` (30–120, placeholder) is flagged for a human, not dropped.
+- **Decision rule, in code:** a quoted rate more than `PRICE_MATCH_TOLERANCE` (2%, placeholder) above our planned CM rate for that factory makes a yes a counter; a counter whose only term is a rate at or within 2% of our planned rate becomes an accept. Our planned rate is the factory's synthetic CM rate, passed by the app (never shown to the LLM).
+- Offers store `price_bdt_per_piece`, `ship_date` and their quotes; `OfferTerms.price`; `split_from_offers` prices a factory at its quoted rate; a ship date after the asked finish date becomes a delay in days (code) in `offer_terms`. The offers table shows the rate, our planned rate and the ship date.
+
+**Live run (placeholder persona text):** all six offers match their answer keys in decision, quantity and rate: F1856 accept at 57 (planned 57.18), F2184 counter at 56 (planned 50.18), F2829 **accept** at 60 (planned 59.68; was counter), F1064, F0288 accept, F0824 reject. The four Show-the-maths demo replies keep their classifications.
+
+**Numbers:** the split's allocation and every chance are unchanged (84.1% → 81.8% → move 85.6%, overtime 83.1%). The move's extra cost is **+34,813 BDT** (was +33,757): F2829's extra pieces are now priced at its quoted 60 BDT instead of the synthetic 59.68. The pinned test is updated.
+
+**Cache:** 10 new answers under `reply_v2` (4 demo replies, 5 loop offers, F2829's rescue reply; F0824's decline has the same text and quantity as the demo's Bangla reply, so it shares that answer); replays offline under two hash seeds; the old `reply_v1` answers stay in the cache, unused. The default sweep case now asserts that no offer falls back to hand reading and that F2829 is an accept.
+
+**Tests:** 179 unit (from 174): rate near our planned rate is not a counter, a higher rate makes a yes a counter, the asked rate is the one kept, ship dates day first, out-of-range rate flagged, quoted rates price the split and a late ship date is a delay. Full sweep: 26 passed.

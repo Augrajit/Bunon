@@ -85,7 +85,10 @@ plan.p_meet = 91.4%: recommended plan: probability of on-time full delivery
 
 **Tests:** a literal "91%" is rejected; "five" is rejected; unknown keys and IDs are rejected; the numbers property holds; retry then template; retry then success; both templates validate and render; offline with no cache gives the template; no real names or `os_id`s in any prompt.
 
-### A2b. `reply_v1`: a factory's reply (English / Bangla / Banglish) → accept / reject / counter
+### A2b. `reply_v1` → `reply_v2`: a factory's reply (English / Bangla / Banglish) → accept / reject / counter
+
+**`reply_v2` (26 Nov 2026, SPEC.md D20)** adds two quoted fields to the same prompt: `price_bdt_per_piece` ("only if the reply states the price per piece the factory asks for… if the reply names two prices, take the one the factory asks for") and `ship_date` ("a calendar date for delivery or completion, as YYYY-MM-DD; dates in replies are day first; a relative date is not a date"). Enforcement in `validate_reply`: the price must be stated in its quote (`states_number`), the date in its quote (`states_date`); a price outside `PRICE_RANGE_BDT` is flagged, not dropped. **Decision rule (code):** a quoted rate more than `PRICE_MATCH_TOLERANCE` (2%, placeholder) above our planned CM rate for that factory makes a yes a counter; a "counter" whose only term is a rate at or within 2% of our planned rate becomes an accept. Live run on the six persona offers (placeholder text): all six decisions, quantities and rates match their answer keys (F2829's "Rate 60 BDT per piece" against our 59.68 is now an accept; F2184's "56 taka lagbe" against 50.18 a counter).
+
 
 Source: `bunon/agent.py` (`REPLY_PROMPT`, schema `ReplyLLM`). The prompt explains Banglish ("parbo na" = cannot, "hajar" = thousand, "din" = days), states the requested quantity, and requires a verbatim quote, in the original script, for the decision, quantity, delay and every condition. It must never compute or guess a number.
 

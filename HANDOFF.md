@@ -60,7 +60,7 @@ The login page has a "Continue as demo exporter" button; nothing typed there is 
 |---|---|
 | `bunon/llm.py` | The only file that imports `google-genai` (model `gemini-3.5-flash-lite`). `LLMClient.complete_json(task, version, prompt, schema)` with the disk cache, modes, `CacheMiss`, `BudgetExceeded`; a tool session for the analyst. |
 | `bunon/textnum.py` | Number and date checks for quotes: lakh grouping, `150k`, crore, Bangla digits, Banglish number words, day-first dates. `contains`, `numbers_in`, `states_number`, `dates_in`, `states_date`, `literal_numbers`. |
-| `bunon/agent.py` | Intake (`parse_order`, `intake_v*`), decision memo (`FactSheet`, `factsheet_for_plan`, `write_memo`, `check_text`, `template_memo`), factory replies (`parse_reply`, `reply_v1`), daily updates (`parse_update`, `update_v1`), news (`parse_news`), steering (`steer`), `assert_pseudonymous`. |
+| `bunon/agent.py` | Intake (`parse_order`, `intake_v*`), decision memo (`FactSheet`, `factsheet_for_plan`, `write_memo`, `check_text`, `template_memo`), factory replies (`parse_reply`, `reply_v2`: decision, pieces, delay, rate, ship date), daily updates (`parse_update`, `update_v1`), news (`parse_news`), steering (`steer`), `assert_pseudonymous`. |
 | `bunon/analyst.py` | "Ask Bunon" what-if loop: the LLM calls `run_simulation`, `solve_plan`, `compare_plans` (max 6 calls, logged), then answers with placeholders only. |
 | `bunon/warm_cache.py` | Fills the cache for every scripted step (needs live mode and the key). |
 
@@ -84,8 +84,8 @@ The login page has a "Continue as demo exporter" button; nothing typed there is 
 ## 4. Known issues and open questions
 
 Known issues:
-1. F2829's standby reply ("Rate 60 BDT per piece") is parsed as **counter**; the answer key says accept. A rate stated in answer to "your rate" is not a counter. Harmless for capacity (counter and accept are treated alike); fix in the offer parser (task 2.3).
-2. Prices in replies are read only as quoted free text conditions, never as numbers.
+1. ~~F2829's standby reply parsed as counter~~: fixed in D20 (a rate within 2% of our planned rate is an accept).
+2. ~~Prices read only as free text~~: since D20 the rate and ship date are quoted numbers; the rate prices the split.
 3. Request drafts, rescue drafts and the warning text are fixed templates, not LLM-written.
 4. `last_rescue_day` may name a factory that was never asked ("until when could anyone still make this", not "who will").
 5. The planner's capacity windows start on day 0, slightly optimistic against production starting on day 2.
@@ -116,7 +116,7 @@ Conventions for every task: engine code stays free of LLM calls and Streamlit; `
 ### Milestone 2: factory side (PLAN_V2 schedule 5–9 Dec)
 2.1 **Factory answers a request in the phone view.** **Done (SPEC.md D17).** What was planned: `view_factory`: for each sent request without an inbound reply, buttons Accept / Decline and a form "pieces I can make" + "days late" + free text. `OrderBook.factory_reply(order_id, factory_id, decision, qty, delay_days, text, role)`: factory roles only (`FACTORY_ROLES`), writes an inbound message (`kind="offer_reply"`, `is_simulated=0`, source `platform`) **and** an offer row directly (numbers typed by the factory are the factory's own statement, so no LLM is involved). Test: exporter role refused; offer row matches the form.
 2.2 **Factory daily update form.** **Done (SPEC.md D17)**; the exporter still sees updates only from day 12. What was planned: Same view: "pieces finished so far", "days late (0 if on time)", "reason" (free text). `OrderBook.factory_update(order_id, factory_id, pieces_done, delay_days, cause_text, role)` → `progress_updates` row and event `progress_update_received`; the exporter's `section_update` uses the latest update per factory (not only the scripted one). Test: exporter role refused; forecast uses the new update.
-2.3 **Offer parser with price and ship date** (`reply_v2`).
+2.3 **Offer parser with price and ship date** (`reply_v2`). **Done (SPEC.md D20)**; known issue 1 fixed. Planned:
    - `agent.ReplyLLM` gains `price_bdt_per_piece: FloatField`, `ship_date: DateField`; `REPLY_VERSION = "reply_v2"`; prompt adds both with the same "copy the exact words" rule.
    - `validate_reply(reply, out, planned_qty, asked_price=None)`: price must be quoted and stated (`states_number`); ship date via `states_date`; a price far outside `config.PRICE_RANGE_BDT` (new, PLACEHOLDER) is flagged in notes, not dropped. **Decision rule fix:** a stated price ≤ `asked_price` with no lower quantity and no delay is *accept*, not counter; a price above it is *counter*.
    - `service.record_offer` stores `price_bdt_per_piece`, `ship_date`; `loop.OfferTerms` gains `price`; `split_from_offers` uses the offered price instead of the candidate's synthetic price when present.
@@ -139,7 +139,7 @@ Check it works: open the Factory app view at phone width (`resize_window` mobile
 4.3 **Factory controls sharing** (`share_settings`): factory role sets per-field visibility; the exporter view hides private fields. Test.
 
 ### Milestone 5: polish and release (17–24 Dec)
-5.1 **Done:** `tests/test_loop.py::test_published_demo_numbers`. Demo fixture frozen: a test asserts the README/SPEC demo numbers (split 84.1%, projected 9,800, shortfall 3,300, P 81.8%, last rescue day 16, move 85.6% / +33,757 BDT) so script, README and video stay consistent. Update them whenever the engine or fixture changes.
+5.1 **Done:** `tests/test_loop.py::test_published_demo_numbers`. Demo fixture frozen: a test asserts the README/SPEC demo numbers (split 84.1%, projected 9,800, shortfall 3,300, P 81.8%, last rescue day 16, move 85.6% / +34,813 BDT since D20) so script, README and video stay consistent. Update them whenever the engine or fixture changes.
 5.2 Story-clock jump buttons for the 3-minute pitch (PLAN_V2 §7): "Day 2 replies", "Day 12 update", "Day 26 QC" each replays to that checkpoint.
 5.3 Real-user test (one merchandiser, paid tier if real text, consent), notes in SPEC.md.
 5.4 Docs pass (README, SPEC, PROMPTS, DATA_PROVENANCE), video under 181 s.

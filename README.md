@@ -59,7 +59,7 @@ python -m bunon.data_gen
 | `agent`: LLM intake (verbatim-quote checks) + decision memo (placeholder-only numbers), cached | done |
 | Streamlit UI: email → confirmed order → three plans → memo → approve → day-3 decline → locked re-plan → approve; decision log; draft POs (download only) | done |
 | Plain-language steering of the planning settings (values quoted from the instruction) | done |
-| Factory replies (English / Bangla / Banglish): accept / reject / counter, quantity and delay feed the re-plan | done |
+| Factory replies (English / Bangla / Banglish): accept / reject / counter, quantity, delay, rate and ship date (`reply_v2`), each quoted, feed the split and re-plan | done |
 | News headlines (English / Bangla): area, type, duration, severity → fixed table → simulated impact and re-plan | done |
 | What-if analyst: Gemini function calling over simulate / solve / compare (max 6 calls, every call logged) | done |
 | Live LLM with caps (40 calls per visitor, 400 per day); clear messages when no plan or re-plan is feasible | done |

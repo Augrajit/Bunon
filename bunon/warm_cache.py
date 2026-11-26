@@ -102,6 +102,28 @@ def main() -> None:
         for c in run.calls:
             print(f"  step {c.step} {c.call_id} {c.name}({c.args}) -> {'ok' if c.ok else 'ERR ' + c.error} {c.facts}")
         print("  answer:", run.answer_md)
+    # The thin loop (SPEC.md D14): the simulated factories' offer replies and the daily update.
+    from bunon import loop as lp
+    from bunon import personas as ps
+    from bunon import service as sv
+    b = sv.compute_plans(w, order, sv.PlanSettings(), n_compliant)
+    pf = ps.load()
+    offers = []
+    for r in lp.sourcing_list(b):
+        for m in ps.messages_for(pf, r.factory_id, "offer_reply"):
+            res = ag.parse_reply(m.text, r.qty, client)
+            qty, delay = sv.reply_terms(res)
+            offers.append(lp.OfferTerms(r.factory_id, res.decision or "none", qty, delay, r.qty))
+            print(f"loop offer {m.msg_id}: {res.meta.source if res.meta else 'failed'} -> {res.decision} "
+                  f"(expected {m.expected.decision}); qty {qty} (expected {m.expected.qty})")
+    split, _ = lp.split_from_offers(w, b, offers)
+    qty = {ln.factory_id: ln.qty for ln in split.recommended.plan.lines}
+    for fid in qty:
+        for m in ps.messages_for(pf, fid, "progress_update"):
+            u = ag.parse_update(m.text, qty[fid], client)
+            print(f"loop update {m.msg_id}: {u.meta.source if u.meta else 'failed'} -> {u.status}; done "
+                  f"{u.pieces_done.value} (expected {m.expected.pieces_done}); delay {u.delay_days.value} "
+                  f"(expected {m.expected.delay_days}); cause {u.cause.value!r}")
     print(f"\nlive calls made: {client.calls}")
 
 

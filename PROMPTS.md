@@ -127,6 +127,13 @@ Source: `bunon/agent.py` (`NEWS_PROMPT`, schema `NewsLLM`). The prompt lists the
 | Nationwide hartal (English) | national ← "nationwide" | 2 ← "2 days" | medium | 91.4% → 10.9% | 49.1%, target not reachable |
 | Gazipur flood (Bangla) | gazipur ← "গাজীপুরের" | none stated ("সপ্তাহজুড়ে" = all week) → default | high | 91.4% → 0.0% | 91.3%, +101,098 BDT |
 
+### A2e. `update_v1`: a factory's daily progress update → pieces finished, days late, reason
+
+- **Where:** `agent.parse_update` (SPEC.md D14). Input: the update text and the factory's allocated pieces (as context).
+- **Output (JSON schema):** status (`on_track` / `delayed` / `unclear`) with a quote; `pieces_done` and `delay_days`, each a number with a quote, or null; `cause` in plain English with a quote.
+- **Checks in code:** a number counts only if its quote is in the update and states that number (`textnum`: Banglish and Bangla digits, `hajar`); an unquoted or invented number is dropped and the human enters it; a stated delay overrides "on track"; a cause gloss containing a number is not shown (the quote is). No number from this step is ever written by the LLM into prose.
+- **Live result (26 Nov 2026, placeholder text):** "Bhai update: aj porjonto 2,500 pcs ready hoise. Line e current nai, 2 din late hobe." → delayed; 2,500 ← "2,500 pcs ready"; 2 days ← "2 din late hobe"; cause "power cut" ← "Line e current nai". Cached.
+
 ### A2d. `analyst_v1`: what-if questions answered by choosing and calling tools
 
 Source: `bunon/analyst.py` (`SYSTEM`, `DECLARATIONS`). Native Gemini function calling via `generateContent`, with automatic calling disabled.

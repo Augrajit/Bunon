@@ -145,3 +145,16 @@ def test_old_session_stores_are_cleaned_up(tmp_path, monkeypatch):
     two_days_ago = time.time() - 48 * 3600
     os.utime(old, (two_days_ago, two_days_ago))
     assert cleanup_sessions(24.0) == 1 and not old.exists() and new.exists()
+
+
+def test_app_reloads_every_bunon_module():
+    """Reviewer-style regression (D14): app.py reloads bunon modules after a deploy; a module missing from the list
+    keeps old classes (seen: loop.py's BufferPoint rejected by pydantic). Every module the app uses must be listed."""
+    import re
+    src = (C.ROOT / "app.py").read_text(encoding="utf-8")
+    listed = set(re.findall(r'"(\w+)"', src[src.index("order = ["):src.index("]", src.index("order = ["))]))
+    used = set(re.findall(r"from bunon(?:\.(\w+))? import (\w+)", src)) 
+    modules = {m or n for m, n in used} - {"load_public"} 
+    modules = {m for m in modules if (C.ROOT / "bunon" / f"{m}.py").exists()}
+    deps = {"store", "loop", "personas"}  # imported by service / decisions
+    assert (modules | deps) - {"warm_cache", "checkpoint"} <= listed, sorted((modules | deps) - listed)

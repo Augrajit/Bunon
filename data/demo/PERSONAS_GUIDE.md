@@ -1,6 +1,6 @@
 # How to write the factory personas (for the Bunon team)
 
-The demo shows Bunon talking to five **simulated** subcontract factories. You write what each factory says; Bunon's AI only reads it. Your words are frozen in `personas.json` so the live demo always shows the same messages. The app labels every persona and message as **simulated**.
+The demo shows Bunon talking to six **simulated** subcontract factories. You write what each factory says; Bunon's AI only reads it. Your words are frozen in `personas.json` so the live demo always shows the same messages. The app labels every persona and message as **simulated**.
 
 ## The story the messages must fit
 
@@ -9,10 +9,17 @@ The demo shows Bunon talking to five **simulated** subcontract factories. You wr
 - **Day 0:** Bunon sends each factory a request: pieces, date, and a rate to quote. The exact pieces per factory come from the planning engine; you'll get them when the developer fills in `factory_id`. Until then, write realistic round numbers; they will be aligned.
 - **Day 2:** each factory replies: accept, decline or counter (fewer pieces, a different rate, or a later date).
 - **Days 5–20:** the factories that took work send short daily progress updates. One of them gets into trouble, e.g. a power cut, fabric arriving late, or a line moved to another buyer's order. The trouble should be serious enough that the exporter needs to act.
-- **Rescue (around day 9–10):** Bunon asks another factory to take extra pieces; that factory replies.
+- **Day 12:** the scripted daily update (production started after the split was agreed on day 2, plus the factory's setup days).
+- **Rescue (days 12–13):** Bunon asks another factory to take extra pieces; that factory replies.
 - **Days 24–28:** delivery notes ("all 9,000 pcs sent today").
 
-## The five personas (change them if you know better)
+## Placeholders already in the file
+
+The developer has put **stand-in messages** in `personas.json` (each marked `"placeholder": true`) so the app's loop could be built. Replace their `text` with your own writing and set `"placeholder": false`; keep `msg_id`, `kind` and `story_day`, and update `expected` to what you wrote. There is a sixth persona, `standby_en` (factory F2829), the best factory outside the first plan, asked as a standby. `qc_script` at the end holds the scripted QC outcome as shares (also placeholders).
+
+The factory IDs are already filled in: F1856, F1064, F0824, F2184, F0288 and F2829. The pieces the app asks each factory for: F1856 13,200; F1064 13,100; F0824 12,400; F2184 12,400; F0288 11,400; F2829 15,200 (standby). If your text names a quantity, use these.
+
+## The six personas (change them if you know better)
 
 | persona_id | Who | Writes in |
 |---|---|---|
@@ -21,6 +28,7 @@ The demo shows Bunon talking to five **simulated** subcontract factories. You wr
 | `price_banglish` | Bargains on the rate | Banglish |
 | `declines_bn` | Lines are full, says no politely | Bangla |
 | `slow_en` | Answers late and briefly | English |
+| `standby_en` | The standby factory outside the first plan | English |
 
 ## How to fill a message
 
@@ -42,6 +50,10 @@ Copy the example persona's message block. Fields:
 
 - No real factory, company or person names. No phone numbers.
 - No real news about a real factory.
+
+## After you change a text
+
+The live demo replays the AI's reading of each message from a cache. A changed text is a new message: until the developer re-runs `python -m bunon.warm_cache` (and one live walk of the app), the offline demo cannot read it, so the offer shows as "read by hand" and the split may become infeasible. Tell the developer when you have changed texts.
 
 ## Check your file
 

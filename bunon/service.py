@@ -26,6 +26,8 @@ from bunon import agent as ag
 from bunon import analyst
 from bunon import config as C
 from bunon import decisions as dl
+from bunon import loop as lp
+from bunon import personas as ps
 from bunon import optimizer as op
 from bunon import reliability as rl
 from bunon.schemas import BufferPoint, Candidate, OptimizerParams, OrderConstraints, ReplanResult
@@ -263,8 +265,197 @@ class OrderBook:
     def timeline(self, order_id: str) -> list[dict]:
         return self.store.events(order_id)
 
+    # --- the loop: sourcing round -------------------------------------------------------------------
+    def draft_round(self, order_id: str, b: PlanBundle, pf: ps.PersonaFile) -> list[dict]:
+        """Create the sourcing round's request drafts once (template text, numbers from the plan). Not sent."""
+        if not self.store.rows("sourcing_rounds", order_id):
+            reqs = lp.sourcing_list(b)
+            lang = {p.factory_id: p.language for p in pf.personas}
+            day = self.day(order_id)
+            self.store.insert("sourcing_rounds", {
+                "round_id": f"{order_id}-R1", "order_id": order_id, "story_day": day,
+                "factory_ids": json.dumps([r.factory_id for r in reqs]),
+                "requested_qty": json.dumps({r.factory_id: r.qty for r in reqs}),
+                "requested_date": json.dumps({r.factory_id: r.finish_by.isoformat() for r in reqs})})
+            for r in reqs:
+                language = lang.get(r.factory_id, "English")
+                self.store.insert("messages", {
+                    "msg_id": f"{order_id}:req-{r.factory_id}", "order_id": order_id, "factory_id": r.factory_id,
+                    "direction": "out", "kind": "request", "text": lp.draft_request(r, language, b.order),
+                    "language": language, "draft_of": "template", "story_day": day, "is_simulated": 0})
+            self._event(order_id, "requests_drafted", f"{len(reqs)} request drafts ready for approval", None)
+        return [m for m in self.store.messages(order_id) if m["kind"] == "request"]
+
+    def requests(self, order_id: str) -> dict[str, dict]:
+        r = self.store.rows("sourcing_rounds", order_id)
+        if not r:
+            return {}
+        qty, when = json.loads(r[0]["requested_qty"]), json.loads(r[0]["requested_date"])
+        return {f: {"qty": qty[f], "finish_by": when[f]} for f in json.loads(r[0]["factory_ids"])}
+
+    def approve_round(self, order_id: str, role: str) -> None:
+        """A human approves the drafts; only then are they 'sent' (shown in the factories' in-app inbox)."""
+        _require_exporter(role, "approve and send requests")
+        drafts = [m["msg_id"] for m in self.store.messages(order_id)
+                  if m["kind"] == "request" and m["sent_day"] is None]
+        if not drafts:
+            return
+        d = self.day(order_id)
+        self.store.update_messages(order_id, drafts, approved_by_role=role, approved_day=d, sent_day=d)
+        self._event(order_id, "requests_sent", f"{len(drafts)} requests approved and sent in the app", role)
+
+    def round_sent(self, order_id: str) -> bool:
+        msgs = [m for m in self.store.messages(order_id) if m["kind"] == "request"]
+        return bool(msgs) and all(m["sent_day"] is not None for m in msgs)
+
+    def receive(self, order_id: str, pf: ps.PersonaFile, kind: str, factory_ids: list[str]) -> list[dict]:
+        """Simulated factories answer: persona messages of this kind up to today's story day become inbound
+        messages (labelled simulated). Returns the new ones."""
+        d, have = self.day(order_id), {m["msg_id"] for m in self.store.messages(order_id)}
+        lang = {p.factory_id: p.language for p in pf.personas}
+        new = []
+        for fid in factory_ids:
+            for m in ps.messages_for(pf, fid, kind):
+                mid = f"{order_id}:{m.msg_id}"
+                if m.story_day <= d and mid not in have:
+                    row = {"msg_id": mid, "order_id": order_id, "factory_id": fid, "direction": "in", "kind": kind,
+                           "text": m.text, "language": lang.get(fid), "story_day": m.story_day, "is_simulated": 1,
+                           "draft_of": "placeholder" if m.placeholder else None}
+                    self.store.insert("messages", row)
+                    new.append(row)
+        if new:
+            self._event(order_id, f"{kind}_received", f"{len(new)} message(s) from simulated factories", None,
+                        source="simulated_persona", payload={"msg_ids": [r["msg_id"] for r in new]})
+        return new
+
+    def record_offer(self, order_id: str, msg: dict, res) -> None:
+        qty, delay = reply_terms(res)
+        self.store.insert("offers", {
+            "offer_id": f"{order_id}:offer-{msg['factory_id']}", "order_id": order_id, "msg_id": msg["msg_id"],
+            "factory_id": msg["factory_id"], "decision": res.decision or "none", "qty": qty,
+            "conditions": json.dumps([{"text": c.value, "quote": c.source_span, "status": c.status}
+                                      for c in res.conditions], ensure_ascii=False),
+            "quotes": json.dumps({"decision": res.decision_span, "qty": res.quantity.source_span,
+                                  "delay": res.delay_days.source_span}, ensure_ascii=False),
+            "parse_status": res.meta.source if res.meta else "unavailable", "story_day": msg["story_day"]})
+        if delay is not None:
+            self.store.insert("progress_updates", {
+                "update_id": f"{order_id}:offer-delay-{msg['factory_id']}", "order_id": order_id,
+                "factory_id": msg["factory_id"], "story_day": msg["story_day"], "text": msg["text"],
+                "delay_days": delay, "is_simulated": 1, "parse_status": "from offer"})
+
+    def offer_terms(self, order_id: str) -> list[lp.OfferTerms]:
+        offers = {o["factory_id"]: o for o in self.store.rows("offers", order_id)}
+        delays = {u["factory_id"]: u["delay_days"] for u in self.store.rows("progress_updates", order_id)
+                  if u["parse_status"] == "from offer"}
+        return [lp.OfferTerms(f, offers[f]["decision"] if f in offers else "none",
+                              offers[f]["qty"] if f in offers else None, delays.get(f), r["qty"])
+                for f, r in self.requests(order_id).items()]
+
+    # --- the loop: follow-up, rescue, QC, record ------------------------------------------------------
+    def record_update(self, order_id: str, msg: dict, res) -> None:
+        self.store.insert("progress_updates", {
+            "update_id": msg["msg_id"], "order_id": order_id, "factory_id": msg["factory_id"],
+            "story_day": msg["story_day"], "text": msg["text"],
+            "pieces_done_cum": res.pieces_done.value if res.pieces_done.status == "ok" else None,
+            "delay_days": res.delay_days.value if res.delay_days.status == "ok" else None,
+            "cause_text": res.cause.source_span if res.cause.status == "ok" else None,
+            "cause_category": res.cause.value if res.cause.status == "ok" else None,
+            "quotes": json.dumps({"pieces_done": res.pieces_done.source_span, "delay": res.delay_days.source_span},
+                                 ensure_ascii=False),
+            "parse_status": res.meta.source if res.meta else "unavailable", "is_simulated": 1})
+
+    def record_forecast(self, order_id: str, fc: lp.Forecast, last_day: int | None) -> None:
+        if any(f["story_day"] == fc.day and f["factory_id"] == fc.factory_id
+               for f in self.store.rows("forecasts", order_id)):
+            return
+        self.store.insert("forecasts", {
+            "order_id": order_id, "story_day": fc.day, "factory_id": fc.factory_id,
+            "expected_good_by_deadline": fc.expected_good_after, "p_meet_order": fc.p_after,
+            "last_rescue_day": last_day, "projected": fc.projected})
+        self._event(order_id, "warning", f"{fc.factory_id} projected short by {fc.shortfall:,} pcs; chance of "
+                    f"success {fc.p_before:.1%} -> {fc.p_after:.1%}"
+                    + (f"; last day to rescue: day {last_day}" if last_day is not None else ""), None,
+                    subject=fc.factory_id)
+
+    def choose_rescue(self, order_id: str, opt: lp.RescueOption, role: str) -> None:
+        """A human picks a rescue option (the 'move' plan itself is approved with `decide`)."""
+        _require_exporter(role, "choose a rescue option")
+        d = self.day(order_id)
+        if any(r["chosen"] and r["kind"] == opt.kind and r["story_day"] == d
+               for r in self.store.rows("rescue_options", order_id)):
+            return
+        self.store.insert("rescue_options", {
+            "option_id": f"{order_id}:rescue-{d}-{opt.kind}", "order_id": order_id, "story_day": d, "kind": opt.kind,
+            "details": opt.note, "p_meet_after": opt.p_after, "cost_delta_bdt": opt.cost_delta_bdt, "chosen": 1,
+            "approved_by_role": role})
+        self._event(order_id, "rescue_chosen", f"Rescue chosen: {opt.title} ({opt.note})", role)
+
+    def chosen_rescue(self, order_id: str) -> str | None:
+        rows = [r for r in self.store.rows("rescue_options", order_id) if r["chosen"]]
+        return rows[-1]["kind"] if rows else None
+
+    def approved_allocation(self, order_id: str) -> dict | None:
+        rows = [a for a in self.store.allocations(order_id) if a["status"] == "approved"]
+        return rows[-1] if rows else None
+
+    def send_message(self, order_id: str, factory_id: str, text: str, role: str, msg_id: str) -> None:
+        """A human-approved message to one factory (shown in its in-app inbox). Never sent automatically."""
+        _require_exporter(role, "send a message")
+        d = self.day(order_id)
+        msg_id = f"{order_id}:{msg_id}"
+        if any(m["msg_id"] == msg_id for m in self.store.messages(order_id)):
+            return
+        self.store.insert("messages", {"msg_id": msg_id, "order_id": order_id, "factory_id": factory_id,
+                                       "direction": "out", "kind": "rescue_request", "text": text,
+                                       "draft_of": "template",
+                                       "approved_by_role": role, "approved_day": d, "sent_day": d,
+                                       "story_day": d, "is_simulated": 0})
+        self._event(order_id, "message_sent", f"Message to {factory_id} approved and sent in the app", role,
+                    subject=factory_id)
+
+    def record_qc(self, order_id: str, factory_id: str, received: int, rejected: int, lot_rejected: bool,
+                  role: str, day: int) -> None:
+        if role != "Quality inspector":
+            raise PermissionError(f"only the quality inspector records QC (got {role!r})")
+        if not 0 <= rejected <= received:
+            raise ValueError("rejected pieces must be between 0 and the pieces received")
+        if any(q["factory_id"] == factory_id for q in self.store.rows("qc_records", order_id)):
+            return
+        good = 0 if lot_rejected else received - rejected
+        self.store.insert("qc_records", {
+            "qc_id": f"{order_id}:qc-{factory_id}", "order_id": order_id, "factory_id": factory_id, "story_day": day,
+            "received": received, "good": good, "rejected": received - good, "lot_rejected": int(lot_rejected),
+            "inspector_role": role})
+        # The QC row keeps the delivery day (for on-time); the event sits on today's story clock.
+        self._event(order_id, "qc_recorded", f"QC {factory_id} (delivered day {day}): {received:,} received, "
+                    f"{good:,} good", role, subject=factory_id)
+
+    def track_record(self, order_id: str) -> list[dict]:
+        """Each factory's record on THIS order, from platform events only (requests, replies, updates, QC).
+        Delivered on time = QC on or before the day goods are due at the exporter (deadline minus QC days)."""
+        o = self.order(order_id)
+        due = lp.deadline_day(o) - C.QC_DAYS
+        offers = {x["factory_id"]: x for x in self.store.rows("offers", order_id)}
+        qc = {x["factory_id"]: x for x in self.store.rows("qc_records", order_id)}
+        delays: dict[str, int] = {}
+        for u in self.store.rows("progress_updates", order_id):
+            if u["delay_days"]:
+                delays[u["factory_id"]] = max(delays.get(u["factory_id"], 0), u["delay_days"])
+        out = []
+        for f in self.requests(order_id):
+            off, q = offers.get(f), qc.get(f)
+            out.append({"factory_id": f, "answered": off is not None,
+                        "decision": ("no reply" if off is None else
+                                     "unreadable (read by hand)" if off["decision"] == "none" else off["decision"]),
+                        "delay_reported_days": delays.get(f, 0),
+                        "delivered_on_time": None if q is None else q["story_day"] <= due,
+                        "qc_pass_rate": None if q is None or not q["received"] else q["good"] / q["received"],
+                        "lot_rejected": None if q is None else bool(q["lot_rejected"])})
+        return out
+
     def _event(self, order_id: str, kind: str, summary: str, role: str | None, subject: str | None = None,
-               payload: dict | None = None, day: int | None = None) -> int:
+               payload: dict | None = None, day: int | None = None, source: str = "platform") -> int:
         d = self.day(order_id) if day is None else day
         return self.store.add_event(order_id, d, self.date_of(d), kind, summary, actor_role=role,
-                                    subject=subject, payload=payload)
+                                    subject=subject, payload=payload, source=source)

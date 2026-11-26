@@ -96,6 +96,46 @@ def test_every_action_at_extreme_settings(name, over, monkeypatch, tmp_path):
     if over.get("max_f") in (1, 2, 3):  # no allocation exists: say so plainly, show no empty plan
         assert not feasible
     r.click(key="approve_plan")
+    # the thin loop: sourcing round -> replies -> split -> daily update -> rescue -> QC -> track record
+    r.click(key="send_requests")
+    r.click(key="go_day_replies")
+    r.click(key="approve_split")
+    r.click(key="go_day_update")
+    r.click(key="rescue_move") or r.click(key="rescue_accept_shortfall") or r.click(key="rescue_escalate_buyer")
+    r.click(key="approve_rescue")
+    r.click(key="send_rescue")
+    r.click(key="go_day_qc")
+    at.session_state["role"] = "Quality inspector"
+    at.run()
+    r.check("qc role")
+    r.click(key="record_qc")
+    at.session_state["role"] = "Merchandiser"
+    at.run()
+    for i in range(3):
+        if r.click(key=f"whatif_ex_{i}"):
+            r.click("Ask")
+    # the timeline records the order, the approvals and the loop's steps, on the story clock
+    assert any("Timeline" in h.value for h in at.header), (
+        "timeline missing", [h.value for h in at.header], [str(e.value)[:300] for e in at.exception],
+        [e.value[:200] for e in at.error], r.problems)
+    log = next(df.value for df in at.dataframe if "Who (role)" in df.value.columns)
+    kinds = set(log["Kind"])
+    assert "order_confirmed" in kinds
+    if feasible:
+        assert {"plan_approved", "requests_sent", "offer_reply_received"} <= kinds, sorted(kinds)
+        if "warning" in kinds:  # a feasible split: the update, the warning and a rescue choice follow
+            assert "rescue_chosen" in kinds
+        if over == {}:  # default settings: the whole loop to the track record
+            assert {"qc_recorded", "message_sent"} <= kinds and log["Day"].max() >= 24, sorted(kinds)
+            assert any("Track record" in h.value for h in at.header)
+
+    # show the maths: engine detail, steering, and the what-ifs on the first plan
+    at.session_state["view"] = "Show the maths"
+    at.run()
+    r.check("maths view")
+    assert any(h.value in ("Plans compared", "Who can make it") for h in at.header), "maths view missing"
+    r.click(key="steer_ex_0")
+    r.click("Interpret")
     r.click(prefix="Simulate:")
     r.click(key="approve_replan")
     for i in range(4):
@@ -108,23 +148,8 @@ def test_every_action_at_extreme_settings(name, over, monkeypatch, tmp_path):
             r.click("Read the news")
             r.click("Assess the impact")
             r.click(key="approve_news_replan")
-    for i in range(3):
-        if r.click(key=f"whatif_ex_{i}"):
-            r.click("Ask")
-    # the timeline records the order and (when a plan exists) the approval, on the story clock
-    assert any("Timeline" in h.value for h in at.header), "timeline missing"
-    log = next(df.value for df in at.dataframe if "Who (role)" in df.value.columns)
-    assert "order_confirmed" in set(log["Kind"])
-    if feasible:
-        assert "plan_approved" in set(log["Kind"]) and log["Day"].max() >= 3
-
-    # show the maths: the engine detail and steering live here now
-    at.session_state["view"] = "Show the maths"
+    at.session_state["view"] = "Order timeline"
     at.run()
-    r.check("maths view")
-    assert any(h.value in ("Plans compared", "Who can make it") for h in at.header), "maths view missing"
-    r.click(key="steer_ex_0")
-    r.click("Interpret")
 
     # the factory side: a phone-frame view for a factory role
     at.session_state["role"] = "Floor supervisor"

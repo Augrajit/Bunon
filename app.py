@@ -26,7 +26,7 @@ def _reload_bunon_if_changed() -> None:
 
     import bunon
     order = ["config", "schemas", "textnum", "llm", "data_gen", "reliability", "simulation",
-             "optimizer", "agent", "analyst", "store", "decisions", "personas", "service"]
+             "optimizer", "agent", "analyst", "store", "decisions", "personas", "loop", "service"]
     src = Path(bunon.__file__).parent
     digest = hashlib.sha1(b"".join((src / f"{m}.py").read_bytes() for m in order)).hexdigest()
     if getattr(bunon, "_source_digest", None) != digest:
@@ -43,6 +43,7 @@ from bunon import agent as ag  # noqa: E402
 from bunon import analyst  # noqa: E402  (after the reload check, so names bind to current code)
 from bunon import config as C  # noqa: E402
 from bunon import decisions as dl
+from bunon import loop as lp
 from bunon import optimizer as op
 from bunon import personas
 from bunon import reliability as rl
@@ -450,7 +451,7 @@ def show_memo(memo):
             st.write(memo.errors)
 
 
-def approval_buttons(step: str, point, label: str, summary: str, order, cands, key: str):
+def approval_buttons(step: str, point, label: str, summary: str, order, cands, key: str, po_download: bool = True):
     """Approve / reject, recorded on the order's timeline with the acting role. Approval unlocks draft
     purchase-order text (download only): nothing is ever sent by the system."""
     role = st.session_state["role"]
@@ -468,11 +469,14 @@ def approval_buttons(step: str, point, label: str, summary: str, order, cands, k
         book().decide(oid, step, point, label, "rejected", role, summary)
         st.session_state[state_key] = "rejected"
     status = st.session_state.get(state_key)
-    if status == "approved":
+    if status == "approved" and po_download:
         st.success(f"Approved by **{role}** and recorded on the timeline. Nothing has been sent: download the "
                    "drafts, review them and send them yourself.")
         st.download_button("⬇ Draft purchase-order requests (.txt)", dl.draft_po_text(order, plan, cands, role),
                            file_name=f"DRAFT_{plan.plan_id}.txt", key=f"po_{key}")
+    elif status == "approved":
+        st.success(f"Approved by **{role}** and recorded on the timeline. Any message it needs is drafted below "
+                   "and goes out only when you approve it.")
     elif status == "rejected":
         st.warning("Rejected and recorded. Change the planning settings in the sidebar to get a different plan.")
 
@@ -513,8 +517,10 @@ def prototype_notice() -> None:
 # =============================================================================
 
 VIEWS = ("Order timeline", "Show the maths")
-TIMELINE_NAV = (("order", "Day 0 · Order received"), ("plans", "Day 0 · Plan"),
-                ("disruption", f"Day {sv.DECLINE_DAY} · Follow-up"), ("whatif", "Ask Bunon"), ("timeline", "Timeline"))
+TIMELINE_NAV = (("order", "Day 0 · Order"), ("plans", "Day 0 · Plan"), ("sourcing", "Day 0 · Sourcing"),
+                ("offers", "Day 2 · Offers"), ("split", "Day 2 · Split"), ("update", "Day 9 · Update"),
+                ("rescue", "Day 9 · Rescue"), ("qc", "Day 26 · QC"), ("record", "Track record"),
+                ("whatif", "Ask Bunon"), ("timeline", "Timeline"))
 
 for _k, _v in SETTING_DEFAULTS:
     st.session_state.setdefault(_k, _v)
@@ -612,10 +618,11 @@ def view_factory() -> None:
         st.markdown(f"**{fid}** · {row['district']} · <span class='bn-badge'>Simulated</span>",
                     unsafe_allow_html=True)
         st.markdown("**Inbox**")
-        msgs = book().store.messages(factory_id=fid)
+        msgs = [m for m in book().store.messages(st.session_state.get("order_id"), factory_id=fid)
+                if m["direction"] == "in" or m["sent_day"] is not None]  # drafts stay with the exporter
         if not msgs:
-            st.caption("No requests yet. A request appears here only after the exporter approves it "
-                       "(sourcing round: next milestone). Nothing is ever sent automatically.")
+            st.caption("No requests yet. A request appears here only after the exporter approves it. "
+                       "Nothing is ever sent automatically.")
         for m in msgs:
             st.markdown(f"Day {m['story_day']} · {'↘ from exporter' if m['direction'] == 'out' else '↗ you'}: "
                         f"{m['text']}")
@@ -761,6 +768,7 @@ def view_maths() -> None:
     if current_mode() == "offline":
         st.caption("On the public demo, answers are replayed from a cache: the two example instructions work; other "
                    "wording falls back to the sidebar controls.")
+    section_followup(args)
 
 
 # =============================================================================
@@ -868,10 +876,10 @@ def section_followup(args) -> None:
     rec, cands, order = b.rec, b.cands, b.order
     oid = st.session_state["order_id"]
     role = st.session_state["role"] if st.session_state["role"] in EXPORTER_ROLES else None
-    st.header(f"Day {DAYS} · Follow-up", anchor="disruption")
-    st.caption("Preview: sourcing rounds and daily factory updates arrive in the next milestones. Today you can "
-               "play a scripted decline, read a factory's reply, or read a news item; each moves the story clock "
-               f"to day {DAYS}.")
+    st.header("What-ifs on the first plan: decline, reply, news", anchor="disruption")
+    st.caption("Engine detail, not the order's story: what the first plan would do if its largest factory "
+               "declined, if a factory replied with other terms, or if a news event hit. These do not move the "
+               "order's story clock.")
     tab_decline, tab_reply, tab_news = st.tabs(["Scripted decline", "Factory reply (English / Bangla / Banglish)",
                                                 "News (English / Bangla)"])
     with tab_decline:
@@ -881,7 +889,6 @@ def section_followup(args) -> None:
                  f"can only start now, so they have {DAYS} fewer production days. The deadline does not move.")
         if st.button(f"Simulate: {gone} declines on day {DAYS}", type="primary"):
             st.session_state["replan_for"] = args
-            book().advance_to(oid, DAYS, f"{gone} declines", role)
         if st.session_state.get("replan_for") == args:
             rp, rmemo, cands_late = _run_safely(run_replan, args, DAYS)
             show_replan(args, rp, rmemo, cands_late, "replan", f"{gone} declined", "Re-plan after decline")
@@ -931,7 +938,6 @@ def section_followup(args) -> None:
                     st.success("No change to the plan: the factory confirmed the planned quantity.")
                 elif st.button("Re-plan with this reply", type="primary"):
                     st.session_state["reply_replan"] = (rtext, rfid, args)
-                    book().advance_to(oid, DAYS, f"{rfid} replied ({res.decision})", role)
                 if st.session_state.get("reply_replan") == (rtext, rfid, args) and res.decision != "accept":
                     qty, delay = sv.reply_terms(res)
                     rp, rmemo, cands_late = _run_safely(run_reply_replan, args, rfid, res.decision, qty, delay, DAYS)
@@ -980,7 +986,6 @@ def section_followup(args) -> None:
                        f"**{ev.extra_delay_days} days** late. Placeholder values pending research.")
             if st.button("Assess the impact", type="primary"):
                 st.session_state["news_assess"] = (area, sev, dur, args)
-                book().advance_to(oid, DAYS, f"news: {sev} disruption in {area}", role)
             if st.session_state.get("news_assess") == (area, sev, dur, args):
                 r = _run_safely(run_news, args, area, sev, dur)
                 m1, m2, m3 = st.columns(3)
@@ -1063,6 +1068,316 @@ def section_timeline() -> None:
                    "resets when the server restarts.")
 
 
+@st.cache_data(show_spinner=False)
+def persona_file():
+    return personas.load()
+
+
+def _parse_offer(text: str, qty: int):
+    return ag.parse_reply(text, qty, LLMClient())
+
+
+def _parse_update(text: str, qty: int):
+    return ag.parse_update(text, qty, LLMClient())
+
+
+@st.cache_data(show_spinner="Splitting the order over the offers…")
+def _split(args: tuple, offers: tuple):
+    return lp.split_from_offers(world(), run_plans(*args), list(offers))
+
+
+@st.cache_data(show_spinner="Re-forecasting the order from the update…")
+def _forecast(args: tuple, offers: tuple, fid: str, done: int, delay, day: int):
+    b = run_plans(*args)
+    res, cands = _split(args, offers)
+    declined = [o.factory_id for o in offers if o.decision == "reject"]
+    fc = lp.forecast_after_update(world(), b, res.recommended, cands, fid, done, delay, day)
+    last = lp.last_rescue_day(world(), b, fc.shortfall, {ln.factory_id for ln in res.recommended.plan.lines}
+                              | set(declined), today=day)  # (day, factory that could still make the shortfall)
+    opts = lp.rescue_options(world(), b, res.recommended, cands, fc, declined, day)
+    return fc, last, opts
+
+
+def _was_approved(oid: str, plan_id: str) -> bool:
+    """Approved at some point (a later approval supersedes it, which still counts as approved here)."""
+    return any(a["plan_id"] == plan_id and a["status"] in ("approved", "superseded")
+               for a in book().store.allocations(oid))
+
+
+def _role_or_none() -> str | None:
+    r = st.session_state["role"]
+    return r if r in EXPORTER_ROLES else None
+
+
+def _simulated_tag(msg: dict) -> str:
+    return "simulated · placeholder text" if msg.get("draft_of") == "placeholder" else "simulated"
+
+
+def section_sourcing(args, oid: str) -> bool:
+    """Day 0: request drafts for the plan's factories plus a standby; a human approves before anything goes."""
+    b = run_plans(*args)
+    st.header("Day 0 · Sourcing round", anchor="sourcing")
+    drafts = book().draft_round(oid, b, persona_file())
+    reqs = book().requests(oid)
+    st.caption("Bunon asks the factories in the plan for their planned pieces, plus the best proven factory "
+               "outside the plan as a standby. Drafts use a fixed template whose numbers come from the plan; "
+               "nothing is sent until you approve. (LLM-written drafts come next, under the same no-numbers rule.)")
+    st.dataframe(pd.DataFrame([{"Factory": m["factory_id"], "Asked for (pcs)": reqs[m["factory_id"]]["qty"],
+                                "Finish by": reqs[m["factory_id"]]["finish_by"], "Language": m["language"],
+                                "Draft": m["text"], "Status": "sent" if m["sent_day"] is not None else "draft"}
+                               for m in drafts]), hide_index=True, width="stretch")
+    if book().round_sent(oid):
+        st.success("Requests approved and sent in the app (each factory sees it in its inbox).")
+        return True
+    if _role_or_none() is None:
+        st.info("Switch to an exporter role to approve the requests.")
+    elif st.button("Approve and send the requests", type="primary", key="send_requests"):
+        book().approve_round(oid, st.session_state["role"])
+        st.rerun()
+    return False
+
+
+def section_offers(args, oid: str) -> tuple | None:
+    """Day 2: simulated factories reply; the LLM reads each reply; the code checks every quote."""
+    st.header(f"Day {lp.REPLY_DAY} · Replies and offers", anchor="offers")
+    if book().day(oid) < lp.REPLY_DAY:
+        if st.button(f"Next: day {lp.REPLY_DAY}, the factories reply", type="primary", key="go_day_replies"):
+            book().advance_to(oid, lp.REPLY_DAY, "factories reply to the sourcing round", _role_or_none())
+            st.rerun()
+        return None
+    reqs = book().requests(oid)
+    book().receive(oid, persona_file(), "offer_reply", list(reqs))
+    have = {o["factory_id"] for o in book().store.rows("offers", oid)}
+    rows = []
+    for m in [m for m in book().store.messages(oid) if m["direction"] == "in" and m["kind"] == "offer_reply"]:
+        res = llm_once("Reading the replies…", _parse_offer, m["text"], reqs[m["factory_id"]]["qty"])
+        if m["factory_id"] not in have:
+            book().record_offer(oid, m, res)
+        qty, delay = sv.reply_terms(res)
+        rows.append({"Factory": m["factory_id"], "Reply": m["text"], "Decision": res.decision or "read by hand",
+                     "Pieces": "" if qty is None else f"{qty:,}", "Days late": "" if delay is None else str(delay),
+                     "Conditions (quoted)": "; ".join(f"“{c.source_span}”" for c in res.conditions if c.status == "ok"),
+                     "Read by": SOURCE_BADGE.get(res.meta.source, res.meta.source) if res.meta else "unavailable",
+                     "Source": _simulated_tag(m)})
+    st.caption("The LLM classifies each reply and pulls out pieces and delay, each with a quote the code checks; "
+               "the code settles the decision. Prices in replies are shown as quoted conditions; reading them as "
+               "numbers comes with the offer parser (next milestone).")
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    missing = [f for f in reqs if f not in {r["Factory"] for r in rows}]
+    if missing:
+        st.caption("No reply yet from: " + ", ".join(missing))
+    return tuple(book().offer_terms(oid))
+
+
+def section_split(args, oid: str, offers: tuple) -> object | None:
+    """Day 2: the best split over the factories that said yes; the owner approves it."""
+    st.header(f"Day {lp.REPLY_DAY} · The split", anchor="split")
+    res, cands = _split(args, offers)
+    pt = res.recommended
+    if pt.risk is None:
+        st.error("**No feasible split.** The factories that said yes cannot cover the order under the current "
+                 "limits. Ask more factories or loosen a limit; nothing was sent.")
+        return None
+    s = run_plans(*args).settings
+    m = st.columns(3)
+    m[0].metric("Chance of success", f"{pt.risk.p_meet_qty:.1%}")
+    m[1].metric("Pieces allocated", f"{pt.plan.total_allocated:,}", f"+{pt.plan.buffer_qty:,} buffer")
+    m[2].metric("Total cost", bdt_m(pt.plan.cost_total), help=bdt(pt.plan.cost_total))
+    if not res.target_met:
+        st.error(f"The factories that said yes cannot reach the {s.target:.0%} target; this is the most likely split.")
+    off = {o.factory_id: o for o in offers}
+    st.dataframe(pd.DataFrame([{"Factory": ln.factory_id, "Pieces": ln.qty, "Offered / asked": off[ln.factory_id].qty
+                                or off[ln.factory_id].requested, "Share": f"{ln.share:.0%}"}
+                               for ln in pt.plan.lines]), hide_index=True, width="stretch")
+    book().propose(oid, pt, "Split from offers")
+    approval_buttons("split", pt, "Split from offers", f"{len(pt.plan.lines)} factories, P {pt.risk.p_meet_qty:.3f}, "
+                     f"{bdt(pt.plan.cost_total)}", run_plans(*args).order, cands, "split")
+    return pt if _was_approved(oid, pt.plan.plan_id) else None
+
+
+def section_update(args, oid: str, offers: tuple, split_pt) -> tuple | None:
+    """Day 9: a daily update arrives; the code projects that factory and re-simulates the order."""
+    st.header(f"Day {lp.UPDATE_DAY} · Daily update and warning", anchor="update")
+    if book().day(oid) < lp.UPDATE_DAY:
+        if st.button(f"Next: day {lp.UPDATE_DAY}, a daily update arrives", type="primary", key="go_day_update"):
+            book().advance_to(oid, lp.UPDATE_DAY, "daily updates from the factories", _role_or_none())
+            st.rerun()
+        return None
+    qty = {ln.factory_id: ln.qty for ln in split_pt.plan.lines}
+    book().receive(oid, persona_file(), "progress_update", list(qty))
+    msgs = [m for m in book().store.messages(oid) if m["direction"] == "in" and m["kind"] == "progress_update"
+            and m["factory_id"] in qty]  # only factories in the agreed split
+    if not msgs:
+        st.info("No updates today.")
+        return None
+    m = msgs[-1]
+    res = llm_once("Reading the update…", _parse_update, m["text"], qty[m["factory_id"]])
+    if not any(u["update_id"] == m["msg_id"] for u in book().store.rows("progress_updates", oid)):
+        book().record_update(oid, m, res)
+    st.markdown(f"**{m['factory_id']}** ({_simulated_tag(m)}): “{m['text']}”")
+    if res.meta:
+        st.caption(SOURCE_BADGE[res.meta.source])
+    for note in res.notes:
+        st.warning(note)
+    icon = {"ok": "✅ found in update", "missing": "— not stated", "rejected": "⚠️ check failed"}
+    st.dataframe(pd.DataFrame([
+        {"Item": "Pieces finished so far", "Value": "" if res.pieces_done.value is None else f"{res.pieces_done.value:,}",
+         "Quote": res.pieces_done.source_span or "", "Check": icon[res.pieces_done.status]},
+        {"Item": "Days late", "Value": "" if res.delay_days.value is None else str(res.delay_days.value),
+         "Quote": res.delay_days.source_span or "", "Check": icon[res.delay_days.status]},
+        {"Item": "Reason given", "Value": res.cause.value or "", "Quote": res.cause.source_span or "",
+         "Check": icon[res.cause.status]}]), hide_index=True, width="stretch")
+    if res.pieces_done.status != "ok":
+        st.info("The update states no verified number of finished pieces: ask the factory before re-forecasting.")
+        return None
+    delay = res.delay_days.value if res.delay_days.status == "ok" else None
+    # Forecast as of the day the update was sent, so later days do not change an approved rescue.
+    fc, (last, last_by), opts = _forecast(args, offers, m["factory_id"], res.pieces_done.value, delay,
+                                          m["story_day"])
+    book().record_forecast(oid, fc, last)
+    k = st.columns(4)
+    k[0].metric(f"{fc.factory_id}: pieces by its ship-by day", f"{fc.projected:,}", f"{-fc.shortfall:,} vs plan",
+                delta_color="normal")
+    k[1].metric("Chance of success", f"{fc.p_after:.1%}", f"{(fc.p_after - fc.p_before) * 100:+.1f} pts")
+    k[2].metric("Expected good pieces", f"{fc.expected_good_after:,.0f}", help=f"Needed: {fc.min_good:,}")
+    k[3].metric("Last day to rescue", f"day {last}" if last is not None else "—",
+                help=f"{book().date_of(last):%d %b %Y}" if last is not None else "No factory outside the plan can "
+                     "still make the shortfall in time.")
+    st.warning(f"**{fc.factory_id} is behind.** It has finished {fc.pieces_done:,} of {fc.planned:,} pieces "
+               f"({fc.rate_seen:,.0f} a day so far against {fc.rate_plan:,.0f} planned)"
+               + (f" and reports {delay} days lost" if delay else "") + f". At this rate it makes about "
+               f"{fc.projected:,} pieces by its ship-by day, {fc.shortfall:,} short. "
+               + (f"A rescue is still possible until day {last} ({book().date_of(last):%d %b}), e.g. at {last_by}."
+                  if last is not None else "No factory outside the plan can still make the shortfall in time."))
+    st.caption("Every number above comes from the update's quoted figures and the simulation; the explanation is "
+               "a fixed template (an LLM-written explanation with the same placeholder rule comes later).")
+    return fc, last, opts
+
+
+def section_rescue(args, oid: str, fc, opts) -> bool:
+    """Day 9: rescue options with their chance and cost; a production manager decides."""
+    st.header(f"Day {lp.UPDATE_DAY} · Rescue", anchor="rescue")
+    b = run_plans(*args)
+    st.dataframe(pd.DataFrame([{"Option": o.title, "Chance of success": "" if o.p_after is None else f"{o.p_after:.1%}",
+                                "Extra cost": "" if o.cost_delta_bdt is None else bdt(o.cost_delta_bdt),
+                                "Details": o.note, "Possible": "yes" if o.allowed else "no"} for o in opts]),
+                 hide_index=True, width="stretch")
+    chosen = book().chosen_rescue(oid)
+    move = next((o for o in opts if o.kind == "move"), None)
+    if chosen == "move" and move is not None and move.replan is not None and any(
+            a["plan_id"] == move.replan.new.plan.plan_id and a["status"] == "rejected"
+            for a in book().store.allocations(oid)):
+        st.warning("The move plan was rejected. Choose again.")
+        chosen = None
+    if chosen is None:
+        if _role_or_none() is None:
+            st.info("Switch to an exporter role (production manager) to choose.")
+            return False
+        c = st.columns(len(opts))
+        for i, o in enumerate(opts):
+            if c[i].button(f"Choose: {o.title}", key=f"rescue_{o.kind}", disabled=not o.allowed):
+                book().choose_rescue(oid, o, st.session_state["role"])
+                st.rerun()
+        return False
+    opt = next(o for o in opts if o.kind == chosen)
+    st.success(f"Chosen: **{opt.title}**.")
+    if chosen != "move":
+        return True
+    rp = opt.replan
+    approval_buttons("rescue", rp.new, "Rescue: move the shortfall", f"{opt.note}; P {rp.new.risk.p_meet_qty:.3f}",
+                     b.order, _split(args, tuple(book().offer_terms(oid)))[1] + b.cands, "rescue", po_download=False)
+    if not _was_approved(oid, rp.new.plan.plan_id):
+        return False
+    extra = [(d["factory_id"], d["new_qty"] - d["old_qty"]) for d in rp.diff
+             if d["new_qty"] > d["old_qty"] and d["factory_id"] != fc.factory_id]
+    lang = {p.factory_id: p.language for p in persona_file().personas}
+    sent = {m["factory_id"] for m in book().store.messages(oid) if m["kind"] == "rescue_request"}
+    drafts = [(f, n, lp.draft_rescue_request(f, n, b.order, lang.get(f, "English"))) for f, n in extra]
+    st.dataframe(pd.DataFrame([{"To": f, "Extra pieces": n, "Draft": t,
+                                "Status": "sent" if f in sent else "draft"} for f, n, t in drafts]),
+                 hide_index=True, width="stretch")
+    if all(f in sent for f, _, _ in drafts):
+        book().receive(oid, persona_file(), "rescue_reply", [f for f, _, _ in drafts])
+        extra_by = dict(extra)
+        for m in [m for m in book().store.messages(oid) if m["direction"] == "in" and m["kind"] == "rescue_reply"]:
+            res = llm_once("Reading the reply…", _parse_offer, m["text"], extra_by.get(m["factory_id"], 0))
+            verdict = {"accept": "✅ accepts", "reject": "✖ declines", "counter": "↔ counters"}.get(res.decision,
+                                                                                               "read by hand")
+            st.markdown(f"**{m['factory_id']}** {verdict} ({_simulated_tag(m)}): “{m['text']}”")
+            if res.decision != "accept":
+                st.warning(f"{m['factory_id']} did not simply accept the extra pieces: re-plan before relying on it.")
+        return True
+    if st.button("Approve and send the rescue requests", type="primary", key="send_rescue"):
+        for f, _, t in drafts:
+            book().send_message(oid, f, t, st.session_state["role"], f"rescue-{f}-day{book().day(oid)}")
+        book().advance_to(oid, lp.UPDATE_DAY + 1, "rescue requests answered", _role_or_none())
+        st.rerun()
+    return False
+
+
+def section_qc(args, oid: str) -> bool:
+    """Day 26: goods arrive; the quality inspector records good and rejected pieces."""
+    st.header(f"Day {lp.QC_DAY} · Receive and QC", anchor="qc")
+    if book().day(oid) < lp.QC_DAY:
+        if st.button(f"Next: day {lp.QC_DAY}, goods arrive for inspection", type="primary", key="go_day_qc"):
+            book().advance_to(oid, lp.QC_DAY, "goods arrived (days 24-26) and are inspected", _role_or_none())
+            st.rerun()
+        return False
+    alloc = book().approved_allocation(oid)
+    done = {q["factory_id"]: q for q in book().store.rows("qc_records", oid)}
+    script = {q.factory_id: q for q in persona_file().qc_script}
+    projected = {f["factory_id"]: f for f in book().store.rows("forecasts", oid)}
+    rows = []
+    for ln in alloc["lines"]:
+        sc = script.get(ln["factory_id"])
+        can_make = ln["qty"]
+        if ln["factory_id"] in projected:  # what the update said it can make (the move plan already locks it there)
+            fcr = projected[ln["factory_id"]]
+            can_make = min(ln["qty"], int(fcr["projected"])) if fcr.get("projected") is not None else ln["qty"]
+        received = round(can_make * (sc.delivered_share if sc else 1.0))
+        rejected = round(received * (sc.reject_share if sc else 0.0))
+        rows.append({"factory_id": ln["factory_id"], "received": received, "rejected": rejected,
+                     "lot_rejected": bool(sc.lot_rejected) if sc else False,
+                     "day": sc.story_day if sc else lp.QC_DAY, "placeholder": bool(sc and sc.placeholder)})
+    st.caption("Pre-filled from the scripted delivery and QC outcome (simulated, placeholder shares); the "
+               "inspector checks and records. Only good pieces count.")
+    edited = st.data_editor(pd.DataFrame(rows), hide_index=True, width="stretch", key="qc_editor",
+                            disabled=["factory_id", "day", "placeholder"])
+    if done:
+        st.success(f"QC recorded for {len(done)} factories: {sum(q['good'] for q in done.values()):,} good pieces.")
+        return True
+    if st.session_state["role"] != "Quality inspector":
+        st.info("Switch the role to **Exporter · Quality inspector** to record QC.")
+        return False
+    if st.button("Record QC", type="primary", key="record_qc"):
+        recs = edited.to_dict("records")
+        bad = [x["factory_id"] for x in recs if pd.isna(x["received"]) or pd.isna(x["rejected"])
+               or not 0 <= int(x["rejected"]) <= int(x["received"])]
+        if bad:
+            st.error("Check the rows for " + ", ".join(bad) + ": received and rejected are required, and rejected "
+                     "must be between 0 and received. Nothing was recorded.")
+            return False
+        for x in recs:
+            book().record_qc(oid, x["factory_id"], int(x["received"]), int(x["rejected"]), bool(x["lot_rejected"]),
+                             st.session_state["role"], int(x["day"]))
+        st.rerun()
+    return False
+
+
+def section_record(oid: str) -> None:
+    st.header("Track record from this order", anchor="record")
+    tr = book().track_record(oid)
+    st.dataframe(pd.DataFrame([{"Factory": r["factory_id"], "Answered": "yes" if r["answered"] else "no",
+                                "Decision": r["decision"], "Delay reported (days)": r["delay_reported_days"],
+                                "Delivered on time": "" if r["delivered_on_time"] is None
+                                else ("yes" if r["delivered_on_time"] else "no"),
+                                "QC pass": "" if r["qc_pass_rate"] is None else f"{r['qc_pass_rate']:.1%}"}
+                               for r in tr]), hide_index=True, width="stretch")
+    st.caption("Counted only from what happened on the platform in this order (requests, replies, updates, QC), "
+               "never from rumours. In this demo the factories are simulated. Delay causes and the exporter's "
+               "payment record come in a later milestone.")
+
+
 def view_timeline() -> None:
     st.title("Order timeline")
     prototype_notice()
@@ -1107,8 +1422,8 @@ def view_timeline() -> None:
         "Transit (days)": by_id[ln.factory_id].transit_days, "Production days": by_id[ln.factory_id].window_days,
         "Short/late in failed simulations": f"{rec.risk.fail_contribution.get(ln.factory_id, 0):.0%}",
     } for ln in rec.plan.lines]), hide_index=True, width="stretch")
-    st.caption("The full comparison, reliability forecasts and the buffer curve are under **Show the maths** "
-               "(sidebar).")
+    st.caption("This plan decides whom to ask. The full comparison, reliability forecasts and the buffer curve "
+               "are under **Show the maths**.")
     st.subheader("Decision memo")
     memo = memo_for(*args)
     if memo is None:
@@ -1118,7 +1433,19 @@ def view_timeline() -> None:
     approval_buttons("plan", rec, "Initial plan", f"{len(rec.plan.lines)} factories, {rec.plan.total_allocated:,} "
                      f"pcs, P {rec.risk.p_meet_qty:.3f}, {bdt(rec.plan.cost_total)}", order, cands, "plan")
 
-    section_followup(args)
+    if not _was_approved(oid, rec.plan.plan_id) and not book().store.rows("sourcing_rounds", oid):
+        st.info("Approve the plan to start the sourcing round.")
+    else:
+        if section_sourcing(args, oid):
+            offers = section_offers(args, oid)
+            if offers is not None:
+                split_pt = section_split(args, oid, offers)
+                if split_pt is not None:
+                    upd = section_update(args, oid, offers, split_pt)
+                    if upd is not None:
+                        fc, _, opts = upd
+                        if section_rescue(args, oid, fc, opts) and section_qc(args, oid):
+                            section_record(oid)
     section_ask(args)
     section_timeline()
 

@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS sourcing_rounds (
     factory_ids TEXT NOT NULL, requested_qty TEXT NOT NULL, requested_date TEXT);
 CREATE TABLE IF NOT EXISTS messages (
     msg_id TEXT PRIMARY KEY, order_id TEXT NOT NULL, factory_id TEXT NOT NULL,
-    direction TEXT NOT NULL CHECK (direction IN ('out', 'in')), channel TEXT NOT NULL DEFAULT 'in_app',
+    direction TEXT NOT NULL CHECK (direction IN ('out', 'in')), channel TEXT NOT NULL DEFAULT 'in_app', kind TEXT,
     author_role TEXT, text TEXT NOT NULL, language TEXT, draft_of TEXT, approved_by_role TEXT,
     approved_day INTEGER, sent_day INTEGER, story_day INTEGER NOT NULL, is_simulated INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS offers (
@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS progress_updates (
     quotes TEXT, parse_status TEXT, is_simulated INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS forecasts (
     order_id TEXT NOT NULL, story_day INTEGER NOT NULL, factory_id TEXT NOT NULL,
-    expected_good_by_deadline REAL, p10 REAL, p90 REAL, p_meet_order REAL, last_rescue_day INTEGER,
+    expected_good_by_deadline REAL, p10 REAL, p90 REAL, p_meet_order REAL, last_rescue_day INTEGER, projected INTEGER,
     PRIMARY KEY (order_id, story_day, factory_id));
 CREATE TABLE IF NOT EXISTS rescue_options (
     option_id TEXT PRIMARY KEY, order_id TEXT NOT NULL, story_day INTEGER NOT NULL, kind TEXT NOT NULL,
@@ -121,6 +121,11 @@ class Store:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._con() as con:
             con.executescript(SCHEMA)
+            cols = {r["name"] for r in con.execute("PRAGMA table_info(messages)")}
+            if "kind" not in cols:  # stores created before D14's review
+                con.execute("ALTER TABLE messages ADD COLUMN kind TEXT")
+            if "projected" not in {r["name"] for r in con.execute("PRAGMA table_info(forecasts)")}:
+                con.execute("ALTER TABLE forecasts ADD COLUMN projected INTEGER")
 
     @contextmanager
     def _con(self) -> Iterator[sqlite3.Connection]:
@@ -221,6 +226,39 @@ class Store:
                             "'approved' AND version != ?", (order_id, version))
             con.execute("UPDATE allocations SET status = ?, decided_by_role = ? WHERE order_id = ? AND version = ?",
                         (status, role, order_id, version))
+
+    # --- generic rows for the loop tables (columns checked against the schema) --------------------------
+    LOOP_TABLES = frozenset(("sourcing_rounds", "messages", "offers", "progress_updates", "forecasts",
+                             "rescue_options", "qc_records", "payments"))
+
+    def _columns(self, table: str) -> set[str]:
+        if table not in self.LOOP_TABLES:
+            raise ValueError(f"unknown table {table!r}")
+        with self._con() as con:
+            return {r["name"] for r in con.execute(f"PRAGMA table_info({table})")}
+
+    def insert(self, table: str, row: dict) -> None:
+        bad = set(row) - self._columns(table)
+        if bad:
+            raise ValueError(f"unknown {table} columns {sorted(bad)}")
+        with self._con() as con:
+            con.execute(f"INSERT OR REPLACE INTO {table} ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})",
+                        tuple(row.values()))
+
+    def rows(self, table: str, order_id: str) -> list[dict]:
+        self._columns(table)
+        with self._con() as con:
+            return [dict(r) for r in con.execute(f"SELECT * FROM {table} WHERE order_id = ? ORDER BY rowid",
+                                                 (order_id,))]
+
+    def update_messages(self, order_id: str, msg_ids: list[str], **fields) -> None:
+        bad = set(fields) - self._columns("messages")
+        if bad:
+            raise ValueError(f"unknown messages columns {sorted(bad)}")
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        with self._con() as con:
+            con.executemany(f"UPDATE messages SET {sets} WHERE order_id = ? AND msg_id = ?",
+                            [(*fields.values(), order_id, m) for m in msg_ids])
 
     # --- messages (used from the sourcing milestone on) -----------------------------------------------
     def messages(self, order_id: str | None = None, factory_id: str | None = None) -> list[dict]:

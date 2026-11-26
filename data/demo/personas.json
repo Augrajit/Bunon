@@ -1,6 +1,6 @@
 {
   "format_version": 1,
-  "simulated_notice": "SIMULATED factory personas for the Bunon demo. Hand-written by the Bunon team; not real factories' words. Factory IDs are pseudonymous. Shown in the app as 'simulated'.",
+  "simulated_notice": "SIMULATED factory personas for the Bunon demo. Not real factories' words; factory IDs are pseudonymous. Messages marked placeholder: true are the developer's stand-in text so the loop can be built; the Bunon team replaces them with their hand-written persona text. Shown in the app as 'simulated'.",
   "personas": [
     {
       "persona_id": "example_format",
@@ -8,7 +8,7 @@
       "label": "FORMAT EXAMPLE ONLY - delete or ignore; never used in the demo",
       "language": "Banglish",
       "profile": "other",
-      "style_notes": "Shows every field once. Replace with real personas below.",
+      "style_notes": "Shows every field once.",
       "example": true,
       "messages": [
         {
@@ -17,60 +17,147 @@
           "kind": "offer_reply",
           "text": "Bhai, 8000 pcs nite parbo, rate 62 taka, delivery 25/01/2027.",
           "expected": {"decision": "counter", "qty": 8000, "price_bdt_per_piece": 62, "ship_date": "2027-01-25"}
-        },
-        {
-          "msg_id": "example_update",
-          "story_day": 9,
-          "kind": "progress_update",
-          "text": "Aj porjonto 3500 pcs ready. Line e current nai, 2 din late hobe.",
-          "expected": {"pieces_done": 3500, "delay_days": 2, "cause": "power cut"}
         }
       ]
     },
     {
       "persona_id": "steady_en",
-      "factory_id": "TBD",
+      "factory_id": "F1856",
       "label": "Formal English, reliable",
       "language": "English",
       "profile": "reliable",
-      "style_notes": "TODO (teammates): how this factory writes.",
-      "messages": []
+      "style_notes": "PLACEHOLDER (developer). Teammates: replace the texts below with your own writing.",
+      "messages": [
+        {
+          "msg_id": "steady_en_offer",
+          "story_day": 2,
+          "kind": "offer_reply",
+          "placeholder": true,
+          "text": "Dear Sir, thank you for the request. We confirm 13,200 pcs basic crew-neck tee as per your tech pack, production complete on the agreed date. Rate 57 BDT per piece as quoted.",
+          "expected": {"decision": "accept", "qty": 13200, "price_bdt_per_piece": 57}
+        },
+        {
+          "msg_id": "steady_en_rescue",
+          "story_day": 13,
+          "kind": "rescue_reply",
+          "placeholder": true,
+          "text": "Dear Sir, yes, we can take the extra pieces you asked for on the same terms and the same date.",
+          "expected": {"decision": "accept"}
+        }
+      ]
     },
     {
       "persona_id": "quick_banglish",
-      "factory_id": "TBD",
+      "factory_id": "F1064",
       "label": "Banglish, fast, over-promises",
       "language": "Banglish",
       "profile": "over_promises",
-      "style_notes": "TODO (teammates)",
-      "messages": []
+      "style_notes": "PLACEHOLDER (developer).",
+      "messages": [
+        {
+          "msg_id": "quick_banglish_offer",
+          "story_day": 2,
+          "kind": "offer_reply",
+          "placeholder": true,
+          "text": "Bhai 13,100 pcs nibo, kono tension nai, time moto dibo.",
+          "expected": {"decision": "accept", "qty": 13100}
+        },
+        {
+          "msg_id": "quick_banglish_update_day12",
+          "story_day": 12,
+          "kind": "progress_update",
+          "placeholder": true,
+          "text": "Bhai update: aj porjonto 3,500 pcs ready hoise. Line e current nai, 2 din late hobe.",
+          "expected": {"pieces_done": 3500, "delay_days": 2, "cause": "power cut"}
+        }
+      ]
     },
     {
       "persona_id": "price_banglish",
-      "factory_id": "TBD",
+      "factory_id": "F2184",
       "label": "Banglish, counters on price",
       "language": "Banglish",
       "profile": "counters_on_price",
-      "style_notes": "TODO (teammates)",
-      "messages": []
+      "style_notes": "PLACEHOLDER (developer).",
+      "messages": [
+        {
+          "msg_id": "price_banglish_offer",
+          "story_day": 2,
+          "kind": "offer_reply",
+          "placeholder": true,
+          "text": "12,400 pcs korte parbo bhai, but rate 50 e hobe na, 56 taka lagbe.",
+          "expected": {"decision": "counter", "qty": 12400, "price_bdt_per_piece": 56}
+        }
+      ]
     },
     {
       "persona_id": "declines_bn",
-      "factory_id": "TBD",
+      "factory_id": "F0824",
       "label": "Bangla, declines",
       "language": "Bangla",
       "profile": "declines",
-      "style_notes": "TODO (teammates)",
-      "messages": []
+      "style_notes": "PLACEHOLDER (developer).",
+      "messages": [
+        {
+          "msg_id": "declines_bn_offer",
+          "story_day": 2,
+          "kind": "offer_reply",
+          "placeholder": true,
+          "text": "দুঃখিত ভাই, এই মাসে আমাদের সব লাইন বুকড। এবার অর্ডারটা নিতে পারছি না। পরের মাসে আবার জানাবেন।",
+          "expected": {"decision": "reject"}
+        }
+      ]
     },
     {
       "persona_id": "slow_en",
-      "factory_id": "TBD",
+      "factory_id": "F0288",
       "label": "English, slow to answer",
       "language": "English",
       "profile": "slow_to_answer",
-      "style_notes": "TODO (teammates)",
-      "messages": []
+      "style_notes": "PLACEHOLDER (developer).",
+      "messages": [
+        {
+          "msg_id": "slow_en_offer",
+          "story_day": 2,
+          "kind": "offer_reply",
+          "placeholder": true,
+          "text": "ok. 11,400 pcs confirmed.",
+          "expected": {"decision": "accept", "qty": 11400}
+        }
+      ]
+    },
+    {
+      "persona_id": "standby_en",
+      "factory_id": "F2829",
+      "label": "English, standby factory outside the first plan",
+      "language": "English",
+      "profile": "reliable",
+      "style_notes": "PLACEHOLDER (developer). A sixth persona: the best proven factory outside the first plan, asked as a standby.",
+      "messages": [
+        {
+          "msg_id": "standby_en_offer",
+          "story_day": 2,
+          "kind": "offer_reply",
+          "placeholder": true,
+          "text": "Hello, we can take up to 15,200 pcs basic tee for this order and deliver on time. Rate 60 BDT per piece.",
+          "expected": {"decision": "accept", "qty": 15200, "price_bdt_per_piece": 60}
+        },
+        {
+          "msg_id": "standby_en_rescue",
+          "story_day": 13,
+          "kind": "rescue_reply",
+          "placeholder": true,
+          "text": "Yes, we can add the extra pieces you asked for and keep the same delivery date.",
+          "expected": {"decision": "accept"}
+        }
+      ]
     }
+  ],
+  "qc_script": [
+    {"factory_id": "F1856", "story_day": 24, "delivered_share": 1.0, "reject_share": 0.012, "placeholder": true},
+    {"factory_id": "F1064", "story_day": 26, "delivered_share": 1.0, "reject_share": 0.031, "placeholder": true},
+    {"factory_id": "F2184", "story_day": 25, "delivered_share": 1.0, "reject_share": 0.018, "placeholder": true},
+    {"factory_id": "F0288", "story_day": 25, "delivered_share": 0.97, "reject_share": 0.015, "placeholder": true},
+    {"factory_id": "F2829", "story_day": 24, "delivered_share": 1.0, "reject_share": 0.009, "placeholder": true}
   ]
 }

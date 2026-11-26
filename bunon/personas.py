@@ -51,6 +51,7 @@ class PersonaMessage(_Strict):
     kind: MessageKind
     text: str = Field(min_length=1)
     expected: Expected = Expected()
+    placeholder: bool = False                           # True = developer's stand-in text, to be replaced by the team
 
 
 class Persona(_Strict):
@@ -64,10 +65,22 @@ class Persona(_Strict):
     messages: list[PersonaMessage]
 
 
+class QCScript(_Strict):
+    """Scripted outcome at the exporter's QC, as SHARES (the code turns them into pieces from the approved
+    allocation). Simulated; the quality inspector sees it as a pre-filled form and can change it."""
+    factory_id: str = Field(pattern=r"^F\d{4}$")
+    story_day: int = Field(ge=0, le=60)
+    delivered_share: float = Field(ge=0, le=1)          # share of the allocated pieces that arrive
+    reject_share: float = Field(ge=0, le=1)             # share of delivered pieces rejected at QC
+    lot_rejected: bool = False
+    placeholder: bool = False
+
+
 class PersonaFile(_Strict):
     format_version: int
     simulated_notice: str
     personas: list[Persona]
+    qc_script: list[QCScript] = []
 
     @model_validator(mode="after")
     def _unique(self) -> "PersonaFile":
@@ -102,6 +115,10 @@ def validate(pf: PersonaFile) -> list[str]:
             if m.kind in ("offer_reply", "rescue_reply") and e.decision is None:
                 out.append(f"{m.msg_id}: an {m.kind} needs expected.decision (accept / reject / counter)")
     return out
+
+
+def messages_for(pf: PersonaFile, factory_id: str, kind: str) -> list[PersonaMessage]:
+    return [m for p in pf.personas if p.factory_id == factory_id for m in p.messages if m.kind == kind]
 
 
 def load(path: Path = PERSONAS_PATH, include_examples: bool = False) -> PersonaFile:

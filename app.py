@@ -1357,6 +1357,8 @@ def section_rescue(args, oid: str, fc, opts) -> bool:
         return False
     opt = next(o for o in opts if o.kind == chosen)
     st.success(f"Chosen: **{opt.title}**.")
+    if chosen == "surge":
+        return _surge_request(oid, fc)
     if chosen != "move":
         return True
     rp = opt.replan
@@ -1387,6 +1389,27 @@ def section_rescue(args, oid: str, fc, opts) -> bool:
         for f, _, t in drafts:
             book().send_message(oid, f, t, st.session_state["role"], f"rescue-{f}-day{book().day(oid)}")
         book().advance_to(oid, lp.UPDATE_DAY + 1, "rescue requests answered", _role_or_none())
+        st.rerun()
+    return False
+
+
+def _surge_request(oid: str, fc) -> bool:
+    """Overtime chosen: a template request to the late factory, sent only when a human approves it."""
+    extra = lp.surge_pieces(fc)
+    lang = {p.factory_id: p.language for p in persona_file().personas}.get(fc.factory_id, "English")
+    text = lp.draft_surge_request(fc.factory_id, extra, fc.projected + extra, run_plans(*current_args()).order, lang)
+    sent = any(m["kind"] == "surge_request" for m in book().store.messages(oid))
+    st.dataframe(pd.DataFrame([{"To": fc.factory_id, "Extra pieces": extra, "Draft": text,
+                                "Status": "sent" if sent else "draft"}]), hide_index=True, width="stretch")
+    if sent:
+        st.caption("Sent in the app. The overtime is a placeholder model (research ask 18); QC is pre-filled "
+                   "without it, so the inspector enters what actually arrives.")
+        return True
+    if _role_or_none() is None:
+        st.info("Switch to an exporter role to approve the request.")
+    elif st.button("Approve and send the overtime request", type="primary", key="send_surge"):
+        book().send_message(oid, fc.factory_id, text, st.session_state["role"],
+                            f"surge-{fc.factory_id}-day{book().day(oid)}", kind="surge_request")
         st.rerun()
     return False
 

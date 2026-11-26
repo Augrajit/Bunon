@@ -351,8 +351,8 @@ Costs fell because material dropped from 180 to 76.5 BDT per piece (the CM rate 
 
 ### D19: 26 Nov 2026: overtime ("surge") rescue option (HANDOFF task 3.3)
 
-**What:** `loop.rescue_options` adds "Overtime at the same factory": the late factory makes `SURGE_SHARE` (15%, PLACEHOLDER) more a day at the rate seen over its remaining days (`Forecast.days_left`), never above the shortfall, at a `SURGE_PRICE_FACTOR` (1.25, PLACEHOLDER) premium on those pieces only; research ask 18. Its chance is re-simulated like the forecast (`loop._risk_with`, factored out of `forecast_after_update`; existing numbers unchanged, guarded by `test_published_demo_numbers`). Choosing it records the choice; no overtime message is drafted yet, and QC pre-fill still uses the projection without the surge.
+**What:** `loop.rescue_options` adds "Overtime at the same factory": the late factory makes `SURGE_SHARE` (15%, PLACEHOLDER) more a day at the rate seen over its remaining days (`Forecast.days_left`), never above the shortfall, at a `SURGE_PRICE_FACTOR` (1.25, PLACEHOLDER) premium on those pieces only; research ask 18. Its chance is re-simulated like the forecast (`loop._risk_with`, factored out of `forecast_after_update`; existing numbers unchanged, guarded by `test_published_demo_numbers`). Choosing it drafts an overtime request to the late factory (`loop.draft_surge_request`, a template in English, Banglish or Bangla whose numbers come from the forecast; message kind `surge_request`), sent only when an exporter approves it. QC pre-fill still uses the projection without the surge (the inspector enters what arrives).
 
 **At defaults:** F1064 +945 with overtime (945 of 3,300 short): **83.1% for +11,692 BDT**, between accepting the shortfall (81.8%) and moving it (85.6%, +33,757 BDT).
 
-**Tests:** 173; the full 24-setting sweep was not re-run after this change (default case and the factory click-through pass).
+**Tests:** 174 unit; the full 24-setting sweep passed on 26 Nov (25 click-throughs incl. the factory app); a new click-through chooses overtime, checks the draft stays a draft until approved, then sends it and goes on to QC.

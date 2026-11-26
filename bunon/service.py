@@ -482,7 +482,8 @@ class OrderBook:
         rows = [a for a in self.store.allocations(order_id) if a["status"] == "approved"]
         return rows[-1] if rows else None
 
-    def send_message(self, order_id: str, factory_id: str, text: str, role: str, msg_id: str) -> None:
+    def send_message(self, order_id: str, factory_id: str, text: str, role: str, msg_id: str,
+                     kind: str = "rescue_request") -> None:
         """A human-approved message to one factory (shown in its in-app inbox). Never sent automatically."""
         _require_exporter(role, "send a message")
         d = self.day(order_id)
@@ -490,7 +491,7 @@ class OrderBook:
         if any(m["msg_id"] == msg_id for m in self.store.messages(order_id)):
             return
         self.store.insert("messages", {"msg_id": msg_id, "order_id": order_id, "factory_id": factory_id,
-                                       "direction": "out", "kind": "rescue_request", "text": text,
+                                       "direction": "out", "kind": kind, "text": text,
                                        "draft_of": "template",
                                        "approved_by_role": role, "approved_day": d, "sent_day": d,
                                        "story_day": d, "is_simulated": 0})

@@ -66,3 +66,26 @@ def test_factory_answers_and_updates_in_the_app(monkeypatch, tmp_path):
     assert not r.problems, "\n".join(r.problems)
     log = next(df.value for df in at.dataframe if "Who (role)" in df.value.columns)
     assert {"Factory owner", "Floor supervisor"} <= set(log["Who (role)"])
+
+
+def test_overtime_rescue_is_drafted_and_sent_only_on_approval(monkeypatch, tmp_path):
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv(C.LLM_MODE_ENV, "offline")
+    monkeypatch.setenv("BUNON_DECISIONS_DB", str(tmp_path / "decisions.db"))
+    monkeypatch.setenv("BUNON_STORE_DIR", str(tmp_path / "sessions"))
+    at = AppTest.from_file(APP, default_timeout=1200)
+    for k, v in DEFAULT.items():
+        at.session_state[k] = v
+    at.run()
+    r = Runner(at)
+    assert r.click(key="demo_login") and r.click(key="start_order"), r.problems
+    assert r.click("Read the email") and r.click("Confirm order"), r.problems
+    for key in ("approve_plan", "send_requests", "go_day_replies", "approve_split", "go_day_update", "rescue_surge"):
+        assert r.click(key=key), (key, r.problems)
+    draft = next(df.value for df in at.dataframe if "Extra pieces" in df.value.columns)
+    assert list(draft["Status"]) == ["draft"] and draft["To"].iloc[0] == "F1064"
+    assert r.click(key="send_surge") and r.click(key="go_day_qc"), r.problems
+    assert not r.problems, "\n".join(r.problems)
+    log = next(df.value for df in at.dataframe if "Who (role)" in df.value.columns)
+    assert {"rescue_chosen", "message_sent"} <= set(log["Kind"])

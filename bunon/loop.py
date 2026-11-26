@@ -80,6 +80,19 @@ def draft_rescue_request(factory_id: str, extra: int, order, language: str = "En
             f"deadline is {when}; fabric supplied by us. Please confirm.")
 
 
+def draft_surge_request(factory_id: str, extra: int, total: int, order, language: str = "English") -> str:
+    """Overtime request to the late factory itself; the numbers come from the forecast (code)."""
+    when = f"{order.deadline:%d %b %Y}"
+    if language == "Banglish":
+        return (f"Bhai, line e overtime kore aro {extra:,} pcs ber korte parben? Tahole mot {total:,} pcs hobe, "
+                f"buyer deadline {when}. Overtime er extra rate amra dibo. Janaben please.")
+    if language == "Bangla":
+        return (f"ওভারটাইম করে আরও {extra:,} পিস বের করতে পারবেন? তাহলে মোট {total:,} পিস হবে, বায়ারের শেষ তারিখ "
+                f"{when}। ওভারটাইমের বাড়তি রেট আমরা দেব। জানাবেন।")
+    return (f"Dear Sir, could your line add overtime to make {extra:,} more pcs, {total:,} pcs in all, before the "
+            f"buyer's deadline of {when}? We will pay the overtime premium. Please confirm.")
+
+
 # --- split from offers ---------------------------------------------------------------------------------------
 
 @dataclass(frozen=True)

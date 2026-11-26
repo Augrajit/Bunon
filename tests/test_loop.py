@@ -404,3 +404,11 @@ def test_surge_option_stays_within_the_placeholder_model(world, bundle):
     assert fc.p_after <= surge.p_after
     late = lp.forecast_after_update(world, bundle, pt, cands, "F1064", 3_500, 30, lp.UPDATE_DAY)  # no days left
     assert late.days_left == 0 and lp.surge_pieces(late) == 0
+
+
+def test_surge_request_carries_only_forecast_numbers(bundle):
+    for lang in ("English", "Banglish", "Bangla"):
+        t = lp.draft_surge_request("F1064", 945, 10_745, bundle.order, lang)
+        assert "945" in t and "10,745" in t
+        assert set(tn_numbers(t)) <= {945.0, 10_745.0, float(bundle.order.deadline.day),
+                                      float(bundle.order.deadline.year)}

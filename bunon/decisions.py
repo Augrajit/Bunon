@@ -20,7 +20,7 @@ from bunon.schemas import AllocationPlan, Candidate, OrderConstraints
 
 LOG_DB = C.ROOT / "data" / "runtime" / "decisions.db"
 LOG_DB_ENV = "BUNON_DECISIONS_DB"  # tests point the log elsewhere so they never touch the real one
-ROLES = ("Merchandising manager", "Production planner", "Compliance officer", "Demo viewer")
+from bunon.store import ROLES  # exporter roles, then factory roles (PLAN_V2 §4)  # noqa: E402
 
 
 def _log_path(path: Path | None) -> Path:

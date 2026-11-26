@@ -14,7 +14,7 @@ Windows, Python 3.11, venv in `.venv`.
 .venv/Scripts/python.exe -m pip install -r requirements-dev.txt
 .venv/Scripts/python.exe -m pytest -q                      # unit tests (~40 s); the sweep is excluded by pytest.ini
 .venv/Scripts/python.exe -m pytest tests/test_engine.py::test_mip_respects_all_constraints -q   # one test
-.venv/Scripts/python.exe -m pytest -m sweep -q             # app click-through at 20 extreme settings (~4 min, offline)
+.venv/Scripts/python.exe -m pytest -m sweep -q             # app click-through at 24 extreme settings (~5 min, offline)
 .venv/Scripts/python.exe -m streamlit run app.py           # local app (or the "bunon" config in .claude/launch.json, port 8501)
 .venv/Scripts/python.exe -m bunon.data_gen                 # rebuild data/processed/bunon.db (needs local-only data/raw/factories.csv)
 .venv/Scripts/python.exe -m bunon.warm_cache               # refill cached LLM answers for the scripted demo (needs GEMINI_API_KEY)
@@ -50,7 +50,9 @@ LLM layer:
 - `analyst.py`: what-if tool loop over `run_simulation`, `solve_plan`, `compare_plans` (max 6 calls, each logged and shown in the UI).
 - Consequence: changing a prompt string, prompt version (`*_VERSION` in `agent.py` / `analyst.py`), a demo input, **or anything that changes the engine's numbers** (they appear in memo and analyst prompts) invalidates cached answers, so the offline demo falls back to templates until they are re-generated live. Re-warm with `bunon.warm_cache`, then walk the app once in live mode; the sweep fails if intake is not cached.
 
-UI: `app.py` (single file). Demo login gate → welcome page → eight numbered sections (order, funnel, reliability, plans, recommended, memo, disruption, what-if). Approvals go to `decisions.py` (SQLite in `data/runtime/`, by role, never by name; `BUNON_DECISIONS_DB` overrides the path in tests). LLM steps are memoised per session with `llm_once`, not `st.cache_data`, so one visitor's failure is not shared. Look and feel: base theme in `.streamlit/config.toml`, everything else in the single `THEME_CSS` block in `app.py`.
+UI: `app.py` renders only; order logic and engine calls go through `bunon/service.py` (no Streamlit import, tested) and state lives in `bunon/store.py` (SQLite per visitor session in `data/runtime/sessions/`, every PLAN_V2 table, an append-only `events` timeline on a story clock; `BUNON_STORE_DIR` and `BUNON_DECISIONS_DB` redirect them in tests). Demo login gate → welcome page → a demo role switcher (exporter or factory roles; only exporter roles confirm or approve) and three views: **Order timeline** (the demo: intake, plan + memo + approval, day-3 follow-up, "Ask Bunon", timeline), **Show the maths** (funnel, forecasts, plan comparison, steering) and **Factory app** (phone frame). LLM steps are memoised per session with `llm_once`, not `st.cache_data`, so one visitor's failure is not shared. Look and feel: base theme in `.streamlit/config.toml`, everything else in the single `THEME_CSS` block in `app.py`.
+
+Branches: work happens on `v2`; `main` (the live app) changes only when the product owner approves a merge.
 
 Hosting quirk: Streamlit Cloud reruns `app.py` but keeps imported modules, so `app.py` hashes `bunon/*.py` each run and reloads the package when it changed. Module-level caches built from old classes are dropped there too; keep that in mind when adding caches.
 

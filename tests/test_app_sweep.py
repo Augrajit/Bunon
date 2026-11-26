@@ -22,7 +22,8 @@ pytestmark = [
 ]
 
 APP = str(Path(__file__).resolve().parents[1] / "app.py")
-DEFAULT = dict(slack=4, target=0.90, max_f=5, unproven=0.15, dcap=0.60, tol=0.02, margin=0.0, loss=4_400_000.0)
+DEFAULT = dict(slack=4, target=0.90, max_f=5, unproven=0.15, dcap=0.60, tol=0.02, margin=0.0, loss=4_400_000.0,
+               partial=True, shocks=True)
 CASES = [("default", {})]
 for _k, _vals in (("slack", [0, 10]), ("target", [0.50, 0.99]), ("max_f", [1, 2, 3, 4]),
                   ("unproven", [0.0, 0.30]), ("dcap", [0.30, 1.0]), ("tol", [0.0, 0.05]), ("margin", [0.25]),
@@ -33,9 +34,9 @@ CASES += [
     ("max_f=1,dcap=0.3", {"max_f": 1, "dcap": 0.30}),
     ("max_f=2,unproven=0,slack=10", {"max_f": 2, "unproven": 0.0, "slack": 10}),
     ("loose", {"unproven": 0.30, "dcap": 1.0, "slack": 0}),
-    ("partial_off", {"_partial": False}),
-    ("shocks_off", {"_shocks": False}),
-    ("partial_off,max_f=2", {"_partial": False, "max_f": 2}),
+    ("partial_off", {"partial": False}),
+    ("shocks_off", {"shocks": False}),
+    ("partial_off,max_f=2", {"partial": False, "max_f": 2}),
 ]
 
 
@@ -75,25 +76,25 @@ def test_every_action_at_extreme_settings(name, over, monkeypatch, tmp_path):
 
     monkeypatch.setenv(C.LLM_MODE_ENV, "offline")
     monkeypatch.setenv("BUNON_DECISIONS_DB", str(tmp_path / "decisions.db"))
+    monkeypatch.setenv("BUNON_STORE_DIR", str(tmp_path / "sessions"))
     at = AppTest.from_file(APP, default_timeout=1200)
-    for k, v in {**DEFAULT, **{k: v for k, v in over.items() if not k.startswith("_")}}.items():
+    for k, v in {**DEFAULT, **over}.items():
         at.session_state[k] = v
     at.run()
     r = Runner(at)
     r.check("load")
-    # demo login (one click) -> welcome -> start a new order
+    # demo login (one click) -> welcome -> start a new order -> the order timeline
     assert r.click(key="demo_login") and any("How to use Bunon" in h.value for h in at.header), r.problems
-    assert r.click(key="start_order") and any("Buyer email" in h.value for h in at.header), r.problems
-    if "_partial" in over:
-        at.toggle[0].set_value(over["_partial"]).run()
-    if "_shocks" in over:
-        at.toggle[1].set_value(over["_shocks"]).run()
+    assert r.click(key="start_order") and any("Order received" in h.value for h in at.header), r.problems
 
     assert r.click("Read the email") and r.click("Confirm order"), r.problems
     # Guard against a hollow pass: offline intake must come from the cache (re-run `python -m
     # bunon.warm_cache` after changing the demo email or the intake prompt), and the plan step must render.
     assert not any("LLM intake unavailable" in w.value for w in at.warning), "intake not cached: run warm_cache"
-    assert any("Plans compared" in h.value for h in at.header), "the plan section did not render"
+    assert any("Day 0 · Plan" in h.value for h in at.header), "the plan section did not render"
+    feasible = not any("No feasible plan" in e.value for e in at.error)
+    if over.get("max_f") in (1, 2, 3):  # no allocation exists: say so plainly, show no empty plan
+        assert not feasible
     r.click(key="approve_plan")
     r.click(prefix="Simulate:")
     r.click(key="approve_replan")
@@ -110,12 +111,29 @@ def test_every_action_at_extreme_settings(name, over, monkeypatch, tmp_path):
     for i in range(3):
         if r.click(key=f"whatif_ex_{i}"):
             r.click("Ask")
+    # the timeline records the order and (when a plan exists) the approval, on the story clock
+    assert any("Timeline" in h.value for h in at.header), "timeline missing"
+    log = next(df.value for df in at.dataframe if "Who (role)" in df.value.columns)
+    assert "order_confirmed" in set(log["Kind"])
+    if feasible:
+        assert "plan_approved" in set(log["Kind"]) and log["Day"].max() >= 3
+
+    # show the maths: the engine detail and steering live here now
+    at.session_state["view"] = "Show the maths"
+    at.run()
+    r.check("maths view")
+    assert any(h.value in ("Plans compared", "Who can make it") for h in at.header), "maths view missing"
     r.click(key="steer_ex_0")
     r.click("Interpret")
-    assert not r.problems, "\n".join(r.problems)
 
-    if over.get("max_f") in (1, 2, 3):  # no allocation exists: say so plainly, show no empty plan
-        assert any("No feasible plan" in e.value for e in at.error)
+    # the factory side: a phone-frame view for a factory role
+    at.session_state["role"] = "Floor supervisor"
+    at.run()
+    r.check("factory view")
+    assert any(t.value == "Factory app" for t in at.title), "factory view missing"
+    at.session_state["role"] = "Merchandiser"
+    at.run()
+    assert not r.problems, "\n".join(r.problems)
     # The infeasible re-plan itself (18 Nov crash) is covered by
     # tests/test_engine.py::test_replan_can_be_infeasible_and_says_so (SPEC.md D12).
 

@@ -26,7 +26,7 @@ def _reload_bunon_if_changed() -> None:
 
     import bunon
     order = ["config", "schemas", "textnum", "llm", "data_gen", "reliability", "simulation",
-             "optimizer", "agent", "analyst", "decisions"]
+             "optimizer", "agent", "analyst", "store", "decisions", "personas", "service"]
     src = Path(bunon.__file__).parent
     digest = hashlib.sha1(b"".join((src / f"{m}.py").read_bytes() for m in order)).hexdigest()
     if getattr(bunon, "_source_digest", None) != digest:
@@ -44,13 +44,16 @@ from bunon import analyst  # noqa: E402  (after the reload check, so names bind 
 from bunon import config as C  # noqa: E402
 from bunon import decisions as dl
 from bunon import optimizer as op
+from bunon import personas
 from bunon import reliability as rl
+from bunon import service as sv
 from bunon.data_gen import load_public
 from bunon.llm import LLMClient, budget_status, current_mode, set_visitor
 from bunon.schemas import OrderConstraints, ReplanResult
+from bunon.store import EXPORTER_ROLES, FACTORY_ROLES, ROLES, Store, session_db_path
 from bunon.textnum import literal_numbers
 
-st.set_page_config(page_title="Bunon: subcontract allocation", page_icon="🧵", layout="wide")
+st.set_page_config(page_title="Bunon: subcontracting you can trust", page_icon="🧵", layout="wide")
 
 
 def _secrets_to_env() -> None:
@@ -127,6 +130,9 @@ h3 { font-size:1.08rem !important; font-weight:600 !important; color:var(--bn-te
 .bn-step-num { font-size:.72rem; font-weight:700; letter-spacing:.1em; color:var(--bn-accent); margin-bottom:.5rem; }
 .bn-step h4 { margin:0 0 .45rem 0; padding:0; font-size:1rem; line-height:1.3; font-weight:600; color:var(--bn-text); }
 .bn-step p { margin:0; color:var(--bn-muted); font-size:.9rem; line-height:1.5; }
+/* factory app: a phone frame on the laptop */
+.st-key-phone { max-width:400px; margin:0 auto; background:#FFFFFF; border:10px solid #0F172A !important;
+                border-radius:32px !important; padding:18px 16px !important; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation:none !important; transition:none !important; }
 }
@@ -234,10 +240,14 @@ def welcome_page() -> None:
 
 
 def _logout() -> None:
+    """Forget the session, including its order store (a new login starts a new story on day 0)."""
+    old = st.session_state.get("_book")
     keep = {"visitor"}  # the anonymous live-call counter id survives a logout
     for k in list(st.session_state):
         if k not in keep:
             del st.session_state[k]
+    if old is not None:
+        old.store.path.unlink(missing_ok=True)
 
 
 if not st.session_state.get("authed"):
@@ -258,7 +268,8 @@ SOURCE_BADGE = {"cache": "🤖 LLM (cached answer)", "live": "🤖 LLM (live)",
 
 
 # =============================================================================
-# Cached computations (keyed on plain values so Streamlit can hash them)
+# Cached computations (keyed on plain values so Streamlit can hash them). The engine calls themselves
+# live in bunon/service.py, which has no Streamlit import (PLAN_V2 decision C).
 # =============================================================================
 
 @st.cache_resource(show_spinner="Loading factories and fitting the reliability model…")
@@ -270,6 +281,11 @@ def world():
 def report() -> dict:
     meta = load_public()["meta"]
     return json.loads(meta.loc[meta["key"] == "report", "value"].iloc[0])
+
+
+@st.cache_data(show_spinner=False)
+def history() -> pd.DataFrame:
+    return load_public()["history"]
 
 
 def llm_once(spinner: str, fn, *a):
@@ -293,32 +309,13 @@ def read_email(email: str):
 
 
 @st.cache_data(show_spinner="Solving the allocation and simulating 20,000 outcomes per plan…")
-def run_plans(order_json: str, slack, target, unproven, district_cap, partial, shocks, max_f=C.MAX_FACTORIES,
-              excluded: tuple = (), tol=C.DELIVERY_TOLERANCE_PCT, margin=C.SAFETY_MARGIN_DEFAULT_PCT,
-              loss=C.DEFAULT_LOSS_ON_FAILURE_BDT):
-    w = world()
-    order = OrderConstraints.model_validate_json(order_json).model_copy(update={"loss_on_failure_bdt": loss})
-    p = op.default_params(order, planned_slack_days=slack, unproven_cap_pct=unproven, max_district_share=district_cap,
-                          max_factories=max_f, excluded_ids=list(excluded), tolerance_pct=tol, min_buffer_pct=margin)
-    cands = op.build_candidates(w, order, p)
-    comp = op.compare_three(w, order, p, target_p=target, shocks=shocks, partial_lots=partial)
-    rec = comp["ours"].recommended
-    match = (op.baseline_to_match(w, order, p, rec.risk.p_meet_qty, shocks=shocks, partial_lots=partial)
-             if rec.risk else None)
-    frontier = []
-    for pt in comp["ours"].frontier:
-        bb = op.solve_baseline(cands, order.subcontract_qty, p, pt.buffer_pct)
-        bp = op.evaluate(bb, cands, w, shocks, partial_lots=partial) if bb.status == "optimal" else None
-        frontier.append({"buffer": pt.buffer_pct, "ours": pt.risk.p_meet_qty if pt.risk else None,
-                         "baseline": bp.p_meet_qty if bp else None})
-    facts = (ag.factsheet_for_plan(order, comp, match, cands, slack, target, report()["compliant_tee"])
-             if rec.risk else None)
-    return dict(order=order, params=p, cands=cands, comp=comp, match=match, frontier=frontier, facts=facts)
+def run_plans(order_json: str, s: sv.PlanSettings) -> sv.PlanBundle:
+    return sv.compute_plans(world(), OrderConstraints.model_validate_json(order_json), s, report()["compliant_tee"])
 
 
 def _memo_for(args: tuple):
-    out = run_plans(*args)
-    return ag.write_memo(out["facts"], "initial", LLMClient()) if out["facts"] else None
+    b = run_plans(*args)
+    return ag.write_memo(b.facts, "initial", LLMClient()) if b.facts else None
 
 
 def memo_for(*args):
@@ -327,20 +324,12 @@ def memo_for(*args):
 
 def _replan_memo(args: tuple, rp_json: str):
     rp = ReplanResult.model_validate_json(rp_json)
-    return ag.write_memo(ag.factsheet_for_replan(run_plans(*args)["facts"], rp), "replan", LLMClient())
+    return ag.write_memo(ag.factsheet_for_replan(run_plans(*args).facts, rp), "replan", LLMClient())
 
 
 @st.cache_data(show_spinner="Re-planning: confirmed factories locked, new ones start late…")
 def _replan_numbers(args: tuple, days: int):
-    out = run_plans(*args)
-    target, shocks, partial = args[2], args[6], args[5]
-    rec = out["comp"]["ours"].recommended
-    rp = op.replan_locked(world(), out["order"], out["params"], rec, op.largest_line(rec), days_elapsed=days,
-                          target_p=target, shocks=shocks, partial_lots=partial)
-    p_late = out["params"].model_copy(update={"excluded_ids": [rp.excluded_id]})
-    from datetime import timedelta
-    cands_late = op.build_candidates(world(), out["order"], p_late, as_of=C.AS_OF + timedelta(days=days))
-    return rp, cands_late
+    return sv.replan_after_decline(world(), run_plans(*args), days)
 
 
 def run_replan(args: tuple, days: int):
@@ -360,15 +349,7 @@ def read_reply(text: str, planned_qty: int):
 
 @st.cache_data(show_spinner="Re-planning with the factory's reply…")
 def _reply_replan_numbers(args: tuple, factory_id: str, decision: str, qty, delay, days: int):
-    from datetime import timedelta
-    out = run_plans(*args)
-    target, shocks, partial = args[2], args[6], args[5]
-    rec = out["comp"]["ours"].recommended
-    rp = op.replan_from_reply(world(), out["order"], out["params"], rec, factory_id, decision, qty, delay,
-                              days_elapsed=days, target_p=target, shocks=shocks, partial_lots=partial)
-    p_late = out["params"].model_copy(update={"excluded_ids": [rp.excluded_id]})
-    cands_late = op.build_candidates(world(), out["order"], p_late, as_of=C.AS_OF + timedelta(days=days))
-    return rp, cands_late
+    return sv.replan_after_reply(world(), run_plans(*args), factory_id, decision, qty, delay, days)
 
 
 def run_reply_replan(args: tuple, factory_id: str, decision: str, qty, delay, days: int):
@@ -388,23 +369,46 @@ def read_news(text: str):
 
 @st.cache_data(show_spinner="Simulating the disruption and re-planning around it…")
 def run_news(args: tuple, area: str, severity: str, duration):
-    out = run_plans(*args)
-    target, shocks, partial = args[2], args[6], args[5]
-    rec = out["comp"]["ours"].recommended
-    ev = op.event_from_severity(area, severity, duration)
-    return op.assess_news(world(), out["order"], out["params"], rec, ev, target_p=target, shocks=shocks,
-                          partial_lots=partial)
+    return sv.assess_news(world(), run_plans(*args), area, severity, duration)
 
 
 def _run_question(args: tuple, question: str):
-    out = run_plans(*args)
-    target, shocks, partial = args[2], args[6], args[5]
-    tb = analyst.Toolbox(world(), out["order"], out["params"], out["comp"], out["facts"], target, shocks, partial)
-    return analyst.answer(question, tb, LLMClient())
+    return analyst.answer(question, sv.analyst_toolbox(world(), run_plans(*args)), LLMClient())
 
 
 def run_question(args: tuple, question: str):
     return llm_once("The analyst is choosing and running tools…", _run_question, args, question)
+
+
+# =============================================================================
+# Session state: the order book (one SQLite store per visitor session) and the planning settings
+# =============================================================================
+
+def book() -> sv.OrderBook:
+    # isinstance check: after a deploy the package is reloaded (hosting quirk) and an object built from the
+    # old class must not be reused.
+    if not isinstance(st.session_state.get("_book"), sv.OrderBook):
+        st.session_state["_book"] = sv.OrderBook(Store(session_db_path(st.session_state["visitor"])))
+    return st.session_state["_book"]
+
+
+SETTING_DEFAULTS = (("slack", C.PLANNED_SLACK_DAYS), ("target", C.TARGET_P_MEET), ("unproven", C.UNPROVEN_CAP_PCT),
+                    ("dcap", C.DISTRICT_CAP_SHARE), ("max_f", C.MAX_FACTORIES), ("excluded", []),
+                    ("tol", C.DELIVERY_TOLERANCE_PCT), ("margin", C.SAFETY_MARGIN_DEFAULT_PCT),
+                    ("loss", C.DEFAULT_LOSS_ON_FAILURE_BDT), ("partial", C.PARTIAL_LOTS_DEFAULT), ("shocks", True))
+
+
+def settings() -> sv.PlanSettings:
+    g = st.session_state
+    return sv.PlanSettings(
+        slack=int(g["slack"]), target=round(float(g["target"]), 2), unproven=round(float(g["unproven"]), 2),
+        dcap=round(float(g["dcap"]), 2) if g["dcap"] < 1.0 else None, partial=bool(g["partial"]),
+        shocks=bool(g["shocks"]), max_f=int(g["max_f"]), excluded=tuple(sorted(g["excluded"])),
+        tol=round(float(g["tol"]), 3), margin=round(float(g["margin"]), 3), loss=float(g["loss"]))
+
+
+def current_args() -> tuple | None:
+    return (st.session_state["order_json"], settings()) if "order_json" in st.session_state else None
 
 
 # =============================================================================
@@ -437,105 +441,344 @@ def show_memo(memo):
             st.write(memo.errors)
 
 
-def approval_buttons(step: str, plan, summary: str, order, cands, key: str):
-    """Approve / reject, logged with the acting role. Approval unlocks draft POs (download only)."""
-    role = st.session_state.get("role", dl.ROLES[-1])
+def approval_buttons(step: str, point, label: str, summary: str, order, cands, key: str):
+    """Approve / reject, recorded on the order's timeline with the acting role. Approval unlocks draft
+    purchase-order text (download only): nothing is ever sent by the system."""
+    role = st.session_state["role"]
+    oid = st.session_state["order_id"]
+    plan = point.plan
     state_key = f"decision_{key}_{plan.plan_id}"
+    if role not in EXPORTER_ROLES:
+        st.info("Switch to an exporter role in the sidebar to approve or reject.")
+        return
     c1, c2, _ = st.columns([1, 1, 1])
     if c1.button("✅ Approve", key=f"approve_{key}", type="primary"):
-        dl.log_decision(step, "approved", role, plan.plan_id, summary)
+        book().decide(oid, step, point, label, "approved", role, summary)
         st.session_state[state_key] = "approved"
     if c2.button("✖ Reject", key=f"reject_{key}"):
-        dl.log_decision(step, "rejected", role, plan.plan_id, summary)
+        book().decide(oid, step, point, label, "rejected", role, summary)
         st.session_state[state_key] = "rejected"
     status = st.session_state.get(state_key)
     if status == "approved":
-        st.success(f"Approved by **{role}** and logged. Nothing has been sent: download the drafts, "
-                   "review them and send them yourself.")
+        st.success(f"Approved by **{role}** and recorded on the timeline. Nothing has been sent: download the "
+                   "drafts, review them and send them yourself.")
         st.download_button("⬇ Draft purchase-order requests (.txt)", dl.draft_po_text(order, plan, cands, role),
                            file_name=f"DRAFT_{plan.plan_id}.txt", key=f"po_{key}")
     elif status == "rejected":
-        st.warning("Rejected and logged. Change the planning controls in the sidebar to get a different plan.")
+        st.warning("Rejected and recorded. Change the planning settings in the sidebar to get a different plan.")
+
+
+def no_feasible_replan(what: str) -> None:
+    """The optimiser found no plan that covers the order under the current limits. Say so plainly;
+    there is nothing to approve and no memo to write."""
+    st.error(f"**No feasible re-plan.** After {what}, no combination of factories covers the order under the "
+             "current limits: confirmed factories cannot be cut, new ones start late, and the sidebar caps "
+             "(number of factories, unproven share, district share) leave too little capacity. Nothing was "
+             "changed or sent.")
+    st.info("Try loosening a limit in the sidebar (for example more factories or a higher unproven cap), or "
+            "escalate to the buyer early: the deadline and quantity are fixed.")
+
+
+def _run_safely(fn, *a):
+    try:
+        return fn(*a)
+    except Exception:
+        import traceback
+        st.error("The re-plan failed. Nothing was changed or sent. Technical details below.")
+        with st.expander("Technical details"):
+            st.code(traceback.format_exc())
+        st.stop()
+
+
+def prototype_notice() -> None:
+    st.markdown(BADGE, unsafe_allow_html=True)
+    st.warning(
+        "**Prototype.** The factory list is real (Open Supply Hub), shown only as pseudonymous IDs. "
+        "**All capacity, price and delivery-history figures are synthetic** (seeded, see DATA_PROVENANCE.md) and "
+        "the interview-based values are placeholders. The buyer email is fictional. Nothing is ever sent to "
+        "a factory: every decision needs a human.", icon="⚠️")
 
 
 # =============================================================================
-# Page
+# Sidebar: who is acting (demo role switcher), which view, the story clock, planning settings
 # =============================================================================
 
-st.title("Bunon: subcontract allocation for garment exporters")
-st.markdown(BADGE, unsafe_allow_html=True)
-st.warning(
-    "**Prototype.** The factory list is real (Open Supply Hub), shown only as pseudonymous IDs. "
-    "**All capacity, price and delivery-history figures are synthetic** (seeded, see DATA_PROVENANCE.md) and "
-    "fill/lateness are placeholders pending research. The buyer email is fictional. Nothing is ever sent to "
-    "a factory: every decision needs a human.", icon="⚠️")
+VIEWS = ("Order timeline", "Show the maths")
+TIMELINE_NAV = (("order", "Day 0 · Order received"), ("plans", "Day 0 · Plan"),
+                ("disruption", f"Day {sv.DECLINE_DAY} · Follow-up"), ("whatif", "Ask Bunon"), ("timeline", "Timeline"))
 
-NAV_STEPS = (("order", "1 · Buyer email → order"), ("funnel", "2 · Who can make it"),
-             ("reliability", "3 · Reliability forecast"), ("plans", "4 · Plans compared"),
-             ("recommended", "5 · Recommended plan"), ("memo", "6 · Decision memo"),
-             ("disruption", "7 · Disruption"), ("whatif", "8 · What-if question"))
+for _k, _v in SETTING_DEFAULTS:
+    st.session_state.setdefault(_k, _v)
+st.session_state.setdefault("role", "Merchandiser")
 
 with st.sidebar:
-    st.markdown(f'<div class="bn-brand">{BRAND}</div><div class="bn-side-label">Workflow</div>', unsafe_allow_html=True)
-    st.markdown('<div class="bn-nav">' + "".join(f'<a href="#{a}" target="_self">{t}</a>' for a, t in NAV_STEPS)
-                + "</div>", unsafe_allow_html=True)
+    st.markdown(f'<div class="bn-brand">{BRAND}</div>', unsafe_allow_html=True)
+    role = st.selectbox("Acting as (demo role switcher)", ROLES, key="role",
+                        format_func=lambda r: f"{'Exporter' if r in EXPORTER_ROLES else 'Factory'} · {r}",
+                        help="No accounts: pick a role to see that person's view. Decisions are recorded by role, "
+                             "never by name.")
+    if role in FACTORY_ROLES:
+        view = "Factory app"
+    else:
+        if st.session_state.get("view") not in VIEWS:
+            st.session_state["view"] = VIEWS[0]
+        view = st.radio("View", VIEWS, key="view", horizontal=True)
+        if view == VIEWS[0]:
+            st.markdown('<div class="bn-side-label">On this page</div><div class="bn-nav">'
+                        + "".join(f'<a href="#{a}" target="_self">{t}</a>' for a, t in TIMELINE_NAV) + "</div>",
+                        unsafe_allow_html=True)
+    if "order_id" in st.session_state:
+        d = book().day(st.session_state["order_id"])
+        st.caption(f"🕒 Story clock: **day {d}** · {book().date_of(d):%a %d %b %Y} (order received on day 0)")
     nb1, nb2 = st.columns(2)
     nb1.button("Welcome", key="nav_welcome", on_click=_enter, args=("welcome",), width="stretch")
     nb2.button("Log out", key="logout", on_click=_logout, width="stretch")
-    st.divider()
-    st.selectbox("Acting as (recorded in the decision log)", dl.ROLES, key="role")
-    st.header("Planning controls")
-    for k, v in (("slack", C.PLANNED_SLACK_DAYS), ("target", C.TARGET_P_MEET), ("unproven", C.UNPROVEN_CAP_PCT),
-                 ("dcap", C.DISTRICT_CAP_SHARE), ("max_f", C.MAX_FACTORIES), ("excluded", []),
-                 ("tol", C.DELIVERY_TOLERANCE_PCT), ("margin", C.SAFETY_MARGIN_DEFAULT_PCT),
-                 ("loss", C.DEFAULT_LOSS_ON_FAILURE_BDT)):
-        st.session_state.setdefault(k, v)
-    slack = st.slider("Planned slack before latest finish (days)", 0, 10, key="slack")
-    target = st.slider("Target P(on time, within tolerance)", 0.50, 0.99, step=0.01, key="target",
-                       help="Probability that the good pieces delivered by the deadline reach (1 − tolerance) "
-                            "of the subcontracted quantity.")
-    tol = st.slider("Accepted shortfall (tolerance)", 0.0, 0.05, step=0.005, key="tol", format="%.3f",
-                    help="Success = good pieces after QC ≥ (1 − tolerance) × subcontracted quantity. "
-                         "Placeholder 2% from the expert interview.")
-    margin = st.slider("Safety margin: minimum over-allocation", 0.0, 0.25, step=0.025, key="margin",
-                       help="Optional; default 0%. Bunon may still recommend a larger buffer to reach the target.")
-    loss = st.number_input("Expected loss if the subcontracted part fails (BDT)", 0.0, 1e9, step=100_000.0,
-                           key="loss", format="%.0f",
-                           help="Your estimate: penalties, air freight, lost margin. Not read from the email. "
-                                "Default is a placeholder.")
-    max_f = st.slider("Max number of factories", 1, 5, key="max_f")
-    unproven = st.slider("Cap on unproven factories (share of pieces)", 0.0, 0.30, step=0.05, key="unproven")
-    dcap = st.slider("Max share of pieces per district (100% = no cap)", 0.30, 1.0, step=0.05, key="dcap")
-    if st.session_state["excluded"]:
-        st.caption("Excluded factories: " + ", ".join(st.session_state["excluded"]))
-        if st.button("Clear exclusions"):
-            st.session_state["excluded"] = []
-            st.rerun()
-    partial = st.toggle("Partial lots count (work finished by the ship date ships)", C.PARTIAL_LOTS_DEFAULT,
-                        help="Off = strict view: a factory that runs past its slack delivers nothing on time.")
-    shocks = st.toggle("Correlated district/national shocks", True)
+    with st.expander("Planning settings", expanded=False):
+        st.slider("Planned slack before latest finish (days)", 0, 10, key="slack")
+        st.slider("Target P(on time, within tolerance)", 0.50, 0.99, step=0.01, key="target",
+                  help="Probability that the good pieces delivered by the deadline reach (1 − tolerance) "
+                       "of the subcontracted quantity.")
+        st.slider("Accepted shortfall (tolerance)", 0.0, 0.05, step=0.005, key="tol", format="%.3f",
+                  help="Success = good pieces after QC ≥ (1 − tolerance) × subcontracted quantity. "
+                       "Placeholder 2% from the expert interview.")
+        st.slider("Safety margin: minimum over-allocation", 0.0, 0.25, step=0.025, key="margin",
+                  help="Optional; default 0%. Bunon may still recommend a larger buffer to reach the target.")
+        st.number_input("Expected loss if the subcontracted part fails (BDT)", 0.0, 1e9, step=100_000.0,
+                        key="loss", format="%.0f",
+                        help="Your estimate: penalties, air freight, lost margin. Not read from the email. "
+                             "Default is a placeholder.")
+        st.slider("Max number of factories", 1, 5, key="max_f")
+        st.slider("Cap on unproven factories (share of pieces)", 0.0, 0.30, step=0.05, key="unproven")
+        st.slider("Max share of pieces per district (100% = no cap)", 0.30, 1.0, step=0.05, key="dcap")
+        if st.session_state["excluded"]:
+            st.caption("Excluded factories: " + ", ".join(st.session_state["excluded"]))
+            if st.button("Clear exclusions"):
+                st.session_state["excluded"] = []
+                st.rerun()
+        st.toggle("Partial lots count (work finished by the ship date ships)", key="partial",
+                  help="Off = strict view: a factory that runs past its slack delivers nothing on time.")
+        st.toggle("Correlated district/national shocks", key="shocks")
     if current_mode() == "live":
         b = budget_status()
         st.caption(f"Live LLM calls: {b['visitor_used']}/{b['visitor_cap']} for you, {b['day_used']}/{b['day_cap']} "
                    "today for the whole demo. Cached answers are free and unlimited.")
-    st.caption(f"LLM mode: **{current_mode()}** · model `{C.LLM_MODEL}`. As-of date {C.AS_OF:%d %b %Y} (fixed). "
+    st.caption(f"LLM mode: **{current_mode()}** · model `{C.LLM_MODEL}`. Order date (day 0) {C.AS_OF:%d %b %Y}. "
                f"Delivery point: {C.DELIVERY_POINT_NAME}. Python {sys.version.split()[0]}.")
     if st.button("↺ Restart the story"):
+        old = st.session_state.get("_book")
         for k in list(st.session_state):
             if k not in ("role", "authed", "page", "visitor"):
                 del st.session_state[k]
+        if old is not None:
+            old.store.path.unlink(missing_ok=True)
         st.rerun()
 
-# --- 1 · intake -------------------------------------------------------------------------------
-st.header("1 · Buyer email → order", anchor="order")
-st.caption("The LLM reads the email into order terms. Each value must come with a word-for-word quote from "
-           "the email that states it; anything that fails the check is left for you to enter.")
-email = st.text_area("Buyer email", C.DEMO_EMAIL_PATH.read_text(encoding="utf-8"), height=240)
-if st.button("Read the email", type="primary"):
-    st.session_state["email_read"] = email
 
-intake = read_email(st.session_state["email_read"]) if "email_read" in st.session_state else None
-if intake is not None:
+# =============================================================================
+# View: factory app (phone frame). Factories are simulated personas in the demo.
+# =============================================================================
+
+def view_factory() -> None:
+    st.title("Factory app")
+    st.markdown(BADGE + ' <span class="bn-badge">Simulated factories</span>', unsafe_allow_html=True)
+    st.caption("What a subcontract factory sees on its phone: requests from exporters, a short daily update, and "
+               "its own track record. Free for factories. In this demo every factory is a simulated persona.")
+    ids: list[str] = []
+    if "order_id" in st.session_state:
+        allocs = book().store.allocations(st.session_state["order_id"])
+        if allocs:
+            ids = [ln["factory_id"] for ln in allocs[-1]["lines"]]
+    if not ids:
+        try:
+            ids = [p.factory_id for p in personas.load().personas if p.factory_id != "TBD"]
+        except Exception:
+            ids = []
+    if not ids:
+        st.info("No factory to show yet. Confirm an order and look at the plan first (switch to an exporter role).")
+        return
+    fid = st.selectbox("Factory (pseudonymous ID)", ids, key="factory_view_id")
+    w = world()
+    row = w.factories.loc[w.factories["factory_id"] == fid].iloc[0]
+    with st.container(border=True, key="phone"):
+        st.markdown(f"**{fid}** · {row['district']} · <span class='bn-badge'>Simulated</span>",
+                    unsafe_allow_html=True)
+        st.markdown("**Inbox**")
+        msgs = book().store.messages(factory_id=fid)
+        if not msgs:
+            st.caption("No requests yet. A request appears here only after the exporter approves it "
+                       "(sourcing round: next milestone). Nothing is ever sent automatically.")
+        for m in msgs:
+            st.markdown(f"Day {m['story_day']} · {'↘ from exporter' if m['direction'] == 'out' else '↗ you'}: "
+                        f"{m['text']}")
+        st.markdown("**My record** " + SYNTH)
+        r = sv.factory_record(history(), fid)
+        if r["jobs"]:
+            c1, c2 = st.columns(2)
+            c1.metric("Jobs done", f"{r['jobs']}")
+            c2.metric("On time", f"{r['on_time_rate']:.0%}")
+            c3, c4 = st.columns(2)
+            c3.metric("Delivered in full", f"{r['full_rate']:.0%}")
+            c4.metric("QC pass", f"{r['qc_pass_rate']:.1%}" if r["qc_pass_rate"] is not None else "—")
+        else:
+            st.caption("No past jobs on record.")
+        st.caption("From synthetic history. On the platform, only verified events (offers, deliveries, QC results) "
+                   "will count, and you choose what other exporters can see.")
+
+
+# =============================================================================
+# View: show the maths (engine detail; not part of the scripted demo)
+# =============================================================================
+
+STEER_EXAMPLES = (
+    "Use no more than three factories and keep new factories under 10%.",
+    "Don't use F2184 and plan 6 days of slack. Also move the deadline to 27 December.",  # cached; F2184 is a demo candidate
+)
+_KEY = {"target_p": "target", "planned_slack_days": "slack", "max_factories": "max_f",
+        "unproven_cap_pct": "unproven", "max_district_share": "dcap"}
+
+
+def _apply_steer(accepted: list[dict], instruction: str):
+    for a in accepted:
+        if a["field"] == "excluded_ids":
+            st.session_state["excluded"] = sorted(set(st.session_state["excluded"]) | set(a["value"]))
+        else:
+            st.session_state[_KEY[a["field"]]] = a["value"]
+    book().record_steer(st.session_state.get("order_id"), instruction, accepted, st.session_state["role"])
+    st.session_state.pop("steer", None)
+
+
+def view_maths() -> None:
+    st.title("Show the maths")
+    prototype_notice()
+    args = current_args()
+    if args is None:
+        st.info("Confirm an order on the order timeline first.")
+        return
+    s = args[1]
+    b = run_plans(*args)
+    order, cands, comp, match, rec, ours = b.order, b.cands, b.comp, b.match, b.rec, b.comp["ours"]
+    w = world()
+
+    st.header("Who can make it", anchor="funnel")
+    rep = report()
+    r1 = st.columns(3)
+    r1[0].metric("Factories in export", f"{rep['raw_rows']:,}")
+    r1[1].metric("Open", f"{rep['open_rows']:,}")
+    r1[2].metric("Make T-shirts", f"{rep['tee_capable']:,}")
+    r2 = st.columns(3)
+    r2[0].metric("RSC or valid BSCI", f"{rep['compliant_tee']:,}")
+    r2[1].metric("Spare capacity + deadline OK", f"{len(cands):,}", help=SYNTH)
+    r2[2].metric("Proven (≥ 3 past jobs)", f"{sum(c.proven for c in cands):,}", help=SYNTH)
+    st.caption("First four counts: real Open Supply Hub data. Last two depend on synthetic capacity and history, "
+               "and on compliance still being valid on the deadline.")
+
+    st.header(f"Reliability forecast {SYNTH}", anchor="reliability")
+    st.dataframe(pd.DataFrame([{
+        "Factory": c.factory_id, "District": c.district,
+        "Declared capacity in window": c.window_capacity_declared, "Forecast deliverable": c.window_capacity_risk_adj,
+        "P(delivered in full)": round(w.forecasts[c.factory_id].p_full, 2),
+        f"P(on time within {s.slack} d)": round(rl.p_on_time(w.forecasts[c.factory_id], s.slack), 2),
+        "QC defect rate": f"{w.forecasts[c.factory_id].qc_defect_mean:.1%}",
+        "Past jobs": w.forecasts[c.factory_id].n_jobs,
+        "Thin history": "yes" if w.forecasts[c.factory_id].thin_history else "",
+        "CM price (BDT/pc)": round(c.unit_price_bdt, 1),
+    } for c in sorted(cands, key=lambda c: -c.window_capacity_risk_adj)[:15]]), hide_index=True, width="stretch")
+    st.caption("Top 15 candidates by forecast deliverable quantity. Thin-history factories get the population "
+               "prior, so their forecasts are wider.")
+
+    st.header("Plans compared", anchor="plans_compared")
+    if not b.feasible:
+        st.error("**No feasible plan** under the current settings (see the order timeline).")
+        return
+    bl, bb = comp["baseline"], comp["baseline_buffered"]
+    h = st.columns(3)
+    h[0].metric("Naive: declared capacity + lowest price", f"{bl.risk.p_meet_qty:.0%}" if bl.risk else "—",
+                help="P(good pieces delivered by the deadline ≥ (1 − tolerance) × subcontracted quantity)")
+    h[1].metric(f"Naive + same {rec.buffer_pct:.0%} buffer", f"{bb.risk.p_meet_qty:.0%}" if bb.risk else "—")
+    h[2].metric("Bunon recommendation", f"{rec.risk.p_meet_qty:.0%}")
+    rows = [plan_row("Naive baseline", bl, cands), plan_row("Naive + same buffer", bb, cands),
+            plan_row("Bunon (ours)", rec, cands)]
+    if match:
+        rows.append(plan_row("Naive, buffer needed to match ours", match, cands))
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    if match:
+        st.info(f"To match our {rec.risk.p_meet_qty:.1%}, the naive rule needs a **{match.buffer_pct:.1%}** buffer "
+                f"and costs **{bdt(match.plan.cost_total - rec.plan.cost_total)}** more.")
+    fr = pd.DataFrame(b.frontier)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=fr["buffer"], y=fr["ours"], mode="lines+markers", name="Bunon"))
+    fig.add_trace(go.Scatter(x=fr["buffer"], y=fr["baseline"], mode="lines+markers", name="Naive + same buffer"))
+    fig.add_hline(y=s.target, line_dash="dot", annotation_text=f"target {s.target:.0%}")
+    fig.update_layout(height=320, margin=dict(l=10, r=10, t=30, b=10), xaxis_tickformat=".0%", yaxis_tickformat=".0%",
+                      xaxis_title="Over-allocation buffer", yaxis_title="P(on time, within tolerance)",
+                      title="What the buffer buys", legend=dict(orientation="h", y=1.12),
+                      colorway=["#1E3A5F", "#B7791F"])
+    st.plotly_chart(fig, width="stretch")
+    st.caption(f"Costs: CM price + exporter-supplied material ({C.MATERIAL_COST_BDT_PER_PIECE:.1f} BDT/pc, "
+               f"placeholder) + transport + {bdt(C.FIXED_COST_PER_FACTORY_BDT)} per factory. Binding constraints: "
+               f"{', '.join(rec.plan.binding_constraints) or 'none'}.")
+
+    st.header("Ask for a change", anchor="steer")
+    st.caption("Describe a change in plain language. The LLM may only change the planning settings in the sidebar "
+               "(never the deadline, quantity or compliance), every value must be quoted from your words, and "
+               "nothing changes until you apply it.")
+    ex = st.columns(len(STEER_EXAMPLES))
+    for i, e in enumerate(STEER_EXAMPLES):
+        if ex[i].button(e, key=f"steer_ex_{i}"):
+            st.session_state["steer_text"] = e
+    instruction = st.text_input("Instruction", key="steer_text", placeholder="e.g. at most four factories")
+    if st.button("Interpret") and instruction.strip():
+        with st.spinner("Interpreting…"):
+            st.session_state["steer"] = (instruction, ag.steer(instruction, {c.factory_id for c in cands}, LLMClient()))
+    if "steer" in st.session_state:
+        instr, sr = st.session_state["steer"]
+        if sr.meta:
+            st.caption(SOURCE_BADGE[sr.meta.source])
+        current = {"target_p": s.target, "planned_slack_days": s.slack, "max_factories": s.max_f,
+                   "unproven_cap_pct": s.unproven, "max_district_share": s.dcap,
+                   "excluded_ids": st.session_state["excluded"] or "none"}
+        if sr.accepted:
+            st.dataframe(pd.DataFrame([{"Setting": a["label"], "Now": str(current[a["field"]]),
+                                        "Proposed": str(a["value"]), "Your words": a["source_span"]}
+                                       for a in sr.accepted]), hide_index=True, width="stretch")
+            st.button("Apply these changes", type="primary", on_click=_apply_steer, args=(sr.accepted, instr))
+        for u in sr.unsupported:
+            st.warning(f"Not changed: “{u}”. Only planning settings can be changed here; the deadline, "
+                       "quantity and compliance rules are fixed.")
+        for r in sr.rejected:
+            st.error(f"Not applied: {r}")
+        if not (sr.accepted or sr.unsupported or sr.rejected):
+            st.info("No change found in the instruction.")
+    if current_mode() == "offline":
+        st.caption("On the public demo, answers are replayed from a cache: the two example instructions work; other "
+                   "wording falls back to the sidebar controls.")
+
+
+# =============================================================================
+# View: the order timeline (the demo)
+# =============================================================================
+
+DAYS = sv.DECLINE_DAY
+REPLIES = json.loads((C.ROOT / "data" / "demo" / "factory_replies.json").read_text(encoding="utf-8"))
+NEWS = json.loads((C.ROOT / "data" / "demo" / "news.json").read_text(encoding="utf-8"))
+WHATIF_EXAMPLES = (
+    "If the Ashulia stoppage turns severe, what happens to our plan, and what should we do?",
+    "Should we stop using F2184 and keep any district under 50%? Compare that with the current plan.",
+    "If a nationwide hartal lasts 2 days, can any plan still reach our target?",
+)
+
+
+def section_intake() -> None:
+    st.header("Day 0 · Order received", anchor="order")
+    st.caption("Paste the buyer's email. The LLM reads it into order terms; each value must come with a "
+               "word-for-word quote from the email that states it, and anything that fails the check is left for "
+               "you to enter.")
+    email = st.text_area("Buyer email", C.DEMO_EMAIL_PATH.read_text(encoding="utf-8"), height=220)
+    if st.button("Read the email", type="primary"):
+        st.session_state["email_read"] = email
+    intake = read_email(st.session_state["email_read"]) if "email_read" in st.session_state else None
+    if intake is None:
+        return
     if intake.meta:
         st.caption(SOURCE_BADGE[intake.meta.source])
     for issue in intake.issues:
@@ -568,214 +811,34 @@ if intake is not None:
                 st.error("Quantity and deadline are required.")
             elif own >= total:
                 st.error("Your own capacity covers the order: nothing to subcontract.")
+            elif st.session_state["role"] not in EXPORTER_ROLES:
+                st.error("Switch to an exporter role to confirm an order.")
             else:
-                order = OrderConstraints(
-                    total_qty=int(total), own_capacity_qty=int(own), deadline=deadline,
-                    delivery_point=pre("delivery_terms"), fabric=pre("fabric"), gsm=pre("gsm"),
-                    quality_aql=aql or None, fob_usd_per_piece=fob or None,
-                    late_penalty_pct_per_week=penalty or None, penalty_text=pre("penalty_text"),
-                    compliance_required=pre("compliance_required") or ["RSC", "BSCI"],
-                    source_spans={k: v.source_span for k, v in intake.fields.items()
-                                  if v.status == "ok" and v.source_span})
+                order = sv.order_from_intake(intake, total, own, deadline, fob, penalty, aql)
                 st.session_state["order_json"] = order.model_dump_json()
-                dl.log_decision("order", "confirmed", st.session_state["role"], None,
-                                f"{order.total_qty:,} pcs, own {order.own_capacity_qty:,}, "
-                                f"subcontract {order.subcontract_qty:,}, deadline {order.deadline}")
+                st.session_state["order_id"] = book().confirm_order(
+                    order, st.session_state["role"], settings(), intake.meta.source if intake.meta else None,
+                    buyer="fictional demo buyer")
                 for k in [k for k in st.session_state if k.startswith(("decision_", "replan"))]:
                     del st.session_state[k]
-
-if "order_json" not in st.session_state:
-    st.info("Read the email and confirm the order to continue.")
-    st.stop()
-
-args = (st.session_state["order_json"], int(slack), round(float(target), 2), round(float(unproven), 2),
-        round(float(dcap), 2) if dcap < 1.0 else None, bool(partial), bool(shocks), int(max_f),
-        tuple(sorted(st.session_state["excluded"])), round(float(tol), 3), round(float(margin), 3), float(loss))
-out = run_plans(*args)
-order, cands, comp, match = out["order"], out["cands"], out["comp"], out["match"]
-ours, rec = comp["ours"], comp["ours"].recommended
-w = world()
-st.success(f"Order confirmed: **{order.total_qty:,}** pieces, own capacity {order.own_capacity_qty:,} → "
-           f"**subcontract {order.subcontract_qty:,}** by {order.deadline:%d %b %Y} (fixed).")
-
-# --- 2 · funnel ---------------------------------------------------------------------------------
-st.header("2 · Who can make it", anchor="funnel")
-rep = report()
-r1 = st.columns(3)
-r1[0].metric("Factories in export", f"{rep['raw_rows']:,}")
-r1[1].metric("Open", f"{rep['open_rows']:,}")
-r1[2].metric("Make T-shirts", f"{rep['tee_capable']:,}")
-r2 = st.columns(3)
-r2[0].metric("RSC or valid BSCI", f"{rep['compliant_tee']:,}")
-r2[1].metric("Spare capacity + deadline OK", f"{len(cands):,}", help=SYNTH)
-r2[2].metric("Proven (≥ 3 past jobs)", f"{sum(c.proven for c in cands):,}", help=SYNTH)
-st.caption("First four counts: real Open Supply Hub data. Last two depend on synthetic capacity and history.")
-
-# --- 3 · reliability ------------------------------------------------------------------------------
-st.header(f"3 · Reliability forecast {SYNTH}", anchor="reliability")
-st.dataframe(pd.DataFrame([{
-    "Factory": c.factory_id, "District": c.district,
-    "Declared capacity in window": c.window_capacity_declared, "Forecast deliverable": c.window_capacity_risk_adj,
-    "P(delivered in full)": round(w.forecasts[c.factory_id].p_full, 2),
-    f"P(on time within {slack} d)": round(rl.p_on_time(w.forecasts[c.factory_id], slack), 2),
-    "Past jobs": w.forecasts[c.factory_id].n_jobs,
-    "Thin history": "yes" if w.forecasts[c.factory_id].thin_history else "",
-    "CM price (BDT/pc)": round(c.unit_price_bdt, 1),
-} for c in sorted(cands, key=lambda c: -c.window_capacity_risk_adj)[:15]]), hide_index=True, width="stretch")
-st.caption("Top 15 candidates by forecast deliverable quantity. Thin-history factories get the population "
-           "prior, so their forecasts are wider.")
-
-# --- 4 · plans --------------------------------------------------------------------------------------
-st.header("4 · Plans compared", anchor="plans")
-if rec.risk is None:  # the optimiser found no allocation at all under these limits
-    st.error(f"**No feasible plan.** No combination of at most {max_f} factor{'y' if max_f == 1 else 'ies'} can "
-             f"cover {order.subcontract_qty:,} pieces by the deadline under the current limits (unproven share "
-             f"{unproven:.0%}, district share {dcap:.0%}, {slack} days of slack). Nothing was planned or sent.")
-    st.info("Loosen a limit in the sidebar (most often: allow more factories or a higher district share), or "
-            "escalate to the buyer: the deadline and quantity are fixed.")
-    st.stop()
-bl, bb = comp["baseline"], comp["baseline_buffered"]
-h = st.columns(3)
-h[0].metric("Naive: declared capacity + lowest price", f"{bl.risk.p_meet_qty:.0%}" if bl.risk else "—",
-            help="P(good pieces delivered by the deadline ≥ (1 − tolerance) × subcontracted quantity)")
-h[1].metric(f"Naive + same {rec.buffer_pct:.0%} buffer", f"{bb.risk.p_meet_qty:.0%}" if bb.risk else "—")
-h[2].metric("Bunon recommendation", f"{rec.risk.p_meet_qty:.0%}" if rec.risk else "—")
-if not ours.target_met:
-    st.error(f"No plan with a buffer ≤ 25% reaches the {target:.0%} target. Showing the most likely plan. "
-             "The deadline is fixed: the options are quantity, target or more slack.")
-rows = [plan_row("Naive baseline", bl, cands), plan_row("Naive + same buffer", bb, cands),
-        plan_row("Bunon (ours)", rec, cands)]
-if match:
-    rows.append(plan_row("Naive, buffer needed to match ours", match, cands))
-st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-if match and rec.risk:
-    st.info(f"To match our {rec.risk.p_meet_qty:.1%}, the naive rule needs a **{match.buffer_pct:.1%}** buffer "
-            f"and costs **{bdt(match.plan.cost_total - rec.plan.cost_total)}** more.")
-fr = pd.DataFrame(out["frontier"])
-fig = go.Figure()
-fig.add_trace(go.Scatter(x=fr["buffer"], y=fr["ours"], mode="lines+markers", name="Bunon"))
-fig.add_trace(go.Scatter(x=fr["buffer"], y=fr["baseline"], mode="lines+markers", name="Naive + same buffer"))
-fig.add_hline(y=target, line_dash="dot", annotation_text=f"target {target:.0%}")
-fig.update_layout(height=320, margin=dict(l=10, r=10, t=30, b=10), xaxis_tickformat=".0%", yaxis_tickformat=".0%",
-                  xaxis_title="Over-allocation buffer", yaxis_title="P(on time, within tolerance)",
-                  title="What the buffer buys", legend=dict(orientation="h", y=1.12),
-                  colorway=["#1E3A5F", "#B7791F"])
-st.plotly_chart(fig, width="stretch")
-
-# --- 5 · recommended plan ----------------------------------------------------------------------------
-st.header("5 · Recommended plan", anchor="recommended")
-m = st.columns(4)
-m[0].metric("Pieces allocated", f"{rec.plan.total_allocated:,}", f"+{rec.plan.buffer_qty:,} buffer")
-m[1].metric("Total cost", bdt_m(rec.plan.cost_total), help=bdt(rec.plan.cost_total))
-m[2].metric("Buffer price", bdt_m(rec.plan.cost_buffer), help=bdt(rec.plan.cost_buffer))
-m[3].metric("P(on time, within tolerance)", f"{rec.risk.p_meet_qty:.1%}" if rec.risk else "—",
-            help=f"±{rec.risk.p_meet_se:.1%} simulation error" if rec.risk else None)
-by_id = {c.factory_id: c for c in cands}
-st.dataframe(pd.DataFrame([{
-    "Factory": ln.factory_id, "District": by_id[ln.factory_id].district, "Pieces": ln.qty, "Share": f"{ln.share:.0%}",
-    "CM (BDT/pc)": round(ln.unit_price_bdt, 1), "Transit (days)": by_id[ln.factory_id].transit_days,
-    "Production days": by_id[ln.factory_id].window_days,
-    "Short/late in failed simulations": f"{rec.risk.fail_contribution.get(ln.factory_id, 0):.0%}" if rec.risk else "",
-} for ln in rec.plan.lines]), hide_index=True, width="stretch")
-st.caption(f"Costs: CM price + material ({C.MATERIAL_COST_BDT_PER_PIECE:.0f} BDT/pc, placeholder) + transport + "
-           f"{bdt(C.FIXED_COST_PER_FACTORY_BDT)} per factory. Binding constraints: "
-           f"{', '.join(rec.plan.binding_constraints) or 'none'}.")
-
-# --- steering ---------------------------------------------------------------------------------------------
-STEER_EXAMPLES = (
-    "Use no more than three factories and keep new factories under 10%.",
-    "Don't use F2184 and plan 6 days of slack. Also move the deadline to 27 December.",  # cached; F2184 is a demo candidate
-)
-_KEY = {"target_p": "target", "planned_slack_days": "slack", "max_factories": "max_f",
-        "unproven_cap_pct": "unproven", "max_district_share": "dcap"}
+                st.rerun()  # redraw the sidebar with the story clock
 
 
-def _apply_steer(accepted: list[dict], instruction: str):
-    for a in accepted:
-        if a["field"] == "excluded_ids":
-            st.session_state["excluded"] = sorted(set(st.session_state["excluded"]) | set(a["value"]))
-        else:
-            st.session_state[_KEY[a["field"]]] = a["value"]
-    dl.log_decision("steer", "confirmed", st.session_state["role"], None,
-                    f"{instruction} -> " + "; ".join(f"{a['field']}={a['value']}" for a in accepted))
-    st.session_state.pop("steer", None)
-
-
-st.subheader("Ask for a change")
-st.caption("Describe a change in plain language. The LLM may only change the planning settings in the sidebar "
-           "(never the deadline, quantity or compliance), every value must be quoted from your words, and "
-           "nothing changes until you apply it.")
-ex = st.columns(len(STEER_EXAMPLES))
-for i, e in enumerate(STEER_EXAMPLES):
-    if ex[i].button(e, key=f"steer_ex_{i}"):
-        st.session_state["steer_text"] = e
-instruction = st.text_input("Instruction", key="steer_text", placeholder="e.g. at most four factories")
-if st.button("Interpret") and instruction.strip():
-    with st.spinner("Interpreting…"):
-        st.session_state["steer"] = (instruction, ag.steer(instruction, {c.factory_id for c in cands}, LLMClient()))
-if "steer" in st.session_state:
-    instr, sr = st.session_state["steer"]
-    if sr.meta:
-        st.caption(SOURCE_BADGE[sr.meta.source])
-    current = {"target_p": target, "planned_slack_days": slack, "max_factories": max_f,
-               "unproven_cap_pct": unproven, "max_district_share": dcap,
-               "excluded_ids": st.session_state["excluded"] or "none"}
-    if sr.accepted:
-        st.dataframe(pd.DataFrame([{"Setting": a["label"], "Now": str(current[a["field"]]), "Proposed": str(a["value"]),
-                                    "Your words": a["source_span"]} for a in sr.accepted]),
-                     hide_index=True, width="stretch")
-        st.button("Apply these changes", type="primary", on_click=_apply_steer, args=(sr.accepted, instr))
-    for u in sr.unsupported:
-        st.warning(f"Not changed: “{u}”. Only planning settings can be changed here; the deadline, "
-                   "quantity and compliance rules are fixed.")
-    for r in sr.rejected:
-        st.error(f"Not applied: {r}")
-    if not (sr.accepted or sr.unsupported or sr.rejected):
-        st.info("No change found in the instruction.")
-if current_mode() == "offline":
-    st.caption("On the public demo, answers are replayed from a cache: the two example instructions work; other "
-               "wording falls back to the sidebar controls.")
-
-# --- 6 · memo + approval --------------------------------------------------------------------------------
-st.header("6 · Decision memo", anchor="memo")
-memo = memo_for(*args)
-if memo is None:
-    st.error("No feasible plan to explain.")
-    st.stop()
-show_memo(memo)
-approval_buttons("plan", rec.plan, f"{len(rec.plan.lines)} factories, {rec.plan.total_allocated:,} pcs, "
-                 f"P {rec.risk.p_meet_qty:.3f}, {bdt(rec.plan.cost_total)}", order, cands, "plan")
-
-# --- 7 · disruption ----------------------------------------------------------------------------------------
-st.header("7 · Disruption: a factory declines or answers", anchor="disruption")
-DAYS = 3
-REPLIES = json.loads((C.ROOT / "data" / "demo" / "factory_replies.json").read_text(encoding="utf-8"))
-
-
-def no_feasible_replan(what: str) -> None:
-    """The optimiser found no plan that covers the order under the current limits. Say so plainly;
-    there is nothing to approve and no memo to write."""
-    st.error(f"**No feasible re-plan.** After {what}, no combination of factories covers the order under the "
-             "current limits: confirmed factories cannot be cut, new ones start late, and the sidebar caps "
-             "(number of factories, unproven share, district share) leave too little capacity. Nothing was "
-             "changed or sent.")
-    st.info("Try loosening a limit in the sidebar (for example more factories or a higher unproven cap), or "
-            "escalate to the buyer early: the deadline and quantity are fixed.")
-
-
-def show_replan(rp, rmemo, cands_late, key: str, what: str):
+def show_replan(args, rp, rmemo, cands_late, key: str, what: str, label: str):
+    b = run_plans(*args)
+    rec, cands, order = b.rec, b.cands, b.order
     n = rp.new
     if n.risk is None:
         no_feasible_replan(what)
         return
     d = st.columns(3)
-    d[0].metric("New P(on time, within tolerance)", f"{n.risk.p_meet_qty:.1%}" if n.risk else "—",
-                delta=f"{(n.risk.p_meet_qty - rec.risk.p_meet_qty) * 100:+.1f} pts" if n.risk else None)
+    d[0].metric("New P(on time, within tolerance)", f"{n.risk.p_meet_qty:.1%}",
+                delta=f"{(n.risk.p_meet_qty - rec.risk.p_meet_qty) * 100:+.1f} pts")
     d[1].metric("New cost", bdt_m(n.plan.cost_total), delta=bdt(n.plan.cost_total - rec.plan.cost_total),
                 delta_color="inverse")
     d[2].metric("New buffer", f"{max(0, n.plan.total_allocated - n.plan.target_qty) / n.plan.target_qty:.1%}")
-    if n.risk and n.risk.p_meet_qty < target:
-        st.error(f"The re-plan does not reach the {target:.0%} target (best found: {n.risk.p_meet_qty:.1%}). "
+    if n.risk.p_meet_qty < b.settings.target:
+        st.error(f"The re-plan does not reach the {b.settings.target:.0%} target (best found: {n.risk.p_meet_qty:.1%}). "
                  "The deadline is fixed: escalate to the buyer early, or add capacity outside this plan.")
     declined = rp.reason.startswith(("declined", "rejected", "can supply nothing"))
     st.dataframe(pd.DataFrame([{
@@ -786,203 +849,280 @@ def show_replan(rp, rmemo, cands_late, key: str, what: str):
     st.subheader("Re-plan memo")
     show_memo(rmemo)
     all_cands = list({c.factory_id: c for c in [*cands, *cands_late]}.values())
-    approval_buttons(key, n.plan, f"{what}; {len(n.plan.lines)} factories, P {n.risk.p_meet_qty:.3f}, "
+    book().propose(st.session_state["order_id"], n, label)
+    approval_buttons(key, n, label, f"{what}; {len(n.plan.lines)} factories, P {n.risk.p_meet_qty:.3f}, "
                      f"{bdt(n.plan.cost_total)}", order, all_cands, key)
 
 
-def _run_safely(fn, *a):
-    try:
-        return fn(*a)
-    except Exception:
-        import traceback
-        st.error("The re-plan failed. Nothing was changed or sent. Technical details below.")
-        with st.expander("Technical details"):
-            st.code(traceback.format_exc())
-        st.stop()
+def section_followup(args) -> None:
+    b = run_plans(*args)
+    rec, cands, order = b.rec, b.cands, b.order
+    oid = st.session_state["order_id"]
+    role = st.session_state["role"] if st.session_state["role"] in EXPORTER_ROLES else None
+    st.header(f"Day {DAYS} · Follow-up", anchor="disruption")
+    st.caption("Preview: sourcing rounds and daily factory updates arrive in the next milestones. Today you can "
+               "play a scripted decline, read a factory's reply, or read a news item; each moves the story clock "
+               f"to day {DAYS}.")
+    tab_decline, tab_reply, tab_news = st.tabs(["Scripted decline", "Factory reply (English / Bangla / Banglish)",
+                                                "News (English / Bangla)"])
+    with tab_decline:
+        gone = op.largest_line(rec)
+        st.write(f"On day {DAYS}, **{gone}**, the factory with the largest allocation, declines. Factories that "
+                 "already confirmed keep their quantities (they may be asked for more, never less); new factories "
+                 f"can only start now, so they have {DAYS} fewer production days. The deadline does not move.")
+        if st.button(f"Simulate: {gone} declines on day {DAYS}", type="primary"):
+            st.session_state["replan_for"] = args
+            book().advance_to(oid, DAYS, f"{gone} declines", role)
+        if st.session_state.get("replan_for") == args:
+            rp, rmemo, cands_late = _run_safely(run_replan, args, DAYS)
+            show_replan(args, rp, rmemo, cands_late, "replan", f"{gone} declined", "Re-plan after decline")
+
+    with tab_reply:
+        st.caption("Paste what a factory wrote back. The LLM classifies it as accept / reject / counter and pulls "
+                   "out quantity, delay and conditions, each with a word-for-word quote that the code checks. The "
+                   "code, not the LLM, settles the final category, and a counter-offer is locked into the re-plan.")
+        plan_ids = [ln.factory_id for ln in rec.plan.lines]
+        planned = {ln.factory_id: ln.qty for ln in rec.plan.lines}
+        ex = st.columns(len(REPLIES))
+        for i, r in enumerate(REPLIES):
+            if ex[i].button(f"{r['factory_id']} · {r['language']}", key=f"reply_ex_{i}",
+                            disabled=r["factory_id"] not in planned):
+                st.session_state["reply_text"] = r["text"]
+                st.session_state["reply_factory"] = r["factory_id"]
+        if st.session_state.get("reply_factory") not in plan_ids:
+            st.session_state["reply_factory"] = plan_ids[0]
+        fid = st.selectbox("Reply from", plan_ids, key="reply_factory",
+                           format_func=lambda f: f"{f} (planned {planned[f]:,} pieces)")
+        text = st.text_area("Factory reply", key="reply_text", height=110,
+                            placeholder="e.g. Bhai, 12,400 pcs pura parbo na, max 9 hajar dite parbo.")
+        if st.button("Read the reply") and text.strip():
+            st.session_state["reply_read"] = (text, fid, args)
+        if st.session_state.get("reply_read", (None, None, None))[2] == args:
+            rtext, rfid, _ = st.session_state["reply_read"]
+            res = read_reply(rtext, planned[rfid])
+            if res.meta:
+                st.caption(SOURCE_BADGE[res.meta.source])
+            for note in res.notes:
+                st.warning(note)
+            if res.decision:
+                label = {"accept": "✅ Accept", "reject": "✖ Reject", "counter": "↔ Counter-offer"}[res.decision]
+                changed = f" (the LLM said *{res.llm_decision}*)" if res.llm_decision != res.decision else ""
+                st.markdown(f"**{rfid}: {label}**{changed}. Quote: “{res.decision_span}”")
+                icon = {"ok": "✅ found in reply", "missing": "— not stated", "rejected": "⚠️ check failed"}
+                rows = [{"Item": "Quantity (pieces)",
+                         "Value": "" if res.quantity.value is None else f"{res.quantity.value:,}",
+                         "Quote": res.quantity.source_span or "", "Check": icon[res.quantity.status]},
+                        {"Item": "Delay (days)", "Value": "" if res.delay_days.value is None else str(res.delay_days.value),
+                         "Quote": res.delay_days.source_span or "", "Check": icon[res.delay_days.status]}]
+                # Conditions: show the LLM's English gloss only if it contains no numbers; the quote is the evidence.
+                rows += [{"Item": "Condition", "Value": "(see quote)" if literal_numbers(str(c.value)) else c.value,
+                          "Quote": c.source_span or "", "Check": icon[c.status]} for c in res.conditions]
+                st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+                if res.decision == "accept":
+                    st.success("No change to the plan: the factory confirmed the planned quantity.")
+                elif st.button("Re-plan with this reply", type="primary"):
+                    st.session_state["reply_replan"] = (rtext, rfid, args)
+                    book().advance_to(oid, DAYS, f"{rfid} replied ({res.decision})", role)
+                if st.session_state.get("reply_replan") == (rtext, rfid, args) and res.decision != "accept":
+                    qty, delay = sv.reply_terms(res)
+                    rp, rmemo, cands_late = _run_safely(run_reply_replan, args, rfid, res.decision, qty, delay, DAYS)
+                    show_replan(args, rp, rmemo, cands_late, "reply_replan", f"{rfid} replied ({res.decision})",
+                                f"Re-plan after {rfid}'s reply")
+
+    with tab_news:
+        st.caption("Paste a headline or short news item (English or Bangla). The LLM names the area, the kind of "
+                   "disruption, the duration and a severity label, each with a quote the code checks. **The LLM "
+                   "chooses no numbers:** severity is turned into simulation parameters by a fixed table.")
+        nx = st.columns(len(NEWS))
+        for i, n in enumerate(NEWS):
+            if nx[i].button(f"{n['id'].replace('_', ' ')} · {n['language']}", key=f"news_ex_{i}"):
+                st.session_state["news_text"] = n["text"]
+        ntext = st.text_area("News text", key="news_text", height=90, placeholder="e.g. Workers in Ashulia stopped work…")
+        if st.button("Read the news") and ntext.strip():
+            st.session_state["news_read"] = (ntext, args)
+        if st.session_state.get("news_read", (None, None))[1] == args:
+            nres = read_news(st.session_state["news_read"][0])
+            if nres.meta:
+                st.caption(SOURCE_BADGE[nres.meta.source])
+            for note in nres.notes:
+                st.warning(note)
+            icon = {"ok": "✅ found in text", "missing": "— not stated", "rejected": "⚠️ check failed"}
+            st.dataframe(pd.DataFrame([
+                {"Item": "Area", "Value": nres.area or "(choose by hand)", "Quote": nres.area_span or ""},
+                {"Item": "What happened", "Value": nres.disruption_type or "", "Quote": nres.type_span or ""},
+                {"Item": "Duration (days)", "Value": "" if nres.duration.value is None else str(nres.duration.value),
+                 "Quote": (nres.duration.source_span or "") + ("" if nres.duration.status == "ok" else f"  [{icon[nres.duration.status]}]")},
+                {"Item": "Severity", "Value": nres.severity or "", "Quote": nres.severity_span or ""},
+                {"Item": "LLM confidence", "Value": nres.confidence or "", "Quote": ""},
+            ]), hide_index=True, width="stretch")
+            districts = ["national", "ashulia_savar", "gazipur", "narayanganj", "chattogram", "dhaka_city", "mymensingh"]
+            a1, a2 = st.columns(2)
+            area = a1.selectbox("Area (check or correct)", districts,
+                                index=districts.index(nres.area) if nres.area in districts else 0, key="news_area")
+            sev = a2.selectbox("Severity (check or correct)", ["low", "medium", "high"],
+                               index=["low", "medium", "high"].index(nres.severity) if nres.severity else 1, key="news_sev")
+            dur = nres.duration.value if nres.duration.status == "ok" else None
+            ev = op.event_from_severity(area, sev, dur)
+            row = C.SEVERITY_TABLE[sev]
+            st.caption(f"Fixed table, severity **{sev}**: affected factories deliver {row['fill_mult']:.0%} of planned "
+                       f"output, and {row['lost_day_share']:.0%} of the event's "
+                       f"{dur if dur is not None else row['default_days']} days"
+                       f"{'' if dur is not None else ' (default: no number in the text)'} become delay → "
+                       f"**{ev.extra_delay_days} days** late. Placeholder values pending research.")
+            if st.button("Assess the impact", type="primary"):
+                st.session_state["news_assess"] = (area, sev, dur, args)
+                book().advance_to(oid, DAYS, f"news: {sev} disruption in {area}", role)
+            if st.session_state.get("news_assess") == (area, sev, dur, args):
+                r = _run_safely(run_news, args, area, sev, dur)
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Current plan, if this happens", f"{r['current_with_event'].p_meet_qty:.1%}",
+                          delta=f"{(r['current_with_event'].p_meet_qty - rec.risk.p_meet_qty) * 100:+.1f} pts")
+                new = r["new"]
+                m2.metric("Plan made knowing about it", f"{new.risk.p_meet_qty:.1%}" if new.risk else "—")
+                if new.risk is not None:
+                    m3.metric("Cost of re-planning", bdt(new.plan.cost_total - rec.plan.cost_total))
+                st.write("Factories in the current plan that are hit: "
+                         + (", ".join(f"**{f}**" for f in r["affected_in_plan"]) or "none"))
+                if new.risk is None:
+                    no_feasible_replan(f"a {sev} disruption in {area}")
+                else:
+                    if r["keep_current_is_better"]:
+                        st.warning("Keeping the current plan is at least as likely to succeed under this event as any "
+                                   "new plan Bunon found. Do not re-plan for this event alone.")
+                    if not r["new_target_met"]:
+                        st.error(f"Even a plan made knowing about this cannot reach the {b.settings.target:.0%} "
+                                 "target. Escalate to the buyer early.")
+                    ncands = r["cands"]
+                    st.dataframe(pd.DataFrame([plan_row("Current plan (event applied)",
+                                                         rec.model_copy(update={"risk": r["current_with_event"]}), cands),
+                                                plan_row("Plan made knowing about it", new, ncands)]),
+                                 hide_index=True, width="stretch")
+                    label = f"Plan for {sev} {area} disruption"
+                    book().propose(oid, new, label)
+                    approval_buttons("news_replan", new, label, f"news: {sev} {area}; P {new.risk.p_meet_qty:.3f}, "
+                                     f"{bdt(new.plan.cost_total)}", order, ncands, "news_replan")
 
 
-tab_decline, tab_reply, tab_news = st.tabs(["Scripted decline", "Factory reply (English / Bangla / Banglish)", "News (English / Bangla)"])
-
-with tab_decline:
-    gone = op.largest_line(rec)
-    st.write(f"On day {DAYS}, **{gone}**, the factory with the largest allocation, declines. Factories that "
-             "already confirmed keep their quantities (they may be asked for more, never less); new factories can "
-             f"only start now, so they have {DAYS} fewer production days. The deadline does not move.")
-    if st.button(f"Simulate: {gone} declines on day {DAYS}", type="primary"):
-        st.session_state["replan_for"] = args
-    if st.session_state.get("replan_for") == args:
-        rp, rmemo, cands_late = _run_safely(run_replan, args, DAYS)
-        show_replan(rp, rmemo, cands_late, "replan", f"{gone} declined")
-
-with tab_reply:
-    st.caption("Paste what a factory wrote back. The LLM classifies it as accept / reject / counter and pulls out "
-               "quantity, delay and conditions, each with a word-for-word quote that the code checks. The code, "
-               "not the LLM, settles the final category, and a counter-offer is locked into the re-plan.")
-    plan_ids = [ln.factory_id for ln in rec.plan.lines]
-    planned = {ln.factory_id: ln.qty for ln in rec.plan.lines}
-    ex = st.columns(len(REPLIES))
-    for i, r in enumerate(REPLIES):
-        if ex[i].button(f"{r['factory_id']} · {r['language']}", key=f"reply_ex_{i}",
-                        disabled=r["factory_id"] not in planned):
-            st.session_state["reply_text"] = r["text"]
-            st.session_state["reply_factory"] = r["factory_id"]
-    if st.session_state.get("reply_factory") not in plan_ids:
-        st.session_state["reply_factory"] = plan_ids[0]
-    fid = st.selectbox("Reply from", plan_ids, key="reply_factory",
-                       format_func=lambda f: f"{f} (planned {planned[f]:,} pieces)")
-    text = st.text_area("Factory reply", key="reply_text", height=110,
-                        placeholder="e.g. Bhai, 14,300 pcs pura parbo na, max 9 hajar dite parbo.")
-    if st.button("Read the reply") and text.strip():
-        st.session_state["reply_read"] = (text, fid, args)
-    if st.session_state.get("reply_read", (None, None, None))[2] == args:
-        rtext, rfid, _ = st.session_state["reply_read"]
-        res = read_reply(rtext, planned[rfid])
-        if res.meta:
-            st.caption(SOURCE_BADGE[res.meta.source])
-        for note in res.notes:
-            st.warning(note)
-        if res.decision:
-            label = {"accept": "✅ Accept", "reject": "✖ Reject", "counter": "↔ Counter-offer"}[res.decision]
-            changed = f" (the LLM said *{res.llm_decision}*)" if res.llm_decision != res.decision else ""
-            st.markdown(f"**{rfid}: {label}**{changed}. Quote: “{res.decision_span}”")
-            icon = {"ok": "✅ found in reply", "missing": "— not stated", "rejected": "⚠️ check failed"}
-            rows = [{"Item": "Quantity (pieces)",
-                     "Value": "" if res.quantity.value is None else f"{res.quantity.value:,}",
-                     "Quote": res.quantity.source_span or "", "Check": icon[res.quantity.status]},
-                    {"Item": "Delay (days)", "Value": "" if res.delay_days.value is None else str(res.delay_days.value),
-                     "Quote": res.delay_days.source_span or "", "Check": icon[res.delay_days.status]}]
-            # Conditions: show the LLM's English gloss only if it contains no numbers; the quote is the evidence.
-            rows += [{"Item": "Condition", "Value": "(see quote)" if literal_numbers(str(c.value)) else c.value,
-                      "Quote": c.source_span or "", "Check": icon[c.status]} for c in res.conditions]
-            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-            if res.decision == "accept":
-                st.success("No change to the plan: the factory confirmed the planned quantity.")
-            elif st.button("Re-plan with this reply", type="primary"):
-                st.session_state["reply_replan"] = (rtext, rfid, args)
-            if st.session_state.get("reply_replan") == (rtext, rfid, args) and res.decision != "accept":
-                qty = res.quantity.value if res.quantity.status == "ok" else None
-                delay = res.delay_days.value if res.delay_days.status == "ok" else None
-                rp, rmemo, cands_late = _run_safely(run_reply_replan, args, rfid, res.decision, qty, delay, DAYS)
-                show_replan(rp, rmemo, cands_late, "reply_replan", f"{rfid} replied ({res.decision})")
-
-with tab_news:
-    NEWS = json.loads((C.ROOT / "data" / "demo" / "news.json").read_text(encoding="utf-8"))
-    st.caption("Paste a headline or short news item (English or Bangla). The LLM names the area, the kind of "
-               "disruption, the duration and a severity label, each with a quote the code checks. **The LLM "
-               "chooses no numbers:** severity is turned into simulation parameters by a fixed table.")
-    nx = st.columns(len(NEWS))
-    for i, n in enumerate(NEWS):
-        if nx[i].button(f"{n['id'].replace('_', ' ')} · {n['language']}", key=f"news_ex_{i}"):
-            st.session_state["news_text"] = n["text"]
-    ntext = st.text_area("News text", key="news_text", height=90, placeholder="e.g. Workers in Ashulia stopped work…")
-    if st.button("Read the news") and ntext.strip():
-        st.session_state["news_read"] = (ntext, args)
-    if st.session_state.get("news_read", (None, None))[1] == args:
-        ntext_r = st.session_state["news_read"][0]
-        nres = read_news(ntext_r)
-        if nres.meta:
-            st.caption(SOURCE_BADGE[nres.meta.source])
-        for note in nres.notes:
-            st.warning(note)
-        icon = {"ok": "✅ found in text", "missing": "— not stated", "rejected": "⚠️ check failed"}
-        st.dataframe(pd.DataFrame([
-            {"Item": "Area", "Value": nres.area or "(choose by hand)", "Quote": nres.area_span or ""},
-            {"Item": "What happened", "Value": nres.disruption_type or "", "Quote": nres.type_span or ""},
-            {"Item": "Duration (days)", "Value": "" if nres.duration.value is None else str(nres.duration.value),
-             "Quote": (nres.duration.source_span or "") + ("" if nres.duration.status == "ok" else f"  [{icon[nres.duration.status]}]")},
-            {"Item": "Severity", "Value": nres.severity or "", "Quote": nres.severity_span or ""},
-            {"Item": "LLM confidence", "Value": nres.confidence or "", "Quote": ""},
-        ]), hide_index=True, width="stretch")
-        districts = ["national", "ashulia_savar", "gazipur", "narayanganj", "chattogram", "dhaka_city", "mymensingh"]
-        a1, a2 = st.columns(2)
-        area = a1.selectbox("Area (check or correct)", districts,
-                            index=districts.index(nres.area) if nres.area in districts else 0, key="news_area")
-        sev = a2.selectbox("Severity (check or correct)", ["low", "medium", "high"],
-                           index=["low", "medium", "high"].index(nres.severity) if nres.severity else 1, key="news_sev")
-        dur = nres.duration.value if nres.duration.status == "ok" else None
-        ev = op.event_from_severity(area, sev, dur)
-        row = C.SEVERITY_TABLE[sev]
-        st.caption(f"Fixed table, severity **{sev}**: affected factories deliver {row['fill_mult']:.0%} of planned "
-                   f"output, and {row['lost_day_share']:.0%} of the event's "
-                   f"{dur if dur is not None else row['default_days']} days"
-                   f"{'' if dur is not None else ' (default: no number in the text)'} become delay → "
-                   f"**{ev.extra_delay_days} days** late. Placeholder values pending research.")
-        if st.button("Assess the impact", type="primary"):
-            st.session_state["news_assess"] = (area, sev, dur, args)
-        if st.session_state.get("news_assess") == (area, sev, dur, args):
-            r = _run_safely(run_news, args, area, sev, dur)
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Current plan, if this happens", f"{r['current_with_event'].p_meet_qty:.1%}",
-                      delta=f"{(r['current_with_event'].p_meet_qty - rec.risk.p_meet_qty) * 100:+.1f} pts")
-            new = r["new"]
-            m2.metric("Plan made knowing about it", f"{new.risk.p_meet_qty:.1%}" if new.risk else "—")
-            if new.risk is not None:
-                m3.metric("Cost of re-planning", bdt(new.plan.cost_total - rec.plan.cost_total))
-            st.write("Factories in the current plan that are hit: "
-                     + (", ".join(f"**{f}**" for f in r["affected_in_plan"]) or "none"))
-            if new.risk is None:
-                no_feasible_replan(f"a {sev} disruption in {area}")
-            else:
-                if r["keep_current_is_better"]:
-                    st.warning("Keeping the current plan is at least as likely to succeed under this event as any "
-                               "new plan Bunon found. Do not re-plan for this event alone.")
-                if not r["new_target_met"]:
-                    st.error(f"Even a plan made knowing about this cannot reach the {target:.0%} target. "
-                             "Escalate to the buyer early.")
-                ncands = r["cands"]
-                st.dataframe(pd.DataFrame([plan_row("Current plan (event applied)",
-                                                     rec.model_copy(update={"risk": r["current_with_event"]}), cands),
-                                            plan_row("Plan made knowing about it", new, ncands)]),
-                             hide_index=True, width="stretch")
-                approval_buttons("news_replan", new.plan, f"news: {sev} {area}; P {new.risk.p_meet_qty:.3f}, "
-                                 f"{bdt(new.plan.cost_total)}", order, ncands, "news_replan")
-
-# --- 8 · what-if analyst ---------------------------------------------------------------------------------
-st.header("8 · Ask a what-if question", anchor="whatif")
-st.caption("The LLM decides which tools to run (simulate a disruption on the current plan, solve a new plan "
-           f"with exclusions or caps, compare results), at most {analyst.MAX_TOOL_CALLS} calls. The tools do all "
-           "the numbers; the answer may only cite tool results, and every call is logged below.")
-WHATIF_EXAMPLES = (
-    "If the Ashulia stoppage turns severe, what happens to our plan, and what should we do?",
-    "Should we stop using F2184 and keep any district under 50%? Compare that with the current plan.",
-    "If a nationwide hartal lasts 2 days, can any plan still reach our target?",
-)
-qx = st.columns(len(WHATIF_EXAMPLES))
-for i, q in enumerate(WHATIF_EXAMPLES):
-    if qx[i].button(q, key=f"whatif_ex_{i}"):
-        st.session_state["whatif_text"] = q
-question = st.text_input("Question", key="whatif_text", placeholder="e.g. What if Gazipur floods for a week?")
-if st.button("Ask", type="primary") and question.strip():
-    st.session_state["whatif"] = (question.strip(), args)
-if st.session_state.get("whatif", (None, None))[1] == args:
-    run = _run_safely(run_question, args, st.session_state["whatif"][0])
-    badge = {**SOURCE_BADGE, "unavailable": "⚠️ LLM not available for this question"}
-    st.caption(badge[run.source] + (f" · {len(run.calls)} tool call(s)" if run.calls else ""))
-    for c in run.calls:
-        head = (f"Step {c.step} · `{c.call_id}` · **{c.name}**("
-                + ", ".join(f"{k}={json.dumps(v, ensure_ascii=False)}" for k, v in c.args.items()) + ")")
-        with st.expander(head + ("" if c.ok else " · ⚠️ rejected"), expanded=False):
-            if c.ok:
-                st.dataframe(pd.DataFrame([{"Fact key": k, "Value": v, "Meaning": run.facts[k].label}
-                                           for k, v in c.facts.items()]), hide_index=True, width="stretch")
-            else:
-                st.error(c.error)
-    if run.answer_md:
-        st.markdown(run.answer_md)
-    if run.errors:
-        with st.expander("Checker messages"):
-            st.write(run.errors)
-    if run.source == "unavailable":
-        st.info(("The live-call limit is used up. " if current_mode() == "live" else
-                 "The app is offline and this question is not in the cache. ")
-                + "The three example questions (with default sidebar settings) always work.")
+def section_ask(args) -> None:
+    with st.container(border=True):
+        st.subheader("Ask Bunon", anchor="whatif")
+        st.caption("A what-if question about this order. The LLM decides which tools to run (simulate a disruption, "
+                   f"solve a new plan with exclusions or caps, compare results), at most {analyst.MAX_TOOL_CALLS} "
+                   "calls. The tools do all the numbers; every call is logged below.")
+        qx = st.columns(len(WHATIF_EXAMPLES))
+        for i, q in enumerate(WHATIF_EXAMPLES):
+            if qx[i].button(q, key=f"whatif_ex_{i}"):
+                st.session_state["whatif_text"] = q
+        question = st.text_input("Question", key="whatif_text", placeholder="e.g. What if Gazipur floods for a week?")
+        if st.button("Ask", type="primary") and question.strip():
+            st.session_state["whatif"] = (question.strip(), args)
+        if st.session_state.get("whatif", (None, None))[1] == args:
+            run = _run_safely(run_question, args, st.session_state["whatif"][0])
+            badge = {**SOURCE_BADGE, "unavailable": "⚠️ LLM not available for this question"}
+            st.caption(badge[run.source] + (f" · {len(run.calls)} tool call(s)" if run.calls else ""))
+            for c in run.calls:
+                head = (f"Step {c.step} · `{c.call_id}` · **{c.name}**("
+                        + ", ".join(f"{k}={json.dumps(v, ensure_ascii=False)}" for k, v in c.args.items()) + ")")
+                with st.expander(head + ("" if c.ok else " · ⚠️ rejected"), expanded=False):
+                    if c.ok:
+                        st.dataframe(pd.DataFrame([{"Fact key": k, "Value": v, "Meaning": run.facts[k].label}
+                                                   for k, v in c.facts.items()]), hide_index=True, width="stretch")
+                    else:
+                        st.error(c.error)
+            if run.answer_md:
+                st.markdown(run.answer_md)
+            if run.errors:
+                with st.expander("Checker messages"):
+                    st.write(run.errors)
+            if run.source == "unavailable":
+                st.info(("The live-call limit is used up. " if current_mode() == "live" else
+                         "The app is offline and this question is not in the cache. ")
+                        + "The three example questions (with default settings) always work.")
 
 
-# --- log ------------------------------------------------------------------------------------------------------
-st.divider()
-with st.expander("Decision log (this server)"):
-    st.dataframe(dl.read_log(), hide_index=True, width="stretch")
-    st.caption("Every confirmation, approval and rejection, with the acting role. No names are collected. "
-               "On the hosted demo this log resets when the server restarts.")
+def section_timeline() -> None:
+    st.header("Timeline", anchor="timeline")
+    ev = book().timeline(st.session_state["order_id"])
+    st.dataframe(pd.DataFrame([{"Day": e["story_day"], "Date": e["story_date"], "What": e["summary"],
+                                "Who (role)": e["actor_role"] or "Bunon", "Kind": e["kind"]} for e in ev]),
+                 hide_index=True, width="stretch")
+    st.caption("Every step of this order, on the story clock. Recorded by role, never by name; kept for this "
+               "browser session only.")
+    with st.expander("Decision log (this server)"):
+        st.dataframe(dl.read_log(), hide_index=True, width="stretch")
+        st.caption("Every confirmation, approval and rejection, with the acting role. On the hosted demo this log "
+                   "resets when the server restarts.")
+
+
+def view_timeline() -> None:
+    st.title("Order timeline")
+    prototype_notice()
+    section_intake()
+    args = current_args()
+    if args is None:
+        st.info("Read the email and confirm the order to continue.")
+        return
+    b = run_plans(*args)
+    order, cands, rec, s = b.order, b.cands, b.rec, b.settings
+    oid = st.session_state["order_id"]
+    st.success(f"Order confirmed: **{order.total_qty:,}** pieces, own capacity {order.own_capacity_qty:,} → "
+               f"**subcontract {order.subcontract_qty:,}** by {order.deadline:%d %b %Y} (fixed).")
+
+    st.header("Day 0 · Plan", anchor="plans")
+    if not b.feasible:  # the optimiser found no allocation at all under these limits
+        st.error(f"**No feasible plan.** No combination of at most {s.max_f} factor{'y' if s.max_f == 1 else 'ies'} "
+                 f"can cover {order.subcontract_qty:,} pieces by the deadline under the current limits (unproven "
+                 f"share {s.unproven:.0%}, district share {(s.dcap or 1.0):.0%}, {s.slack} days of slack). Nothing "
+                 "was planned or sent.")
+        st.info("Loosen a limit in the planning settings (most often: allow more factories or a higher district "
+                "share), or escalate to the buyer: the deadline and quantity are fixed.")
+        section_timeline()
+        return
+    book().propose(oid, rec, "Initial plan")
+    bl = b.comp["baseline"]
+    m = st.columns(3)
+    m[0].metric("Chance of success", f"{rec.risk.p_meet_qty:.1%}",
+                help=f"P(good pieces by the deadline ≥ {1 - s.tol:.0%} of {order.subcontract_qty:,}). "
+                     f"±{rec.risk.p_meet_se:.1%} simulation error.")
+    m[1].metric("Pieces allocated", f"{rec.plan.total_allocated:,}", f"+{rec.plan.buffer_qty:,} buffer")
+    m[2].metric("Total cost", bdt_m(rec.plan.cost_total), help=bdt(rec.plan.cost_total))
+    st.caption(f"For comparison, the naive plan (declared capacity + lowest price, no buffer) has a "
+               f"{bl.risk.p_meet_qty:.0%} chance." if bl.risk else "The naive plan found no allocation.")
+    if not b.comp["ours"].target_met:
+        st.error(f"No plan with a buffer ≤ 25% reaches the {s.target:.0%} target. Showing the most likely plan. "
+                 "The deadline is fixed: the options are quantity, target or more slack.")
+    by_id = {c.factory_id: c for c in cands}
+    st.dataframe(pd.DataFrame([{
+        "Factory": ln.factory_id, "District": by_id[ln.factory_id].district, "Pieces": ln.qty,
+        "Share": f"{ln.share:.0%}", "CM (BDT/pc)": round(ln.unit_price_bdt, 1),
+        "Transit (days)": by_id[ln.factory_id].transit_days, "Production days": by_id[ln.factory_id].window_days,
+        "Short/late in failed simulations": f"{rec.risk.fail_contribution.get(ln.factory_id, 0):.0%}",
+    } for ln in rec.plan.lines]), hide_index=True, width="stretch")
+    st.caption("The full comparison, reliability forecasts and the buffer curve are under **Show the maths** "
+               "(sidebar).")
+    st.subheader("Decision memo")
+    memo = memo_for(*args)
+    if memo is None:
+        st.error("No feasible plan to explain.")
+        return
+    show_memo(memo)
+    approval_buttons("plan", rec, "Initial plan", f"{len(rec.plan.lines)} factories, {rec.plan.total_allocated:,} "
+                     f"pcs, P {rec.risk.p_meet_qty:.3f}, {bdt(rec.plan.cost_total)}", order, cands, "plan")
+
+    section_followup(args)
+    section_ask(args)
+    section_timeline()
+
+
+# =============================================================================
+# Dispatch
+# =============================================================================
+
+if view == "Factory app":
+    view_factory()
+elif view == "Show the maths":
+    view_maths()
+else:
+    view_timeline()
 st.caption("Data: Open Supply Hub (pseudonymised) + synthetic history, seed 42. LLM: Gemini, answers cached; "
            "every number in a memo is filled in from the optimiser and simulation results.")

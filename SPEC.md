@@ -249,3 +249,28 @@ Costs fell because material dropped from 180 to 76.5 BDT per piece (the CM rate 
 - Not changed: news and what-if re-plans simulate each grid point twice (optimiser view, then re-scoring); acceptable at today's run time, to revisit with the rescue module.
 
 **Open:** the nationwide-hartal case shows the optimiser minimises cost plus a risk penalty and does not maximise probability directly, so its best plan under a correlated national event can be worse than the current one; the app now says so. To revisit with the rescue module (PLAN_V2 §5).
+
+### D13: 26 Nov 2026: order store, service layer, and the app around one order's timeline (PLAN_V2, 29 Nov – 2 Dec)
+
+**Branch:** `v2` (main and the live app unchanged until the product owner approves a merge; first candidate: the thin loop around 4 Dec).
+
+- **Order store (`bunon/store.py`):** SQLite with every table from PLAN_V2 §4 (orders, sourcing_rounds, messages, offers, allocations, progress_updates, forecasts, rescue_options, qc_records, payments, events, attributions, share_settings). `events` is append-only and is the order's timeline; each row carries the **story clock** (day 0 = order received, 3 Jan 2027) and a `source` (`platform`, `synthetic_history`, `simulated_persona`) so track records can later count platform evidence only. One store per visitor session (`data/runtime/sessions/<visitor>.db`, gitignored), so demo visitors never see each other's orders; restart deletes it.
+- **Service layer (`bunon/service.py`, no Streamlit import, enforced by a test):** `PlanSettings` (the sidebar settings, frozen), `compute_plans` (was the app's `run_plans` body), `replan_after_decline`, `replan_after_reply`, `assess_news`, `analyst_toolbox`, `factory_record` (a factory's own record from the synthetic history, labelled so), and `OrderBook`: `confirm_order`, the story clock (`advance_to`, forward only), `propose` (once per plan id), `decide` (approve/reject; an approved plan supersedes the earlier approved one; also written to the decision log), `timeline`.
+- **Roles:** exporter (owner / director, merchandiser, production manager, quality inspector) and factory (factory owner, floor supervisor), from PLAN_V2. The sidebar's demo role switcher replaces "Acting as"; only exporter roles can confirm orders or approve plans. Roles, never names.
+- **App:** three views.
+  - **Order timeline** (exporter, the demo): Day 0 · Order received (intake), Day 0 · Plan (headline, recommended plan, memo, approve), Day 3 · Follow-up (scripted decline, factory reply, news; each moves the story clock to day 3; preview until the sourcing and follow-up milestones), the "Ask Bunon" box, and the Timeline table of events.
+  - **Show the maths** (exporter): funnel, reliability forecast (now with each factory's QC defect rate), plans compared and the buffer curve, and steering ("Ask for a change"), which moved here per the 26 Nov decision.
+  - **Factory app** (factory roles): a phone frame on the laptop with the factory's inbox (empty until the sourcing milestone; nothing is ever sent automatically) and its own record from the synthetic history.
+  - The planning settings moved into a collapsed sidebar expander (rendered for every role, so switching roles does not reset them).
+- **Unchanged behaviour:** the engine, the prompts and every cached answer; the old demo path (read email → confirm → plan → memo → approve → decline → re-plan → reply → news → what-if) runs in the new layout. Approvals now also land on the order's timeline.
+
+**Tests:** 148 (from 137): `tests/test_service.py` (11: no Streamlit import, every PLAN_V2 table, roles and safe session paths, compute_plans equals the engine, order lifecycle on the story clock, approval supersedes, unknown roles refused, factory record from synthetic history). The sweep follows the new layout: login → timeline → every action → the timeline records the confirmation and (when a plan exists) the approval on day ≥ 3 → Show the maths → steering → the factory app as "Floor supervisor" → logout.
+
+**Milestone review (fresh reviewer subagent, 26 Nov):** no blockers. It verified that the engine and prompt inputs are unchanged from 252ceed and that every scripted LLM answer (intake, both memos, 4 replies and their re-plan memos, 3 news items, 3 what-if questions, 2 steering examples) still comes from the cache offline. Fixed before commit:
+- **Roles enforced in the service, not only the UI:** `confirm_order`, `decide` and `record_steer` raise `PermissionError` for factory roles (tested).
+- **A re-confirmed order (or a new login) starts again on day 0:** each confirmation is a new order id, and logout now deletes the session's store, as Restart does (tested).
+- **Steering lands on the timeline** (`settings_changed` event with the role) via `OrderBook.record_steer`.
+- **More order logic moved into the service:** building the confirmed order from the intake (`order_from_intake`) and the reply's checked quantity and delay (`reply_terms`).
+- **After a deploy reload,** a stored `OrderBook` built from the old class is replaced (isinstance check).
+- Nits fixed: order columns whitelisted in the store; the visitor id must be a 32-character hex id.
+- Not changed: session stores are not cleaned up on the host apart from Restart and logout (ephemeral disk; to revisit); the order row keeps the settings at confirmation time; the LLM-step orchestration (memo, reply, news, what-if) stays in `app.py` as thin per-session wrappers around service and agent calls.

@@ -50,7 +50,7 @@ from bunon import service as sv
 from bunon.data_gen import load_public
 from bunon.llm import LLMClient, budget_status, current_mode, set_visitor
 from bunon.schemas import OrderConstraints, ReplanResult
-from bunon.store import EXPORTER_ROLES, FACTORY_ROLES, ROLES, Store, session_db_path
+from bunon.store import EXPORTER_ROLES, FACTORY_ROLES, ROLES, Store, cleanup_sessions, session_db_path
 from bunon.textnum import literal_numbers
 
 st.set_page_config(page_title="Bunon: subcontracting you can trust", page_icon="🧵", layout="wide")
@@ -383,6 +383,15 @@ def run_question(args: tuple, question: str):
 # =============================================================================
 # Session state: the order book (one SQLite store per visitor session) and the planning settings
 # =============================================================================
+
+@st.cache_resource(show_spinner=False)
+def _cleanup_old_sessions() -> int:
+    """Once per server process: delete visitor stores older than 24 hours."""
+    return cleanup_sessions(24.0)
+
+
+_cleanup_old_sessions()
+
 
 def book() -> sv.OrderBook:
     # isinstance check: after a deploy the package is reloaded (hosting quirk) and an object built from the

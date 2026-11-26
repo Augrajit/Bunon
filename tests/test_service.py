@@ -133,3 +133,15 @@ def test_factory_record_comes_from_synthetic_history():
     assert r["source"] == "synthetic_history" and r["jobs"] > 0
     assert 0 <= r["on_time_rate"] <= 1 and 0 < r["qc_pass_rate"] <= 1
     assert sv.factory_record(h, "F9999")["jobs"] == 0
+
+
+def test_old_session_stores_are_cleaned_up(tmp_path, monkeypatch):
+    import os
+    import time
+    from bunon.store import cleanup_sessions
+    monkeypatch.setenv("BUNON_STORE_DIR", str(tmp_path))
+    old, new = tmp_path / ("a" * 32 + ".db"), tmp_path / ("b" * 32 + ".db")
+    Store(old), Store(new)
+    two_days_ago = time.time() - 48 * 3600
+    os.utime(old, (two_days_ago, two_days_ago))
+    assert cleanup_sessions(24.0) == 1 and not old.exists() and new.exists()

@@ -25,5 +25,6 @@ Put answers in the team chat or straight into this file. I'll copy them into `co
 | 12 | **QC defect rate** at the exporter's final inspection for subcontracted basic tees: typical and bad-factory values | % of pieces | mean 2% (spread: Beta conc. 40 between factories, 200 between jobs) | Good pieces counted |
 | 14 | **Fabric** consumption and price for a 160 GSM basic tee, incl. cutting waste; trims per piece | kg/piece, BDT/kg, BDT | 0.19 kg (Bunon estimate); 350 BDT/kg (midpoint of the interview's 300–400); trims 10 BDT (Bunon guess) → 76.5 BDT/piece derived | Cost of every piece, buffer included |
 | 15 | **Expected loss if the subcontracted part fails** (penalty, air freight, lost margin, a cancelled order): what a manager would enter | BDT | 4,400,000 default; a manager input in the app | The optimiser's weight on risk |
+| 16 | **Share of a set's sewing price taken by the T-shirt alone**: if a set (top + trousers) is sewn for about 150 BDT, what part of that is the T-shirt? (Checks Bunon's 40% assumption behind the 60 BDT CM rate; DATA_PROVENANCE.md §6.1) | % of the set price | 40% (Bunon assumption) | Sets the CM rate of every factory |
 
 **Not needed:** anything about rumours, news, weather, maps or ERP systems. Those are out of scope for 20 Nov.

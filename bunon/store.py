@@ -93,6 +93,26 @@ def session_db_path(visitor: str) -> Path:
     return Path(os.environ.get(SESSIONS_DIR_ENV) or SESSIONS_DIR) / f"{visitor}.db"
 
 
+def cleanup_sessions(max_age_hours: float = 24.0, now: float | None = None) -> int:
+    """Delete visitor stores not modified for `max_age_hours` (run at app start on the host, so demo
+    sessions do not pile up). Returns how many files were removed; files in use or locked are skipped."""
+    import os
+    import time
+    folder = Path(os.environ.get(SESSIONS_DIR_ENV) or SESSIONS_DIR)
+    if not folder.exists():
+        return 0
+    cutoff = (now if now is not None else time.time()) - max_age_hours * 3600
+    removed = 0
+    for f in folder.glob("*.db"):
+        try:
+            if f.stat().st_mtime < cutoff:
+                f.unlink()
+                removed += 1
+        except OSError:  # locked (Windows) or already gone: try again next start
+            continue
+    return removed
+
+
 class Store:
     """Thin wrapper over one SQLite file. Every write is a short transaction."""
 

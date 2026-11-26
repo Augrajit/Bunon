@@ -388,3 +388,31 @@ Costs fell because material dropped from 180 to 76.5 BDT per piece (the CM rate 
 **Tests:** 188 unit (from 179): AI drafts render only plan numbers; five rule breaks (digit, Banglish number word, missing placeholder, named factory, unknown key) fall back to the template; Bangla/Banglish number words at word edges; an offline miss drafts with the template and `draft_round` records the source; the warning cites only forecast facts, falls back on a literal number or a vague amount, and the level is code. The default sweep case asserts all six drafts are AI-written from the cache and the warning is a cached LLM answer. Full sweep 26 passed; replay checked under two hash seeds.
 
 **Not done:** an "explain the warning" step for other days or several updates (task 3.1), and the persona text from the team (the drafts do not depend on it).
+
+### D22: 27 Nov 2026: forecast from several updates; a warning on a drop between updates (HANDOFF tasks 3.1, 3.2)
+
+**Why:** the day-12 forecast used only the last update that arrived. If a second factory typed an update in the factory app, the first factory's update was dropped, and an on-time update could hide a late one (the factory-app test showed "on track" while F1064 was 3,300 short).
+
+**What (all code, no LLM number):**
+- `loop.Update(factory_id, pieces_done, delay_days, day)`, `loop.latest_updates` (the latest per factory) and `loop.forecast_from_updates(world, b, point, cands, updates)`: each factory with an update is projected from its latest one with the same arithmetic as before. All the projections are taken as certain **together** (`_certain` takes several ids, `_risk_with` takes `{factory: pieces}`), and the order is simulated once. The result is one `Forecast` per updated factory, the one furthest behind first. Each forecast carries the joint chance and the others' projections (`Forecast.others`, `.projections`, `.order_shortfall`). `forecast_after_update` is now the one-update case of it.
+- Rescue options use the same footing. `rescue_move` locks every updated factory at what it can make; overtime and "accept the shortfall" are scored with all updates; the last rescue day uses the order-wide shortfall.
+- `OrderBook.updates(order_id)` turns the recorded updates (typed, or read under the quote rule) into `Update`s; a delay stated with an offer is not an update. `OrderBook.previous_p(order_id, day)` gives the order's chance at the latest forecast before that day.
+- A drop between updates triggers a warning: `loop.chance_dropped` / `warning_level(fc, target, prev_p)`. A fall of at least `config.WARN_DROP_PP` = 5 points (PLACEHOLDER, research ask 19) since the previous forecast from updates is "watch" (or "below target") even with no shortfall. A rise is never a warning.
+- The warning text: `agent.warning_facts(..., prev_p)` adds `warn.order_shortfall` and `warn.others` with several updates, and `warn.p_prev` after an earlier forecast. These are required placeholders when present and left out otherwise, so the one-update prompt and its cached answer are unchanged.
+- The app reads every factory's latest update, shows a table of the projections when there are several, and states the drop in a caption.
+
+**Numbers (defaults, unchanged):** F1064 alone (3,500 done, 2 days late) projects 9,800 pieces, 3,300 short; the order's chance goes from 84.1% to 81.8%, and the move rescue gives 85.6%. **Example with two late factories** (not in the scripted demo): F1856 at 4,000 done and 3 days late projects 9,333 pieces (3,867 short, 79.7% alone). Together with F1064 the shortfall is 7,167 and the joint chance is 69.1%, below either one alone. No move plan is feasible under the current limits, overtime at F1856 gives 75.9%, and accepting the shortfall is no longer within tolerance.
+
+**Tests:** 196 unit tests (from 188):
+- one update through the multi path equals the old forecast, with the published 9,800 and 81.8%
+- shortfalls add and the chance is joint and no higher than either factory alone
+- the latest update per factory wins, and factories outside the plan are ignored
+- an on-plan update elsewhere keeps the shortfall and never lowers the chance
+- the move locks both late factories
+- drop thresholds, including that a rise is not a warning
+- service updates and previous chance
+- warning facts with several updates: the template cites the order-wide shortfall and the previous chance
+
+The factory-app click-through now has F1856's on-time typed update next to F1064's late scripted one: the table lists both, the warning shows, and the buyer is told. Full sweep passed.
+
+**Not done:** a second scripted update day (needs the story-clock jumps of task 5.2). On the same story day a forecast row recorded before a second update keeps its earlier chance (`record_forecast` writes once per day and factory); `previous_p` reads only earlier days, so the drop rule is unaffected.

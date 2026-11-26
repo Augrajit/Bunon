@@ -678,8 +678,11 @@ FACTS (key = value: meaning):
 
 
 def warning_facts(fc, delay: int | None, target: float, last_day: int | None, last_date: date | None,
-                  last_by: str | None, level: str) -> FactSheet:
-    """Facts for the warning text, all from loop.forecast_after_update and loop.last_rescue_day (code)."""
+                  last_by: str | None, level: str, prev_p: float | None = None) -> FactSheet:
+    """Facts for the warning text, all from loop.forecast_from_updates and loop.last_rescue_day (code). With
+    several updated factories, `fc` is the one furthest behind and the order-wide shortfall is added; with a
+    previous forecast from updates (`prev_p`), the chance then is added. Both are left out when absent, so the
+    one-update prompt is unchanged."""
     fs: FactSheet = {
         "warn.level": Fact(level, "text", "warning level set by code"),
         "warn.factory": Fact(fc.factory_id, "text", "the factory that sent the update"),
@@ -697,6 +700,12 @@ def warning_facts(fc, delay: int | None, target: float, last_day: int | None, la
     }
     if delay:
         fs["warn.delay"] = Fact(delay, "days", "days late the factory reports")
+    if getattr(fc, "others", ()):
+        fs["warn.others"] = Fact(len(fc.others), "qty", "other factories that also sent an update")
+        fs["warn.order_shortfall"] = Fact(fc.order_shortfall, "qty",
+                                          "pieces short across every factory that sent an update")
+    if prev_p is not None:
+        fs["warn.p_prev"] = Fact(prev_p, "prob", "chance the order succeeds at the previous forecast from updates")
     if last_day is not None:
         fs["warn.last_date"] = Fact(last_date, "date", "last day a rescue is still possible")
         if last_by:
@@ -710,7 +719,11 @@ def template_warning(fs: FactSheet) -> WarningLLM:
             "against {{warn.rate_plan}} planned)"
             + (" and reports {{warn.delay}} lost" if "warn.delay" in fs else "")
             + ". At this rate it makes about {{warn.projected}} pieces by its ship-by day, {{warn.shortfall}} short. "
-            "The chance the order succeeds moves from {{warn.p_before}} to {{warn.p_after}}. ")
+            + ("The chance the order succeeds moves from {{warn.p_before}} to {{warn.p_after}}. "
+               if "warn.p_prev" not in fs else
+               "The chance the order succeeds moves from {{warn.p_prev}} at the previous update to {{warn.p_after}}. "))
+    if "warn.order_shortfall" in fs:
+        expl += "With the other updates, the order is {{warn.order_shortfall}} pieces short in all. "
     expl += ("A rescue is still possible until {{warn.last_date}}." if "warn.last_date" in fs
              else "No factory outside the plan can still make the shortfall in time.")
     return WarningLLM(headline=f + " is behind.", explanation=expl)
@@ -721,7 +734,7 @@ _VAGUE = re.compile(r"\b(a few|few|several|some|many|a lot of|lots of|a number o
 
 def warning_required(fs: FactSheet) -> list[str]:
     return [k for k in ("warn.pieces_done", "warn.delay", "warn.projected", "warn.shortfall", "warn.p_after",
-                        "warn.last_date") if k in fs]
+                        "warn.last_date", "warn.order_shortfall", "warn.p_prev") if k in fs]
 
 
 def validate_warning(w: WarningLLM, fs: FactSheet) -> list[str]:

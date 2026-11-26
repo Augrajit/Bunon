@@ -1143,15 +1143,19 @@ def _split(args: tuple, offers: tuple):
 
 
 @st.cache_data(show_spinner="Re-forecasting the order from the update…")
-def _forecast(args: tuple, offers: tuple, fid: str, done: int, delay, day: int):
+def _forecast(args: tuple, offers: tuple, ups: tuple):
+    """Forecast from the latest update of every factory that sent one (all taken as certain together). Returns the
+    forecasts (furthest behind first), the last rescue day for the order-wide shortfall, and the rescue options
+    for the factory furthest behind, scored with every update."""
     b = run_plans(*args)
     res, cands = _split(args, offers)
     declined = [o.factory_id for o in offers if o.decision == "reject"]
-    fc = lp.forecast_after_update(world(), b, res.recommended, cands, fid, done, delay, day)
-    last = lp.last_rescue_day(world(), b, fc.shortfall, {ln.factory_id for ln in res.recommended.plan.lines}
-                              | set(declined), today=day)  # (day, factory that could still make the shortfall)
-    opts = lp.rescue_options(world(), b, res.recommended, cands, fc, declined, day)
-    return fc, last, opts
+    fcs = lp.forecast_from_updates(world(), b, res.recommended, cands, list(ups))
+    fc = fcs[0]
+    last = lp.last_rescue_day(world(), b, fc.order_shortfall, {ln.factory_id for ln in res.recommended.plan.lines}
+                              | set(declined), today=fc.day)  # (day, factory that could still make the shortfall)
+    opts = lp.rescue_options(world(), b, res.recommended, cands, fc, declined, fc.day)
+    return fcs, last, opts
 
 
 def _was_approved(oid: str, plan_id: str) -> bool:
@@ -1284,37 +1288,30 @@ def section_update(args, oid: str, offers: tuple, split_pt) -> tuple | None:
     if not msgs:
         st.info("No updates today.")
         return None
-    m = msgs[-1]
-    if m["draft_of"] == sv.FACTORY_FORM:  # typed by the factory in its app: used as typed, no AI reading
-        u = next(u for u in book().store.rows("progress_updates", oid) if u["update_id"] == m["msg_id"])
-        st.markdown(f"**{m['factory_id']}** (typed in the factory app): “{m['text']}”")
-        st.caption("The factory typed these numbers itself, so no AI reading is needed.")
-        done, delay = u["pieces_done_cum"], (u["delay_days"] or None)
-    else:
-        res = llm_once("Reading the update…", _parse_update, m["text"], qty[m["factory_id"]])
-        if not any(u["update_id"] == m["msg_id"] for u in book().store.rows("progress_updates", oid)):
-            book().record_update(oid, m, res)
-        st.markdown(f"**{m['factory_id']}** ({_simulated_tag(m)}): “{m['text']}”")
-        if res.meta:
-            st.caption(SOURCE_BADGE[res.meta.source])
-        for note in res.notes:
-            st.warning(note)
-        icon = {"ok": "✅ found in update", "missing": "— not stated", "rejected": "⚠️ check failed"}
-        st.dataframe(pd.DataFrame([
-            {"Item": "Pieces finished so far", "Value": "" if res.pieces_done.value is None else f"{res.pieces_done.value:,}",
-             "Quote": res.pieces_done.source_span or "", "Check": icon[res.pieces_done.status]},
-            {"Item": "Days late", "Value": "" if res.delay_days.value is None else str(res.delay_days.value),
-             "Quote": res.delay_days.source_span or "", "Check": icon[res.delay_days.status]},
-            {"Item": "Reason given", "Value": res.cause.value or "", "Quote": res.cause.source_span or "",
-             "Check": icon[res.cause.status]}]), hide_index=True, width="stretch")
-        if res.pieces_done.status != "ok":
-            st.info("The update states no verified number of finished pieces: ask the factory before re-forecasting.")
-            return None
-        delay = res.delay_days.value if res.delay_days.status == "ok" else None
-        done = res.pieces_done.value
-    # Forecast as of the day the update was sent, so later days do not change an approved rescue.
-    fc, (last, last_by), opts = _forecast(args, offers, m["factory_id"], done, delay, m["story_day"])
-    book().record_forecast(oid, fc, last)
+    latest = {}
+    for m in msgs:  # the latest message per factory; an earlier update is replaced by a later one
+        if m["factory_id"] not in latest or m["story_day"] >= latest[m["factory_id"]]["story_day"]:
+            latest[m["factory_id"]] = m
+    for m in latest.values():
+        _show_update(oid, m, qty)
+    # Numbers from the recorded updates only (typed by the factory, or read under the quote rule); an update
+    # without a verified piece count is not used.
+    ups = tuple(lp.latest_updates([u for u in book().updates(oid) if u.factory_id in qty]))
+    if not ups:
+        return None
+    # Forecast as of the day the latest update was sent, so later days do not change an approved rescue.
+    fcs, (last, last_by), opts = _forecast(args, offers, ups)
+    fc = fcs[0]
+    prev = book().previous_p(oid, fc.day)
+    for f in fcs:
+        book().record_forecast(oid, f, last)
+    if len(fcs) > 1:
+        st.markdown(f"**{len(fcs)} factories sent updates.** Each is projected from its latest update; the order's "
+                    "chance is simulated once with all of them.")
+        st.dataframe(pd.DataFrame([{"Factory": f.factory_id, "Planned": f"{f.planned:,}",
+                                    "Finished so far": f"{f.pieces_done:,}",
+                                    "Pieces by its ship-by day": f"{f.projected:,}", "Short": f"{f.shortfall:,}"}
+                                   for f in fcs]), hide_index=True, width="stretch")
     k = st.columns(4)
     k[0].metric(f"{fc.factory_id}: pieces by its ship-by day", f"{fc.projected:,}", f"{-fc.shortfall:,} vs plan",
                 delta_color="normal")
@@ -1323,23 +1320,56 @@ def section_update(args, oid: str, offers: tuple, split_pt) -> tuple | None:
     k[3].metric("Last day to rescue", f"day {last}" if last is not None else "—",
                 help=f"{book().date_of(last):%d %b %Y}" if last is not None else "No factory outside the plan can "
                      "still make the shortfall in time.")
-    if fc.shortfall <= 0:
-        st.success(f"**{fc.factory_id} is on track** for its {fc.planned:,} pieces. No rescue needed.")
+    level = lp.warning_level(fc, run_plans(*args).settings.target, prev)
+    if level == "on track":
+        st.success(f"**{fc.factory_id} is on track** for its {fc.planned:,} pieces. No rescue needed." if len(fcs) == 1
+                   else f"**All {len(fcs)} factories that sent updates are on track.** No rescue needed.")
         return fc, last, opts
-    w = llm_once("Explaining the forecast…", _warning_text, args, offers, m["factory_id"], done, delay,
-                 m["story_day"])
+    if prev is not None and lp.chance_dropped(fc, prev):
+        st.caption(f"The order's chance fell from {prev:.1%} at the previous update to {fc.p_after:.1%} "
+                   f"(a warning from a drop of {C.WARN_DROP_PP * 100:.0f} points, a placeholder).")
+    w = llm_once("Explaining the forecast…", _warning_text, args, offers, ups, prev)
     st.warning(w.headline + "\n\n" + w.explanation)
-    st.caption(f"Level set by code: **{lp.warning_level(fc, run_plans(*args).settings.target)}**. "
+    st.caption(f"Level set by code: **{level}**. "
                f"{SOURCE_BADGE[w.source]}. Every number comes from the update's figures and the simulation; the "
                "LLM writes only the words around placeholders, and the manager chooses what to do.")
     return fc, last, opts
 
 
-def _warning_text(args: tuple, offers: tuple, fid: str, done: int, delay, day: int):
-    fc, (last, last_by), _ = _forecast(args, offers, fid, done, delay, day)
+def _show_update(oid: str, m: dict, qty: dict) -> None:
+    """Show one factory's latest update; a scripted one is read by the AI under the quote rule and recorded."""
+    if m["draft_of"] == sv.FACTORY_FORM:  # typed by the factory in its app: used as typed, no AI reading
+        st.markdown(f"**{m['factory_id']}** (typed in the factory app): “{m['text']}”")
+        st.caption("The factory typed these numbers itself, so no AI reading is needed.")
+        return
+    res = llm_once("Reading the update…", _parse_update, m["text"], qty[m["factory_id"]])
+    if not any(u["update_id"] == m["msg_id"] for u in book().store.rows("progress_updates", oid)):
+        book().record_update(oid, m, res)
+    st.markdown(f"**{m['factory_id']}** ({_simulated_tag(m)}): “{m['text']}”")
+    if res.meta:
+        st.caption(SOURCE_BADGE[res.meta.source])
+    for note in res.notes:
+        st.warning(note)
+    icon = {"ok": "✅ found in update", "missing": "— not stated", "rejected": "⚠️ check failed"}
+    st.dataframe(pd.DataFrame([
+        {"Item": "Pieces finished so far", "Value": "" if res.pieces_done.value is None else f"{res.pieces_done.value:,}",
+         "Quote": res.pieces_done.source_span or "", "Check": icon[res.pieces_done.status]},
+        {"Item": "Days late", "Value": "" if res.delay_days.value is None else str(res.delay_days.value),
+         "Quote": res.delay_days.source_span or "", "Check": icon[res.delay_days.status]},
+        {"Item": "Reason given", "Value": res.cause.value or "", "Quote": res.cause.source_span or "",
+         "Check": icon[res.cause.status]}]), hide_index=True, width="stretch")
+    if res.pieces_done.status != "ok":
+        st.info(f"{m['factory_id']}'s update states no verified number of finished pieces: ask the factory before "
+                "relying on it. It is left out of the forecast.")
+
+
+def _warning_text(args: tuple, offers: tuple, ups: tuple, prev):
+    fcs, (last, last_by), _ = _forecast(args, offers, ups)
+    fc = fcs[0]
+    delay = next(u.delay_days for u in ups if u.factory_id == fc.factory_id)
     target = run_plans(*args).settings.target
     fs = ag.warning_facts(fc, delay, target, last, book().date_of(last) if last is not None else None, last_by,
-                          lp.warning_level(fc, target))
+                          lp.warning_level(fc, target, prev), prev)
     return ag.write_warning(fs, LLMClient())
 
 
@@ -1351,7 +1381,7 @@ def _write_msg(args: tuple, kind: str, extra: int, total: int, lang: str, templa
 def section_rescue(args, oid: str, fc, opts) -> bool:
     """Day 12: rescue options with their chance and cost; a production manager decides."""
     st.header(f"Day {lp.UPDATE_DAY} · Rescue", anchor="rescue")
-    if fc.shortfall <= 0:
+    if fc.order_shortfall <= 0:
         st.caption("No shortfall projected, so nothing to rescue.")
         return True
     b = run_plans(*args)
@@ -1388,7 +1418,7 @@ def section_rescue(args, oid: str, fc, opts) -> bool:
     if not _was_approved(oid, rp.new.plan.plan_id):
         return False
     extra = [(d["factory_id"], d["new_qty"] - d["old_qty"]) for d in rp.diff
-             if d["new_qty"] > d["old_qty"] and d["factory_id"] != fc.factory_id]
+             if d["new_qty"] > d["old_qty"] and d["factory_id"] not in fc.projections]
     lang = {p.factory_id: p.language for p in persona_file().personas}
     sent = {m["factory_id"] for m in book().store.messages(oid) if m["kind"] == "rescue_request"}
     written = {f: llm_once("Drafting the rescue requests…", _write_msg, args, "rescue", n, 0, lang.get(f, "English"),

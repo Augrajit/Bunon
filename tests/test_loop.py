@@ -556,3 +556,115 @@ def test_ai_warning_cites_only_forecast_facts(tmp_path, world, bundle):
     assert w.source == "template" and any("vague" in e or "warn.pieces_done" in e for e in w.errors)
     assert lp.warning_level(lp.forecast_after_update(world, bundle, res.recommended, cands, "F1064", 13_100, 0,
                                                      lp.UPDATE_DAY), 0.90) == "on track"
+
+
+# --- several updates (HANDOFF task 3.1, SPEC.md D22) ------------------------------------------------------------
+
+def _two_late(world, bundle):
+    res, cands = lp.split_from_offers(world, bundle, answer_key_offers(bundle))
+    pt = res.recommended
+    a, b2 = [ln.factory_id for ln in sorted(pt.plan.lines, key=lambda ln: -ln.qty)][:2]
+    qa = next(ln.qty for ln in pt.plan.lines if ln.factory_id == a)
+    qb = next(ln.qty for ln in pt.plan.lines if ln.factory_id == b2)
+    ups = [lp.Update(a, qa // 4, 2, lp.UPDATE_DAY), lp.Update(b2, qb // 4, 3, lp.UPDATE_DAY)]
+    return pt, cands, a, b2, ups
+
+
+def test_one_update_through_the_multi_path_is_unchanged(world, bundle):
+    res, cands = lp.split_from_offers(world, bundle, answer_key_offers(bundle))
+    one = lp.forecast_after_update(world, bundle, res.recommended, cands, "F1064", 3_500, 2, lp.UPDATE_DAY)
+    many = lp.forecast_from_updates(world, bundle, res.recommended, cands, [lp.Update("F1064", 3_500, 2, lp.UPDATE_DAY)])
+    assert many == [one] and one.others == () and one.order_shortfall == one.shortfall
+    assert one.projected == 9_800 and f"{one.p_after:.1%}" == "81.8%"  # the published demo numbers stay
+
+
+def test_two_late_factories_shortfalls_add_and_chance_is_joint(world, bundle):
+    pt, cands, a, b2, ups = _two_late(world, bundle)
+    alone = {u.factory_id: lp.forecast_from_updates(world, bundle, pt, cands, [u])[0] for u in ups}
+    both = lp.forecast_from_updates(world, bundle, pt, cands, ups)
+    assert {fc.factory_id for fc in both} == {a, b2}
+    assert [fc.shortfall for fc in both] == sorted((fc.shortfall for fc in both), reverse=True)
+    for fc in both:  # each projection is the factory's own arithmetic; the chance is one joint simulation
+        assert fc.projected == alone[fc.factory_id].projected and fc.shortfall == alone[fc.factory_id].shortfall
+        assert fc.order_shortfall == sum(x.shortfall for x in alone.values())
+        assert fc.p_after == both[0].p_after <= min(x.p_after for x in alone.values())
+        assert fc.projections == {x.factory_id: x.projected for x in alone.values()}
+
+
+def test_latest_update_per_factory_wins_and_outsiders_are_ignored(world, bundle):
+    res, cands = lp.split_from_offers(world, bundle, answer_key_offers(bundle))
+    pt = res.recommended
+    early = lp.Update("F1064", 1_000, 5, 8)
+    late = lp.Update("F1064", 3_500, 2, lp.UPDATE_DAY)
+    assert lp.latest_updates([late, early]) == [late] and lp.latest_updates([early, late]) == [late]
+    outsider = next(c.factory_id for c in bundle.cands if c.factory_id not in {ln.factory_id for ln in pt.plan.lines})
+    fcs = lp.forecast_from_updates(world, bundle, pt, cands, [early, late, lp.Update(outsider, 0, 9, lp.UPDATE_DAY)])
+    assert fcs == [lp.forecast_after_update(world, bundle, pt, cands, "F1064", 3_500, 2, lp.UPDATE_DAY)]
+    assert lp.forecast_from_updates(world, bundle, pt, cands, []) == []
+
+
+def test_an_on_plan_update_elsewhere_keeps_the_shortfall_and_never_lowers_the_chance(world, bundle):
+    res, cands = lp.split_from_offers(world, bundle, answer_key_offers(bundle))
+    pt = res.recommended
+    other = next(ln for ln in pt.plan.lines if ln.factory_id != "F1064")
+    late = lp.Update("F1064", 3_500, 2, lp.UPDATE_DAY)
+    alone = lp.forecast_from_updates(world, bundle, pt, cands, [late])[0]
+    fcs = lp.forecast_from_updates(world, bundle, pt, cands, [late, lp.Update(other.factory_id, other.qty, 0,
+                                                                                lp.UPDATE_DAY)])
+    assert fcs[0].factory_id == "F1064" and fcs[0].order_shortfall == alone.shortfall
+    assert fcs[0].p_after >= alone.p_after - 1e-9
+
+
+def test_rescue_with_two_updates_locks_both_late_factories(world, bundle):
+    pt, cands, a, b2, ups = _two_late(world, bundle)
+    fc = lp.forecast_from_updates(world, bundle, pt, cands, ups)[0]
+    rp = lp.rescue_move(world, bundle, pt, cands, fc, ["F0824"], lp.UPDATE_DAY)
+    opts = {o.kind: o for o in lp.rescue_options(world, bundle, pt, cands, fc, ["F0824"], lp.UPDATE_DAY)}
+    if rp is not None:
+        new = {ln.factory_id: ln.qty for ln in rp.new.plan.lines}
+        for f, q in fc.projections.items():  # neither updated factory is asked for more than it can make
+            assert new.get(f, 0) <= q // 100 * 100
+        assert not any(f in opts["move"].note for f in fc.projections)
+    assert opts["accept_shortfall"].p_after == fc.p_after
+
+
+def test_warning_on_a_drop_between_two_updates(world, bundle):
+    res, cands = lp.split_from_offers(world, bundle, answer_key_offers(bundle))
+    ln = next(x for x in res.recommended.plan.lines if x.factory_id == "F1064")
+    fc = lp.forecast_after_update(world, bundle, res.recommended, cands, "F1064", ln.qty, 0, lp.UPDATE_DAY)
+    assert fc.shortfall == 0
+    assert lp.warning_level(fc, 0.0) == "on track"
+    assert lp.warning_level(fc, 0.0, prev_p=fc.p_after + C.WARN_DROP_PP / 2) == "on track"
+    assert lp.warning_level(fc, 0.0, prev_p=fc.p_after + C.WARN_DROP_PP) == "watch"
+    assert lp.warning_level(fc, 1.0, prev_p=fc.p_after + C.WARN_DROP_PP) == "below target"
+    assert lp.warning_level(fc, 0.0, prev_p=fc.p_after - 0.2) == "on track"  # a rise is never a warning
+
+
+def test_service_lists_updates_and_the_previous_chance(book, world, bundle):
+    oid = book.confirm_order(bundle.order, "Merchandiser", sv.PlanSettings(), None)
+    assert book.updates(oid) == [] and book.previous_p(oid, lp.UPDATE_DAY) is None
+    book.store.insert("progress_updates", {"update_id": "u1", "order_id": oid, "factory_id": "F1064", "story_day": 8,
+                                           "text": "x", "pieces_done_cum": 1_000, "delay_days": 0, "is_simulated": 0,
+                                           "parse_status": "typed by factory"})
+    book.store.insert("progress_updates", {"update_id": "u0", "order_id": oid, "factory_id": "F1064", "story_day": 2,
+                                           "text": "y", "delay_days": 3, "is_simulated": 0,
+                                           "parse_status": "from offer"})  # a delay stated with an offer: not an update
+    assert book.updates(oid) == [lp.Update("F1064", 1_000, None, 8)]
+    res, cands = lp.split_from_offers(world, bundle, answer_key_offers(bundle))
+    fc = lp.forecast_after_update(world, bundle, res.recommended, cands, "F1064", 1_000, None, 8)
+    book.record_forecast(oid, fc, None)
+    assert book.previous_p(oid, 8) is None and book.previous_p(oid, lp.UPDATE_DAY) == pytest.approx(fc.p_after)
+
+
+def test_warning_with_several_updates_and_a_previous_chance(tmp_path, world, bundle):
+    pt, cands, a, b2, ups = _two_late(world, bundle)
+    fc = lp.forecast_from_updates(world, bundle, pt, cands, ups)[0]
+    fs = ag.warning_facts(fc, 2, 0.90, None, None, None, lp.warning_level(fc, 0.90, fc.p_after + 0.1),
+                          fc.p_after + 0.1)
+    assert {"warn.order_shortfall", "warn.p_prev"} <= set(ag.warning_required(fs))
+    w = ag.write_warning(fs, LLMClient(mode="offline", cache_dir=tmp_path))  # a miss: the template
+    assert w.source == "template" and f"{fc.order_shortfall:,}" in w.explanation
+    assert f"{fc.p_after + 0.1:.1%}" in w.explanation
+    one = lp.forecast_after_update(world, bundle, pt, cands, "F1064", 3_500, 2, lp.UPDATE_DAY)
+    assert not {"warn.order_shortfall", "warn.p_prev", "warn.others"} & set(
+        ag.warning_facts(one, 2, 0.90, None, None, None, "below target"))  # the one-update prompt is unchanged

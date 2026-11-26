@@ -467,6 +467,19 @@ class OrderBook:
                                  ensure_ascii=False),
             "parse_status": res.meta.source if res.meta else "unavailable", "is_simulated": 1})
 
+    def updates(self, order_id: str) -> list[lp.Update]:
+        """Every daily update with a verified (or typed) piece count, oldest first; delays stated with an offer
+        are not updates. `loop.latest_updates` keeps the latest per factory."""
+        rows = [u for u in self.store.rows("progress_updates", order_id)
+                if u["parse_status"] != "from offer" and u["pieces_done_cum"] is not None]
+        return [lp.Update(u["factory_id"], u["pieces_done_cum"], u["delay_days"] or None, u["story_day"])
+                for u in sorted(rows, key=lambda u: u["story_day"])]
+
+    def previous_p(self, order_id: str, day: int) -> float | None:
+        """The order's chance at the latest forecast from updates made before `day` (None if there was none)."""
+        rows = [f for f in self.store.rows("forecasts", order_id) if f["story_day"] < day]
+        return max(rows, key=lambda f: f["story_day"])["p_meet_order"] if rows else None
+
     def record_forecast(self, order_id: str, fc: lp.Forecast, last_day: int | None) -> None:
         if any(f["story_day"] == fc.day and f["factory_id"] == fc.factory_id
                for f in self.store.rows("forecasts", order_id)):

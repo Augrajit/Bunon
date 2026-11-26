@@ -54,15 +54,19 @@ def test_factory_answers_and_updates_in_the_app(monkeypatch, tmp_path):
     assert r.click(key="approve_split"), r.problems
     assert r.click(key="go_day_update"), r.problems
 
-    # day 12, factory app: F1856 posts an on-track update; the exporter's forecast uses it as typed
+    # day 12, factory app: F1856 posts an on-track update next to F1064's scripted late one; the exporter's
+    # forecast uses both (D22): F1856 as typed, F1064 as read, simulated together
     _as(at, "Floor supervisor")
     at.selectbox(key="factory_view_id").set_value("F1856").run()
     at.number_input[0].set_value(13_600)
     r.click(prefix="Post update for day")
     _as(at, "Merchandiser", "Order timeline")
     assert any("typed in the factory app" in m.value for m in at.markdown), r.problems
-    assert any("is on track" in s.value for s in at.success), [s.value for s in at.success]
-    assert r.click(key="go_day_qc"), r.problems  # no rescue needed, so QC is next
+    assert any("2 factories sent updates" in m.value for m in at.markdown), r.problems
+    table = next(df.value for df in at.dataframe if "Pieces by its ship-by day" in df.value.columns)
+    assert list(table["Factory"]) == ["F1064", "F1856"] and table["Short"].iloc[1] == "0"
+    assert at.warning and not any("on track" in s.value for s in at.success)
+    assert r.click(key="rescue_escalate_buyer") and r.click(key="go_day_qc"), r.problems
     assert not r.problems, "\n".join(r.problems)
     log = next(df.value for df in at.dataframe if "Who (role)" in df.value.columns)
     assert {"Factory owner", "Floor supervisor"} <= set(log["Who (role)"])

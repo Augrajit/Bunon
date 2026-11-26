@@ -188,6 +188,7 @@ SURGE_SHARE = 0.15             # PLACEHOLDER: extra daily output a factory gets 
 SURGE_PRICE_FACTOR = 1.25      # PLACEHOLDER: CM premium paid on overtime pieces (research ask 18)
 PRICE_MATCH_TOLERANCE = 0.02   # PLACEHOLDER: a quoted rate within 2% of our planned CM rate counts as the same rate
 PRICE_RANGE_BDT = (30.0, 120.0)  # PLACEHOLDER: quoted CM rates outside this range are flagged for a human, not dropped
+WARN_DROP_PP = 0.05            # PLACEHOLDER: a drop of 5 points in the order's chance since the last forecast is a warning (research ask 19)
 PAYMENT_TERM_DAYS = 30        # PLACEHOLDER: days after delivery the exporter pays a subcontractor (research ask 17)
 PLANNED_SLACK_DAYS = 4
 ROAD_CIRCUITY = 1.35            # ASSUMPTION

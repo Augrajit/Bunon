@@ -463,7 +463,7 @@ def approval_buttons(step: str, point, label: str, summary: str, order, cands, k
         st.info("Switch to an exporter role in the sidebar to approve or reject.")
         return
     c1, c2, _ = st.columns([1, 1, 1])
-    if c1.button("✅ Approve", key=f"approve_{key}", type="primary"):
+    if c1.button("✅ Approve", key=f"approve_{key}", type="primary") or _pressed(f"approve_{key}"):
         book().decide(oid, step, point, label, "approved", role, summary)
         st.session_state[state_key] = "approved"
     if c2.button("✖ Reject", key=f"reject_{key}"):
@@ -519,8 +519,8 @@ def prototype_notice() -> None:
 
 VIEWS = ("Order timeline", "Show the maths")
 TIMELINE_NAV = (("order", "Day 0 · Order"), ("plans", "Day 0 · Plan"), ("sourcing", "Day 0 · Sourcing"),
-                ("offers", "Day 2 · Offers"), ("split", "Day 2 · Split"), ("update", "Day 12 · Update"),
-                ("rescue", "Day 12 · Rescue"), ("qc", "Day 26 · QC"), ("record", "Track record"),
+                ("offers", "Day 2 · Offers"), ("split", "Day 2 · Split"), ("update", "Days 12–14 · Updates"),
+                ("rescue", "Rescue"), ("qc", "Day 26 · QC"), ("record", "Track record"),
                 ("payments", "Payments"),
                 ("whatif", "Ask Bunon"), ("timeline", "Timeline"))
 
@@ -1207,7 +1207,7 @@ def section_sourcing(args, oid: str) -> bool:
         return True
     if _role_or_none() is None:
         st.info("Switch to an exporter role to approve the requests.")
-    elif st.button("Approve and send the requests", type="primary", key="send_requests"):
+    elif st.button("Approve and send the requests", type="primary", key="send_requests") or _pressed("send_requests"):
         book().approve_round(oid, st.session_state["role"])
         st.rerun()
     return False
@@ -1217,7 +1217,8 @@ def section_offers(args, oid: str) -> tuple | None:
     """Day 2: simulated factories reply; the LLM reads each reply; the code checks every quote."""
     st.header(f"Day {lp.REPLY_DAY} · Replies and offers", anchor="offers")
     if book().day(oid) < lp.REPLY_DAY:
-        if st.button(f"Next: day {lp.REPLY_DAY}, the factories reply", type="primary", key="go_day_replies"):
+        if st.button(f"Next: day {lp.REPLY_DAY}, the factories reply", type="primary", key="go_day_replies") \
+                or _pressed("go_day_replies"):
             book().advance_to(oid, lp.REPLY_DAY, "factories reply to the sourcing round", _role_or_none())
             st.rerun()
         return None
@@ -1284,18 +1285,70 @@ def section_split(args, oid: str, offers: tuple) -> object | None:
     return pt if _was_approved(oid, pt.plan.plan_id) else None
 
 
+# Story-clock jumps for the pitch (D25): each presses the buttons a presenter would press to reach a checkpoint,
+# with the demo's default choices; the approvals are recorded under the current (exporter) role, as with a click.
+_TO_DAY2 = ("approve_plan", "send_requests", "go_day_replies")
+_TO_DAY12 = _TO_DAY2 + ("approve_split", "go_day_update")
+_TO_DAY14 = _TO_DAY12 + ("go_day_update2",)
+JUMPS = ((f"Day {lp.REPLY_DAY} · replies", lp.REPLY_DAY, _TO_DAY2),
+         (f"Day {lp.UPDATE_DAY} · update", lp.UPDATE_DAY, _TO_DAY12),
+         (f"Day {lp.UPDATE_DAY2} · second update", lp.UPDATE_DAY2, _TO_DAY14),
+         (f"Day {lp.QC_DAY} · QC", lp.QC_DAY, _TO_DAY14 + ("rescue_move", "approve_rescue", "send_rescue", "go_day_qc")))
+
+
+def _pressed(key: str) -> bool:
+    """True when a story-clock jump presses this button for the presenter."""
+    q = st.session_state.get("jump_keys")
+    if q and key in q:
+        q.remove(key)
+        st.session_state["jump_fired"] = True
+        return True
+    return False
+
+
+def jump_bar(oid: str) -> None:
+    st.session_state["jump_fired"] = False
+    if _role_or_none() is None:
+        return
+    d = book().day(oid)
+    ahead = [j for j in JUMPS if j[1] > d]
+    if not ahead:
+        return
+    c = st.columns([2] + [1] * len(ahead))
+    c[0].caption("**Jump ahead** (a pitch shortcut): presses the next buttons for you with the demo's default "
+                 "choices; every approval is still recorded, under your role.")
+    for i, (label, day, keys) in enumerate(ahead):
+        if c[i + 1].button(label, key=f"jump_{day}"):
+            st.session_state["jump_keys"] = list(keys)
+            st.rerun()
+
+
+def jump_continue() -> None:
+    """End of a run: keep going while a jump pressed something; stop when it is done or nothing it waits for is
+    on the page."""
+    if st.session_state.get("jump_keys") is None:
+        return
+    if st.session_state.get("jump_fired") and st.session_state["jump_keys"]:
+        st.rerun()
+    st.session_state.pop("jump_keys", None)
+
+
 def section_update(args, oid: str, offers: tuple, split_pt) -> tuple | None:
-    """Day 12: a daily update arrives; the code projects that factory and re-simulates the order."""
-    st.header(f"Day {lp.UPDATE_DAY} · Daily update and warning", anchor="update")
+    """Days 12 and 14: daily updates arrive; the code projects each factory from its latest update and re-simulates
+    the order with all of them. Updates after a rescue was chosen do not change that forecast."""
+    upto = book().rescue_day(oid) or book().day(oid)
+    st.header(f"Day {lp.UPDATE_DAY2 if upto >= lp.UPDATE_DAY2 else lp.UPDATE_DAY} · Daily updates and warning",
+              anchor="update")
     if book().day(oid) < lp.UPDATE_DAY:
-        if st.button(f"Next: day {lp.UPDATE_DAY}, a daily update arrives", type="primary", key="go_day_update"):
+        if st.button(f"Next: day {lp.UPDATE_DAY}, a daily update arrives", type="primary", key="go_day_update") \
+                or _pressed("go_day_update"):
             book().advance_to(oid, lp.UPDATE_DAY, "daily updates from the factories", _role_or_none())
             st.rerun()
         return None
     qty = {ln.factory_id: ln.qty for ln in split_pt.plan.lines}
     book().receive(oid, persona_file(), "progress_update", list(qty))
     msgs = [m for m in book().store.messages(oid) if m["direction"] == "in" and m["kind"] == "progress_update"
-            and m["factory_id"] in qty]  # only factories in the agreed split
+            and m["factory_id"] in qty and m["story_day"] <= upto]  # factories in the agreed split, up to the rescue
     if not msgs:
         st.info("No updates today.")
         return None
@@ -1307,7 +1360,7 @@ def section_update(args, oid: str, offers: tuple, split_pt) -> tuple | None:
         _show_update(oid, m, qty)
     # Numbers from the recorded updates only (typed by the factory, or read under the quote rule); an update
     # without a verified piece count is not used.
-    ups = tuple(lp.latest_updates([u for u in book().updates(oid) if u.factory_id in qty]))
+    ups = tuple(lp.latest_updates([u for u in book().updates(oid) if u.factory_id in qty and u.day <= upto]))
     if not ups:
         return None
     # Forecast as of the day the latest update was sent, so later days do not change an approved rescue.
@@ -1335,6 +1388,7 @@ def section_update(args, oid: str, offers: tuple, split_pt) -> tuple | None:
     if level == "on track":
         st.success(f"**{fc.factory_id} is on track** for its {fc.planned:,} pieces. No rescue needed." if len(fcs) == 1
                    else f"**All {len(fcs)} factories that sent updates are on track.** No rescue needed.")
+        _more_updates(oid)
         return fc, last, opts
     if prev is not None and lp.chance_dropped(fc, prev):
         st.caption(f"The order's chance fell from {prev:.1%} at the previous update to {fc.p_after:.1%} "
@@ -1344,7 +1398,18 @@ def section_update(args, oid: str, offers: tuple, split_pt) -> tuple | None:
     st.caption(f"Level set by code: **{level}**. "
                f"{SOURCE_BADGE[w.source]}. Every number comes from the update's figures and the simulation; the "
                "LLM writes only the words around placeholders, and the manager chooses what to do.")
+    _more_updates(oid)
     return fc, last, opts
+
+
+def _more_updates(oid: str) -> None:
+    """Before a rescue is chosen, the manager may wait for the next day's updates (day 14 in the demo)."""
+    if book().day(oid) >= lp.UPDATE_DAY2 or book().chosen_rescue(oid) is not None:
+        return
+    if st.button(f"Wait: day {lp.UPDATE_DAY2}, more updates arrive", key="go_day_update2") \
+            or _pressed("go_day_update2"):
+        book().advance_to(oid, lp.UPDATE_DAY2, "more daily updates from the factories", _role_or_none())
+        st.rerun()
 
 
 def _show_update(oid: str, m: dict, qty: dict) -> None:
@@ -1459,7 +1524,7 @@ def section_attribution(oid: str) -> None:
 
 def section_rescue(args, oid: str, fc, opts) -> bool:
     """Day 12: rescue options with their chance and cost; a production manager decides."""
-    st.header(f"Day {lp.UPDATE_DAY} · Rescue", anchor="rescue")
+    st.header(f"Day {fc.day} · Rescue", anchor="rescue")
     if fc.order_shortfall <= 0:
         st.caption("No shortfall projected, so nothing to rescue.")
         return True
@@ -1481,7 +1546,8 @@ def section_rescue(args, oid: str, fc, opts) -> bool:
             return False
         c = st.columns(len(opts))
         for i, o in enumerate(opts):
-            if c[i].button(f"Choose: {o.title}", key=f"rescue_{o.kind}", disabled=not o.allowed):
+            if c[i].button(f"Choose: {o.title}", key=f"rescue_{o.kind}", disabled=not o.allowed) \
+                    or (o.allowed and _pressed(f"rescue_{o.kind}")):
                 book().choose_rescue(oid, o, st.session_state["role"])
                 st.rerun()
         return False
@@ -1518,7 +1584,7 @@ def section_rescue(args, oid: str, fc, opts) -> bool:
             if res.decision != "accept":
                 st.warning(f"{m['factory_id']} did not simply accept the extra pieces: re-plan before relying on it.")
         return True
-    if st.button("Approve and send the rescue requests", type="primary", key="send_rescue"):
+    if st.button("Approve and send the rescue requests", type="primary", key="send_rescue") or _pressed("send_rescue"):
         for f, _, t in drafts:
             book().send_message(oid, f, t, st.session_state["role"], f"rescue-{f}-day{book().day(oid)}",
                                 draft_of="template" if written[f].source == "template" else "llm")
@@ -1557,7 +1623,8 @@ def section_qc(args, oid: str) -> bool:
     """Day 26: goods arrive; the quality inspector records good and rejected pieces."""
     st.header(f"Day {lp.QC_DAY} · Receive and QC", anchor="qc")
     if book().day(oid) < lp.QC_DAY:
-        if st.button(f"Next: day {lp.QC_DAY}, goods arrive for inspection", type="primary", key="go_day_qc"):
+        if st.button(f"Next: day {lp.QC_DAY}, goods arrive for inspection", type="primary", key="go_day_qc") \
+                or _pressed("go_day_qc"):
             book().advance_to(oid, lp.QC_DAY, "goods arrived (days 24-26) and are inspected", _role_or_none())
             st.rerun()
         return False
@@ -1662,6 +1729,7 @@ def view_timeline() -> None:
     oid = st.session_state["order_id"]
     st.success(f"Order confirmed: **{order.total_qty:,}** pieces, own capacity {order.own_capacity_qty:,} → "
                f"**subcontract {order.subcontract_qty:,}** by {order.deadline:%d %b %Y} (fixed).")
+    jump_bar(oid)
 
     st.header("Day 0 · Plan", anchor="plans")
     if not b.feasible:  # the optimiser found no allocation at all under these limits
@@ -1733,5 +1801,6 @@ elif view == "Show the maths":
     view_maths()
 else:
     view_timeline()
+    jump_continue()
 st.caption("Data: Open Supply Hub (pseudonymised) + synthetic history, seed 42. LLM: Gemini, answers cached; "
            "every number in a memo is filled in from the optimiser and simulation results.")

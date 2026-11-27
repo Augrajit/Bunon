@@ -20,6 +20,7 @@ from bunon.simulation import simulate
 
 REPLY_DAY = 2      # factories answer the sourcing round
 UPDATE_DAY = 12    # the scripted daily update that triggers the warning (production started on day 2 + setup)
+UPDATE_DAY2 = 14   # a second scripted update from another factory (D25): the combined forecast
 QC_DAY = 26        # goods received and inspected at the exporter
 
 

@@ -123,6 +123,14 @@
           "placeholder": true,
           "text": "ok. 11,400 pcs confirmed.",
           "expected": {"decision": "accept", "qty": 11400}
+        },
+        {
+          "msg_id": "slow_en_update_day14",
+          "story_day": 14,
+          "kind": "progress_update",
+          "placeholder": true,
+          "text": "Sorry for the late update. 4,000 pcs sewn till today. Our fabric from the dyeing unit came late, so we are 2 days behind.",
+          "expected": {"pieces_done": 4000, "delay_days": 2, "cause": "fabric late from the dyeing unit"}
         }
       ]
     },

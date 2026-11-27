@@ -473,3 +473,33 @@ The factory-app click-through now decides F1064's cause as the merchandiser, dis
 - **README roadmap:** an automatic news check of a stated cause (search Bangladeshi news for an outage in that area and date). Not built.
 
 **Tests:** 203 unit tests (from 202). Full sweep passed.
+
+### D25: 27 Nov 2026: story-clock jumps and a second update day (HANDOFF task 5.2)
+
+**Why:** the pitch has three minutes, and the combined forecast (D22) never appeared in the scripted demo.
+
+**What:**
+- **Jump buttons** under "Order confirmed": `Day 2 · replies`, `Day 12 · update`, `Day 14 · second update`, `Day 26 · QC`. They are shown to exporter roles only, and only for checkpoints ahead of the clock.
+  - A jump presses the same buttons a presenter would, with the demo's default choices: approve the plan, send the requests, next day, approve the split, next day, wait for day 14, and for day 26 also choose "move", approve it and send the rescue requests. Every approval is recorded under the current role, exactly as a click would be.
+  - How it works: `_pressed(key)` beside each button, and `jump_continue()` after the view. The jump stops when nothing it waits for is on the page.
+- **Second update day:**
+  - `loop.UPDATE_DAY2 = 14`.
+  - F0288 (English, "slow to answer") sends a placeholder update on day 14 (developer text, labelled placeholder, to be replaced by the team): "4,000 pcs sewn till today. Our fabric from the dyeing unit came late, so we are 2 days behind."
+  - The button **Wait: day 14, more updates arrive** is shown until a rescue is chosen.
+  - `OrderBook.rescue_day` fixes the forecast at the day the rescue was first chosen. An update that arrives after the choice reaches the factory inbox but does not change the approved rescue. So the day-12 path (rescue on day 12) keeps its published numbers.
+- **Headers:** they follow the day ("Day 14 · Daily updates and warning", "Day 14 · Rescue").
+
+**Numbers on the day-14 path** (cached live):
+- F1064: 9,800 pieces, 3,300 short. F0288: 9,600 pieces, 1,800 short. 5,100 short in all.
+- Chance 81.8% → 80.8%. This is not a "drop" warning (below the 5-point placeholder); the level is "below target".
+- Last rescue day is day 14, today (17 Jan 2027).
+- Move: F2829 +1,400 → 83.0%. Overtime at F1064 → 82.8%. F2829 accepts.
+- The AI suggests "our side (exporter)" for F0288's late fabric, because the requests say the exporter supplies the fabric. A person decides.
+- The day-12 numbers are unchanged.
+
+**Tests:** 3 new click-throughs (`tests/test_jumps.py`, `-m sweep`):
+- the jump to day 14 shows the two-factory table and a day-14 rescue, records two approvals under the merchandiser, and chooses no rescue;
+- a rescue chosen on day 12 keeps the day-12 forecast through to QC;
+- the jump to day 26 from the start ends at QC with the rescue chosen and the requests sent.
+
+Unit tests 203. Full sweep 29 passed.

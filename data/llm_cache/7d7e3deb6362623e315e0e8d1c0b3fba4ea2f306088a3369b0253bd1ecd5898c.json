@@ -1,0 +1,9 @@
+{
+ "task": "message_rescue_english",
+ "prompt_version": "message_v1",
+ "provider": "gemini",
+ "model": "gemini-3.5-flash-lite",
+ "created_utc": "2026-11-27T04:21:57+00:00",
+ "prompt": "You write a short message from a garment exporter's merchandiser to a subcontract factory.\nWrite simple, polite business English.\n\nPURPOSE: The factory already works on this order. Urgently ask whether it can take {{res.extra}} more pieces of the same T-shirt, fabric supplied by the exporter, still before the buyer's deadline {{res.deadline}}. Ask it to confirm.\n\nSTRICT RULES (an automatic checker enforces them; violating output is discarded):\n1. Do NOT write any digit or any number word in any language or script (e.g. two, hajar, dui, দুই, হাজার).\n2. Every number and date must be a placeholder with a key from the FACTS list, in double braces, e.g.\n   {{req.qty}}. It is replaced by the exact value shown; write units the value lacks yourself (\"pcs\").\n3. You must use these placeholders: {{res.extra}}, {{res.deadline}}.\n4. Do not offer a price, an advance or any term that is not in the PURPOSE. Do not name any factory.\n5. At most 90 words. Plain and polite, like a message in the factory's in-app inbox. No subject line.\n6. The message is only a draft: a person reviews and approves it before it is sent.\n\nFACTS (key = value: meaning):\nres.extra = 1,400: extra pieces we ask it to take\nres.deadline = 31 Jan 2027: the buyer's deadline\n",
+ "raw": "{\"text\": \"Dear partner, we urgently need to know if you can take {{res.extra}} more pieces of the same T-shirt into your current production. We will supply the fabric. Can you please confirm if this is possible and can be delivered before the buyer's deadline on {{res.deadline}}? Thank you.\"}"
+}

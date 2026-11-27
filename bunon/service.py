@@ -507,6 +507,12 @@ class OrderBook:
             "approved_by_role": role})
         self._event(order_id, "rescue_chosen", f"Rescue chosen: {opt.title} ({opt.note})", role)
 
+    def rescue_day(self, order_id: str) -> int | None:
+        """The story day a rescue was first chosen (None if none yet). Updates after it do not change that
+        forecast, so an approved rescue stays the one that was approved (D25)."""
+        days = [r["story_day"] for r in self.store.rows("rescue_options", order_id) if r["chosen"]]
+        return min(days) if days else None
+
     def chosen_rescue(self, order_id: str) -> str | None:
         rows = [r for r in self.store.rows("rescue_options", order_id) if r["chosen"]]
         return rows[-1]["kind"] if rows else None

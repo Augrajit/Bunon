@@ -72,4 +72,8 @@ python -m bunon.data_gen
 
 Design decisions and their before/after numbers are logged in [SPEC.md](SPEC.md) (D1–D12). The Day 2 calibration checkpoint is in [CHECKPOINT_DAY2.md](CHECKPOINT_DAY2.md).
 
+## Roadmap (not built)
+
+- **Automatic news check of a stated cause:** when a factory says a delay came from an outside event (for example a power cut), search Bangladeshi news for an outage in that area on those dates and offer the article as evidence. A person would still record the event and decide the cause. Today a person records news on the order by hand.
+
 See [PLAN.md](PLAN.md) for the full plan.

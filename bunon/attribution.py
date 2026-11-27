@@ -1,6 +1,6 @@
 """Delay attribution (PLAN_V2 §5, cut a; HANDOFF task 4.2): why was a factory late, for its record.
 
-The AI only suggests (`agent.suggest_attribution`, task `attribution_v1`); a person on the exporter side decides
+The AI only suggests (`agent.suggest_attribution`, task `attribution_v2`); a person on the exporter side decides
 (`OrderBook.decide_attribution`) and the factory can dispute (`OrderBook.dispute_attribution`). The code rules
 here hold for both the AI and the person:
 

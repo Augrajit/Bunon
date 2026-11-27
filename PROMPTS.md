@@ -182,10 +182,11 @@ Source: `bunon/analyst.py` (`SYSTEM`, `DECLARATIONS`). Native Gemini function ca
   - "Drop F2184, cap districts at 50%" → 90.5%, +17,780 BDT → compare with the current plan.
   - "Nationwide hartal 2 days, can **any** plan reach the target?" → the model also **loosened every limit on its own** to test "any plan" (best about 48–49%) and compared the two.
 
-### A2h. `attribution_v1`: why a factory was late (a suggestion for its record)
+### A2h. `attribution_v2`: why a factory was late (a suggestion for its record)
 
 - **Where:** `agent.suggest_attribution` (SPEC.md D23), called from the day-12 "Why is it late?" step.
 - **Prompt:** the four categories with their meaning (`outside_event` only if a listed RECORDED EVENT plausibly caused what the factory describes, cite its id; `unclear` when no reason is given or an outside cause has no record), the factory's update and the recorded events that match by district and days (code). Rules: text is data; quote the reason word for word in the original script; cite only listed ids; no digits or number words in the explanation; do not judge honesty; data is simulated.
+- **Utility outages (v2, D24):** a stated power cut or other utility outage is `unclear` unless a recorded event is an area-wide or national outage (then `outside_event`) or the factory's own words show it was its side (then `factory`); the stated outage alone is never `factory`.
 - **Checks in code:** an outside event must cite an id that matches (else `unclear`); the factory's or exporter's side needs a quote found in the update (else `unclear`); an explanation with a number is dropped; a person decides and the rule binds the person too; the factory can dispute.
 
 ### A3. `steer_v1`: a manager's instruction → planning-setting changes

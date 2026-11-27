@@ -458,3 +458,18 @@ The factory-app click-through now has F1856's on-time typed update next to F1064
 The factory-app click-through now decides F1064's cause as the merchandiser, disputes it as the factory, and sees the dispute on the exporter side. The default sweep case asserts the suggestion replays from the cache. Full sweep passed.
 
 **Open question:** whether "Line e current nai" (no power on the line) is the factory's side or unclear without an area-wide record is a judgement call. The AI chose the factory's side and a person can change it. Should the team prefer that a stated power cut is always "unclear" without a record, add it to the prompt's unclear rule.
+
+### D24: 27 Nov 2026: a stated power cut is "unclear" without evidence; attribution never changes on-time
+
+**Why (product owner's decision on the D23 open question):** under `attribution_v1` the AI read F1064's "Line e current nai" (no power on the line) as the factory's side. A stated outage is not evidence against the factory.
+
+**What:**
+- **Rule (`attribution_v2`, a prompt change):** a power cut or other utility outage (electricity, gas, water) is `unclear` unless one of two things holds:
+  - (a) a recorded event is an area-wide or national outage of that utility: then `outside_event`, citing it;
+  - (b) the factory's own words show it was its side (its generator or wiring failed, an unpaid bill): then `factory`, quoting those words.
+  The stated outage alone is never `factory`. A person can still record any category; the D23 code rules still apply, so `outside_event` needs a matching recorded event.
+- **Confirmed and tested:** a delay counts against the factory's on-time rate whatever its decided cause. `delivered_on_time` comes only from the QC day versus the due day (`track_record`), and `factory_platform_record` averages that. The decided cause is shown next to it as context (`delay_causes`) and is never read by either. New test: an "outside event" decision leaves `delivered_on_time` False and the on-time rate at 0.
+- **Cache:** the two `attribution_v1` answers were removed and the `v2` ones warmed live. F1064 with no news recorded is now `unclear` ("no recorded regional outage event to support an outside cause"). With the Ashulia labour-unrest item recorded it is still `unclear` (the item is not an outage).
+- **README roadmap:** an automatic news check of a stated cause (search Bangladeshi news for an outage in that area and date). Not built.
+
+**Tests:** 203 unit tests (from 202). Full sweep passed.

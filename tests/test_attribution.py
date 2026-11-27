@@ -129,3 +129,31 @@ def test_people_decide_the_factory_disputes_and_the_record_counts_it(book):
     assert row["disputed_by_factory"] == 0  # a new decision clears the dispute; the timeline keeps both
     kinds = [x["kind"] for x in book.timeline(oid)]
     assert kinds.count("attribution_decided") == 2 and "attribution_disputed" in kinds and "news_recorded" in kinds
+
+
+@pytest.mark.skipif(not C.PUBLIC_DB.exists(), reason="run `python -m bunon.data_gen` first")
+def test_a_late_delivery_counts_against_on_time_whatever_its_cause(book):
+    """Attribution only adds context: on-time comes from the QC day alone, never from the decided cause."""
+    from bunon import optimizer as op
+    oid = book.confirm_order(op.demo_order(), "Merchandiser", sv.PlanSettings(), None)
+    book.store.insert("sourcing_rounds", {"round_id": f"{oid}:r1", "order_id": oid, "story_day": 0,
+                                          "factory_ids": json.dumps(["F1064"]),
+                                          "requested_qty": json.dumps({"F1064": 13_100}),
+                                          "requested_date": json.dumps({"F1064": "2027-01-28"})})
+    book.advance_to(oid, lp.UPDATE_DAY, "updates", "Merchandiser")
+    book.store.insert("progress_updates", {"update_id": f"{oid}:u", "order_id": oid, "factory_id": "F1064",
+                                           "story_day": 12, "text": UPDATE, "pieces_done_cum": 3_500, "delay_days": 2,
+                                           "cause_text": "Line e current nai", "is_simulated": 1,
+                                           "parse_status": "cache"})
+    (d,) = book.delays(oid, {"F1064": "ashulia_savar"})
+    eid = book.record_news(oid, "area-wide power cut in Ashulia", "ashulia_savar", "power_outage", "high", None,
+                           "Merchandiser")
+    book.record_qc(oid, "F1064", 13_100, 100, False, "Quality inspector", lp.QC_DAY)  # after the due day
+    before = (next(r for r in book.track_record(oid) if r["factory_id"] == "F1064"),
+              book.factory_platform_record("F1064"))
+    book.decide_attribution(oid, d, "outside_event", "Production manager", [eid])
+    after = (next(r for r in book.track_record(oid) if r["factory_id"] == "F1064"),
+             book.factory_platform_record("F1064"))
+    assert before[0]["delivered_on_time"] is False and after[0]["delivered_on_time"] is False
+    assert after[1]["on_time_rate"] == before[1]["on_time_rate"] == 0.0
+    assert after[0]["delay_causes"] == {"outside_event": 1}  # the cause is shown next to it, as context

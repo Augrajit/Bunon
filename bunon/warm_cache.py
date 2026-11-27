@@ -29,6 +29,9 @@ def main() -> None:
     for k, f in intake.fields.items():
         print(f"  {k:28s} {f.status:9s} {f.value!r:45.45s} <- {f.source_span!r:.70s}")
     order = intake.order or op.demo_order()
+    if C.DEMO_PROGRAMME:  # SPEC.md D30: the styles come from the attached delivery orders (code), as in the app
+        from bunon import programme as pg
+        order = pg.as_programme(order)
     if intake.order is None:
         print("  intake did not produce an order; continuing with the demo order for the memos")
 

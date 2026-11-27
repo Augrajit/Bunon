@@ -237,6 +237,13 @@ class Toolbox:
         ])
 
 
+def _is_answer(text: str) -> bool:
+    """An answer cites at least one fact and is mostly Latin-script words (the analyst answers in English)."""
+    letters = [ch for ch in text if ch.isalpha()]
+    latin = sum(1 for ch in letters if ch.isascii())
+    return "{{" in text and len(text.split()) >= 5 and bool(letters) and latin / len(letters) >= 0.9
+
+
 def _template(calls: list[ToolCallLog]) -> str:
     """Deterministic fallback answer from the same facts."""
     parts = []
@@ -321,6 +328,9 @@ def answer(question: str, toolbox: Toolbox, client: LLMClient | None = None) -> 
 
         text = (out.get("text") or "").strip()
         errs = ag.check_text("answer", text, toolbox.facts) if text else ["empty answer"]
+        if text and not errs and calls and not _is_answer(text):
+            # Seen live on 27 Nov 2026 (D30): two characters of another script, no fact cited. Not an answer.
+            errs = ["the answer must be plain English that cites at least one tool fact as {{key}}"]
         if not errs:
             final_text = text
             break

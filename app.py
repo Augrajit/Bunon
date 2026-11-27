@@ -1204,8 +1204,11 @@ def _forecast(args: tuple, offers: tuple, ups: tuple):
     declined = [o.factory_id for o in offers if o.decision == "reject"]
     fcs = lp.forecast_from_updates(world(), b, res.recommended, cands, list(ups))
     fc = fcs[0]
-    last = lp.last_rescue_day(world(), b, fc.order_shortfall, {ln.factory_id for ln in res.recommended.plan.lines}
-                              | set(declined), today=fc.day)  # (day, factory that could still make the shortfall)
+    excl = {ln.factory_id for ln in res.recommended.plan.lines} | set(declined)
+    if b.params.styles:  # whole styles: the last day an outside factory can still take an unstarted style whole
+        last = lp.last_style_rescue_day(world(), b, res.recommended, fc, excl, today=fc.day)
+    else:
+        last = lp.last_rescue_day(world(), b, fc.order_shortfall, excl, today=fc.day)  # (day, factory)
     opts = lp.rescue_options(world(), b, res.recommended, cands, fc, declined, fc.day)
     return fcs, last, opts
 

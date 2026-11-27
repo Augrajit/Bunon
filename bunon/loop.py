@@ -300,6 +300,28 @@ def surge_pieces(fc: Forecast) -> int:
     return int(min(fc.shortfall, fc.rate_seen * C.SURGE_SHARE * fc.days_left))
 
 
+def last_style_rescue_day(world: op.World, b, point: BufferPoint, fc: Forecast, exclude: set[str],
+                          today: int = 0) -> tuple[int | None, str | None]:
+    """Whole styles (SPEC.md D30): the latest day on which a factory outside the plan could still take the smallest
+    unstarted style of the late factory whole, by the same rule the move uses (a new factory starts that day; its
+    risk-adjusted capacity window must hold the style, and the style must reach its minimum batch)."""
+    if fc.order_shortfall <= 0:
+        return None, None
+    left = unstarted_styles(point, fc.factory_id, fc.pieces_done)
+    if not left:
+        return None, None
+    q = min(c for _, c in left)
+    p = b.params.model_copy(update={"excluded_ids": sorted(set(b.params.excluded_ids) | set(exclude))})
+    best: tuple[int, str] | None = None
+    for d in range(today, deadline_day(b.order) + 1):
+        ok = sorted(c.factory_id for c in op.build_candidates(world, b.order, p, as_of=C.AS_OF + timedelta(days=d))
+                    if c.window_capacity_risk_adj >= q and c.min_batch <= q)
+        if not ok:
+            break  # windows only shrink with time
+        best = (d, ok[-1])
+    return best if best else (None, None)
+
+
 def last_rescue_day(world: op.World, b, shortfall: int, exclude: set[str],
                     today: int = 0) -> tuple[int | None, str | None]:
     """Latest day on which a factory outside the plan could still be asked to make the shortfall: its ship-by

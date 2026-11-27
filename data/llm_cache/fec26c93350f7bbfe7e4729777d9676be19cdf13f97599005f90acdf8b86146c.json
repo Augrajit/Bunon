@@ -1,0 +1,64 @@
+{
+ "task": "analyst",
+ "prompt_version": "analyst_v1",
+ "provider": "gemini",
+ "model": "gemini-3.5-flash-lite",
+ "created_utc": "2026-11-27T17:53:15+00:00",
+ "conversation": [
+  {
+   "system": "You are Bunon's procurement analyst for a garment exporter in Bangladesh. A manager asks a what-if\nquestion about the current subcontracting plan. Answer it by calling tools; the tools do all calculations.\n\nRules:\n- Call only the tools you need (at most 6 calls). Do not repeat a call with the same arguments.\n- Never compute, estimate or invent a number yourself.\n- To repeat a setting from the question (a cap, an exclusion, a number of days), cite the fact that the tool\n  echoes back (for example the cap used); never restate it in words.\n- FINAL ANSWER RULES (an automatic checker enforces them; violating answers are discarded):\n  1. No digits and no number words (two, five, hundred, percent, half, double ...) in the text.\n  2. Every number is a placeholder with a key from the facts, wrapped in double braces, e.g. {{c2.p_meet}}.\n     Never write a key without braces.\n  3. Refer to factories as {{fac:F0123}}.\n  4. Two to five short sentences: what you checked, what it shows, and a recommendation. Say that a human\n     decides and nothing is sent automatically. Mention that the data is synthetic.\n\nFACTS ABOUT THE CURRENT PLAN (key = value: meaning):\norder.total_qty = 16,800: buyer order quantity\norder.own_capacity = 0: exporter's own capacity\norder.subcontract_qty = 16,800: quantity to subcontract (Q)\norder.deadline = 31 Jan 2027: fixed delivery deadline\nfunnel.compliant = 442: T-shirt factories that are RSC-covered or hold a valid BSCI audit\nfunnel.candidates = 221: of those, with spare capacity that fits the deadline\nplan.target_p = 90%: target probability of on-time delivery within tolerance\nplan.slack_days = 4 days: planned slack before the latest finish date\nplan.tolerance = 2%: accepted shortfall: success means good pieces of at least (1 - this) of Q\nplan.min_good = 16,464: good pieces (after QC) needed by the deadline for success\nplan.p_meet = 32%: recommended plan: probability that the subcontracted quantity (order.subcontract_qty) arrives on time as good pieces, within the delivery tolerance\nplan.buffer_pct = 20%: recommended plan: over-allocation buffer\nplan.pieces = 20,160: recommended plan: pieces allocated\nplan.buffer_pieces = 3,360: recommended plan: buffer pieces above Q\nplan.cost_total = 2,653,954 BDT: recommended plan: total cost\nplan.buffer_cost = 432,326 BDT: recommended plan: price of the buffer\nplan.n_factories = 3: recommended plan: number of factories\nplan.target_met = no: does the plan reach the target\nbase.p_meet = 1.2%: naive plan (declared capacity + lowest price): probability that the subcontracted quantity arrives on time as good pieces, within the delivery tolerance\nbase.cost_total = 2,105,932 BDT: naive plan: total cost\nbasebuf.p_meet = 13.4%: naive plan with the same buffer: probability that the subcontracted quantity arrives on time as good pieces, within the delivery tolerance\nbasebuf.cost_total = 2,519,298 BDT: naive plan with the same buffer: total cost\nmatch.buffer_pct = 57.5%: buffer the naive plan needs to match our probability (search allowed beyond our ceiling)\nmatch.cost_total = 3,313,720 BDT: naive plan at that buffer: total cost\nmatch.extra_cost = +659,766 BDT: extra cost of the naive plan to match ours\nline.F0288.qty = 8,424: F0288: pieces allocated\nline.F0288.share = 41.8%: F0288: share of allocation\nline.F0288.district = gazipur: F0288: district\nline.F0288.fail_share = 17.6%: F0288: share of failed simulations in which it was short, late or had its lot rejected at QC\nline.F2427.qty = 8,280: F2427: pieces allocated\nline.F2427.share = 41.1%: F2427: share of allocation\nline.F2427.district = ashulia_savar: F2427: district\nline.F2427.fail_share = 15.2%: F2427: share of failed simulations in which it was short, late or had its lot rejected at QC\nline.F2786.qty = 3,456: F2786: pieces allocated\nline.F2786.share = 17.1%: F2786: share of allocation\nline.F2786.district = gazipur: F2786: district\nline.F2786.fail_share = 13.9%: F2786: share of failed simulations in which it was short, late or had its lot rejected at QC\ndistrict.gazipur.share = 58.9%: share of pieces in district gazipur\ndistrict.ashulia_savar.share = 41.1%: share of pieces in district ashulia_savar\n",
+   "question": "Should we stop using F2184 and keep any district under 50%? Compare that with the current plan."
+  },
+  {
+   "model": {
+    "calls": [
+     {
+      "id": "call_5632731632190982105",
+      "name": "solve_plan",
+      "args": {
+       "max_district_share": 0.5,
+       "exclude_factories": [
+        "F2184"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "solve_plan",
+     "response": {
+      "ok": true,
+      "call_id": "c1",
+      "facts": {
+       "c1.excluded": "F2184",
+       "c1.max_district_share": "50%",
+       "c1.p_meet": "30.2%",
+       "c1.cost_total": "2,778,207 BDT",
+       "c1.cost_delta": "+124,253 BDT",
+       "c1.buffer_pct": "25%",
+       "c1.n_factories": "4",
+       "c1.factories": "F2427, F0288, F2786, F1168",
+       "c1.target_met": "NO, below target"
+      },
+      "cite_as": "write each value as {{key}}, e.g. {{c1.excluded}}"
+     }
+    }
+   ]
+  }
+ ],
+ "step": {
+  "calls": [
+   {
+    "id": "call_1345283022385486624",
+    "name": "compare_plans",
+    "args": {
+     "second": "c1",
+     "first": "current"
+    }
+   }
+  ]
+ }
+}

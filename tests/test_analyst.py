@@ -127,7 +127,7 @@ def test_cached_question_replays_offline(ctx, tmp_path):
 def test_tool_call_limit(ctx, tmp_path):
     two = {"calls": [{"id": "x", "name": "compare_plans", "args": {"first": "current", "second": "current"}},
                      {"id": "y", "name": "compare_plans", "args": {"first": "current", "second": "current"}}]}
-    prov = FakeToolProvider([two] * 10)
+    prov = FakeToolProvider([two] * 10, final="The difference is {{c1.p_diff}}; a human decides and nothing is sent automatically.")
     run = an.answer("Loop forever", toolbox(ctx), LLMClient(provider=prov, mode="live", cache_dir=tmp_path))
     assert len(run.calls) == an.MAX_TOOL_CALLS
     assert any(force for _, _, force in prov.sessions[0].received)  # tools were switched off
@@ -157,3 +157,11 @@ def test_solve_plan_respects_exclusion_and_caps(ctx):
     cid, ok, facts, err = tb.call("solve_plan", {"exclude_factories": ["F2184"], "max_district_share": 0.5})
     assert ok, err
     assert "F2184" not in facts[f"{cid}.factories"]
+
+
+def test_an_answer_in_another_script_without_facts_is_retried_then_template(ctx, tmp_path):
+    """Seen live on 27 Nov 2026 (D30): the model answered with two characters of another script."""
+    junk = {"text": "သမار"}
+    prov = FakeToolProvider([GOOD[0], junk, junk], final="သမ")
+    run = an.answer("What if?", toolbox(ctx), LLMClient(provider=prov, mode="live", cache_dir=tmp_path))
+    assert run.source == "template" and any("cites at least one tool fact" in e for e in run.errors)

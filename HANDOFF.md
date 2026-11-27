@@ -104,6 +104,17 @@ Remaining open items (27 Nov 2026, after D28; feature work paused for the polish
 - **Known issues 4, 5, 7 and 8 above** still stand (rescue-day factory, capacity windows from day 0, 87.5% below target, placeholder personas).
 - **Milestone 5:** 5.3 real-user test, 5.4 docs pass and video, 5.5 release check.
 
+Real order documents (27 Nov 2026, DOCS_PROPOSAL.md, approved order §a → §f → §b, §c, §d, §g):
+- **Privacy:** the real PDFs live only in the ignored `data/Documents/` on the developer's machine. Never commit them, never send them (raw or as images) to the LLM, never use them raw in the demo or tests. `tests/test_no_documents.py` guards this.
+- **§a done (D29):** `python -m bunon.anonymise data/Documents` (local only) rewrites `data/demo/docs/S01–S10.txt` and `programme.json`. Its mapping is in `data/private/doc_mapping.json`; keep it, or the fakes change on the next run. The style sheet is out of scope (no OCR); a teammate hand-enters its values as the answer key.
+- **§f next: whole-style engine.**
+  - A style is never split across factories (interviewee).
+  - Rescue options: move an unstarted style, overtime, accept a shortfall within tolerance, renegotiate the date.
+  - "Move part of a running style" stays a disabled config option until the interviewee confirms it happens.
+  - Re-pin every demo number in one step, re-warm the cache, and update README, SPEC and the video script notes.
+  - Give the team the new styles and quantities for the persona messages as soon as the demo programme is fixed.
+- **Then §b intake, §c cross-document checks, §d evaluation, §g past-order library.**
+
 Open questions for the product owner:
 - Gemini tier of the current key (AI Studio); paid tier needed for any real-user test with real messages.
 - Final submission deadline (assumed about 24 Dec; live final 26 Dec).

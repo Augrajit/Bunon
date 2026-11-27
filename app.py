@@ -643,6 +643,16 @@ def view_factory() -> None:
             p3.metric("QC pass", "—" if pr["qc_pass_rate"] is None else f"{pr['qc_pass_rate']:.1%}")
             p4.metric("Delays reported", f"{pr['delays_reported']}")
             st.caption("From this demo's orders only (requests, answers, updates, QC on the platform).")
+        shared = book().record_shared(fid)
+        if st.session_state["role"] in FACTORY_ROLES:
+            want = st.toggle("Let exporters I have not worked with see my record", value=shared, key=f"share_{fid}")
+            if want != shared:
+                book().set_record_sharing(fid, want, st.session_state["role"])
+                st.rerun()
+        st.caption(("Exporters you have not worked with see your record." if shared else
+                    "Exporters you have not worked with see: **record not shared**.")
+                   + " Exporters you have worked with always see the events from their own orders. Nobody can "
+                   "edit, delete or hide single events, you included.")
         st.markdown("**My record** " + SYNTH)
         r = sv.factory_record(history(), fid)
         if r["jobs"]:
@@ -1193,6 +1203,8 @@ def section_sourcing(args, oid: str) -> bool:
             book().draft_round(oid, b, persona_file(), LLMClient())
     drafts = book().draft_round(oid, b, persona_file())
     reqs = book().requests(oid)
+    st.caption("Each factory decides whether exporters it has not worked with may see its record; your own "
+               "orders' events with it are always yours to see.")
     st.caption("Bunon asks the factories in the plan for their planned pieces, plus the best proven factory "
                "outside the plan as a standby, each in its own language. The LLM writes the words only: every "
                "number is a placeholder filled in from the plan, and a draft that breaks the rule falls back to a "
@@ -1200,7 +1212,9 @@ def section_sourcing(args, oid: str) -> bool:
     st.dataframe(pd.DataFrame([{"Factory": m["factory_id"], "Asked for (pcs)": reqs[m["factory_id"]]["qty"],
                                 "Finish by": reqs[m["factory_id"]]["finish_by"], "Language": m["language"],
                                 "Draft": m["text"], "Written by": "AI (checked)" if m["draft_of"] == "llm"
-                                else "template", "Status": "sent" if m["sent_day"] is not None else "draft"}
+                                else "template", "Status": "sent" if m["sent_day"] is not None else "draft",
+                                "Record from other exporters": "shared" if book().record_shared(m["factory_id"])
+                                else "record not shared"}
                                for m in drafts]), hide_index=True, width="stretch")
     if book().round_sent(oid):
         st.success("Requests approved and sent in the app (each factory sees it in its inbox).")

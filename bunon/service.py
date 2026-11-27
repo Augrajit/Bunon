@@ -601,12 +601,15 @@ class OrderBook:
                         "lot_rejected": None if q is None else bool(q["lot_rejected"])})
         return out
 
-    def factory_platform_record(self, factory_id: str) -> dict:
-        """One factory's record across every order in this store, from platform rows only (requests it was sent,
-        its answers, updates and QC). Simulated personas count here too, so the app labels the result simulated."""
+    def factory_platform_record(self, factory_id: str, order_ids: set[str] | None = None) -> dict:
+        """One factory's record across every order in this store (or only `order_ids`), from platform rows only
+        (requests it was sent, its answers, updates and QC). Simulated personas count here too, so the app labels
+        the result simulated."""
         asked = answered = took = qc_n = on_time = delays = 0
         good = received = 0
         for oid in self.store.order_ids():
+            if order_ids is not None and oid not in order_ids:
+                continue
             tr = {r["factory_id"]: r for r in self.track_record(oid)}
             r = tr.get(factory_id)
             if r is None:
@@ -625,6 +628,36 @@ class OrderBook:
                 "acceptance_rate": took / answered if answered else None,
                 "deliveries": qc_n, "on_time_rate": on_time / qc_n if qc_n else None,
                 "qc_pass_rate": good / received if received else None, "delays_reported": delays}
+
+    # --- the factory controls who sees its record (SPEC.md D26, HANDOFF task 4.3) ------------------------------
+    # One switch per factory: whether exporters it has NOT worked with may see its record. It can never edit,
+    # delete or hide single events (there is no such method; events are append-only), and exporters it has
+    # worked with always see the events from their own orders.
+    SHARE_FIELD = "record"
+
+    def set_record_sharing(self, factory_id: str, share_with_new_exporters: bool, role: str) -> None:
+        _require_factory(role, "change who sees its record")
+        vis = "all_exporters" if share_with_new_exporters else "exporters_worked_with"
+        if self.store.share_visibility(factory_id, self.SHARE_FIELD) == vis:
+            return
+        self.store.set_share_visibility(factory_id, self.SHARE_FIELD, vis)
+        self.store.add_event(None, 0, C.AS_OF, "sharing_changed",
+                             f"{factory_id} {'shares' if share_with_new_exporters else 'does not share'} its record "
+                             "with exporters it has not worked with", actor_role=role, subject=factory_id)
+
+    def record_shared(self, factory_id: str) -> bool:
+        """Default: shared (the platform's point); a factory may switch it off."""
+        return (self.store.share_visibility(factory_id, self.SHARE_FIELD) or "all_exporters") == "all_exporters"
+
+    def record_for_exporter(self, factory_id: str, own_order_ids: set[str]) -> dict:
+        """What one exporter sees of a factory: its own orders' record always; the record from every other
+        order only if the factory shares it, else the label "record not shared"."""
+        others = set(self.store.order_ids()) - set(own_order_ids)
+        own = self.factory_platform_record(factory_id, set(own_order_ids))
+        shared = self.record_shared(factory_id)
+        return {"own": own if own["orders_asked"] else None, "shared": shared,
+                "others": self.factory_platform_record(factory_id, others) if shared else None,
+                "label": None if shared else "record not shared"}
 
     # --- the exporter's side of the record: payments (PLAN_V2 cut b) ----------------------------------------
     def amounts_due(self, order_id: str) -> list[dict]:

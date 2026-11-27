@@ -105,3 +105,30 @@ def test_overtime_rescue_is_drafted_and_sent_only_on_approval(monkeypatch, tmp_p
     assert not r.problems, "\n".join(r.problems)
     log = next(df.value for df in at.dataframe if "Who (role)" in df.value.columns)
     assert {"rescue_chosen", "message_sent"} <= set(log["Kind"])
+
+
+def test_factory_hides_its_record_from_new_exporters(monkeypatch, tmp_path):
+    """D26: the factory switches off sharing in its app; the exporter's sourcing table shows "record not shared"
+    for it, and its events on this order stay as they are."""
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv(C.LLM_MODE_ENV, "offline")
+    monkeypatch.setenv("BUNON_DECISIONS_DB", str(tmp_path / "decisions.db"))
+    monkeypatch.setenv("BUNON_STORE_DIR", str(tmp_path / "sessions"))
+    at = AppTest.from_file(APP, default_timeout=1200)
+    for k, v in DEFAULT.items():
+        at.session_state[k] = v
+    at.run()
+    r = Runner(at)
+    assert r.click(key="demo_login") and r.click(key="start_order"), r.problems
+    assert r.click("Read the email") and r.click("Confirm order"), r.problems
+    assert r.click(key="approve_plan") and r.click(key="send_requests"), r.problems
+    _as(at, "Factory owner")
+    at.selectbox(key="factory_view_id").set_value("F0288").run()
+    at.toggle(key="share_F0288").set_value(False).run()
+    assert any("record not shared" in c.value for c in at.caption), r.problems
+    _as(at, "Merchandiser", "Order timeline")
+    sourcing = next(df.value for df in at.dataframe if "Asked for (pcs)" in df.value.columns)
+    col = dict(zip(sourcing["Factory"], sourcing["Record from other exporters"]))
+    assert col["F0288"] == "record not shared" and col["F1856"] == "shared"
+    assert not r.problems, "\n".join(r.problems)

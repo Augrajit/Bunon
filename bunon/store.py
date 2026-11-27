@@ -245,6 +245,17 @@ class Store:
             con.execute(f"INSERT OR REPLACE INTO {table} ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})",
                         tuple(row.values()))
 
+    def share_visibility(self, factory_id: str, field: str) -> str | None:
+        with self._con() as con:
+            r = con.execute("SELECT visibility FROM share_settings WHERE factory_id = ? AND field = ?",
+                            (factory_id, field)).fetchone()
+        return r[0] if r else None
+
+    def set_share_visibility(self, factory_id: str, field: str, visibility: str) -> None:
+        with self._con() as con:
+            con.execute("INSERT OR REPLACE INTO share_settings (factory_id, field, visibility) VALUES (?, ?, ?)",
+                        (factory_id, field, visibility))
+
     def rows(self, table: str, order_id: str) -> list[dict]:
         self._columns(table)
         with self._con() as con:

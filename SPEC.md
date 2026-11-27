@@ -503,3 +503,36 @@ The factory-app click-through now decides F1064's cause as the merchandiser, dis
 - the jump to day 26 from the start ends at QC with the rescue chosen and the requests sent.
 
 Unit tests 203. Full sweep 29 passed.
+
+### D26: 27 Nov 2026: the factory controls who sees its record (HANDOFF task 4.3)
+
+**Why:** the pitch says factories control what they share; it must exist, even in a simple form.
+
+**Rules (the product owner's):**
+- A factory chooses whether exporters it has **not** worked with can see its record. One switch, default "shared", because the platform's point is that a good record helps a factory win work.
+- It can **never** edit, delete or hide individual events. No such method exists, events are append-only, and the only setting is the whole record's visibility.
+- A hidden record shows to those exporters as **"record not shared"**.
+- Exporters it has worked with always see the events from their own orders, including late deliveries.
+
+**What:**
+- **Store:** `share_visibility` / `set_share_visibility` on the existing `share_settings` table (field `record`; `all_exporters` or `exporters_worked_with`, both checked by the table's constraint).
+- **Service:**
+  - `set_record_sharing(factory_id, share, role)`: factory roles only, logged as `sharing_changed`.
+  - `record_shared(factory_id)`.
+  - `record_for_exporter(factory_id, own_order_ids)`: `own` is the record from the viewer's orders, always shown; `others` is the record from every other order, or `None` with the label "record not shared".
+  - `factory_platform_record` takes an optional set of orders.
+- **App:**
+  - The factory app has a toggle, "Let exporters I have not worked with see my record", with a caption stating the rules.
+  - The exporter's sourcing table has a column "Record from other exporters": shared / record not shared.
+  - A visitor's store holds one exporter's orders, so "another exporter" is the view with no own orders. The demo has no second exporter.
+
+**Tests:** 205 unit tests (from 203) in `tests/test_sharing.py`:
+- shared by default
+- only factory roles switch it
+- hidden → a new exporter sees exactly "record not shared"
+- an exporter it worked with keeps its own orders' record, and the late delivery still counts
+- events and the track record are unchanged by hiding
+- switching back shows both orders
+- no edit/delete/hide/remove method on the service or store, and an unknown visibility is refused
+
+One click-through: F0288 hides its record in the factory app, and the exporter's sourcing table shows "record not shared" for it and "shared" for F1856. Full sweep 30 passed.

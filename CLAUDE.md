@@ -28,7 +28,7 @@ No linter or formatter is configured. Tests that need the private raw CSV or nam
 
 PLAN_V2.md (approved 26 Nov 2026) is the current plan: Bunon becomes the trust layer for subcontracting, organised around one order's timeline (sourcing → follow-up → warning → rescue → record), on Streamlit with all order logic in a `bunon/service.py` free of Streamlit imports. Its decisions block at the top overrides the rest of it.
 
-Success (SPEC.md D12): **good pieces after QC delivered by the deadline ≥ (1 − tolerance) × Q**, not all on-time pieces ≥ Q. QC defects and whole-lot rejection come from the reliability model (`eb-3`). Factory personas in the demo are hand-written by the team and labelled simulated; never generate them with the LLM.
+Success (SPEC.md D12, D30): **good pieces after QC delivered by the deadline ≥ (1 − tolerance) × Q**, not all on-time pieces ≥ Q. Since D30 the demo is a programme of 10 whole styles (16,800 pcs, from the anonymised delivery orders in `data/demo/docs/`): a style always goes whole to one factory, the buffer is an over-cut within each style, and **every style** must meet its own threshold. The piece split stays for orders without styles (regression tests on `op.piece_demo_order()`). QC defects and whole-lot rejection come from the reliability model (`eb-3`). Factory personas in the demo are hand-written by the team and labelled simulated; never generate them with the LLM.
 
 ## The rule everything is built around
 
@@ -58,6 +58,8 @@ Branches: work happens on `v2`. Standing approval (27 Nov 2026): after each comp
 Hosting quirk: Streamlit Cloud reruns `app.py` but keeps imported modules, so `app.py` hashes `bunon/*.py` each run and reloads the package when it changed. Module-level caches built from old classes are dropped there too; keep that in mind when adding caches.
 
 ## Data and privacy rules (public repo)
+
+- Real order documents live only in the ignored `data/Documents/`. Never commit them or send them (raw or as images) to the LLM; `python -m bunon.anonymise <folder>` (local only) writes the anonymised `data/demo/docs/`, with its mapping in `data/private/`.
 
 - The factory list is real (Open Supply Hub) but published only as pseudonymous IDs (`F0001`–`F3196`), coordinates rounded to 2 decimals, workers rounded to 50. Never commit or send to the LLM factory names, `os_id`, addresses, the raw CSV (`data/raw/`) or the mapping (`data/private/`). Tests scan prompts and every DB cell for this.
 - All capacity, price and delivery-history data is synthetic (seed 42) and must stay labelled "synthetic" in the UI.

@@ -611,3 +611,46 @@ The click-throughs are unchanged: F0288 starts as shared and hides its record. F
 - Research asks 20–23 were added (per-style shortfall accepted, over-cut practice, real defect and lot-rejection rates, how often factories deliver short).
 
 **Tests:** +5 in `tests/test_styles.py`.
+
+### D30 (continued): 28 Nov 2026: steps 2–4, the programme is the demo
+
+**Order loop (step 2):**
+- Requests name each factory's styles.
+- A factory that accepts keeps exactly the styles it was asked for.
+- Offers are not rounded to lots in style mode.
+- **Rescue options with whole styles:**
+  - move an **unstarted** style (`rescue_move_style`: running styles and other factories' styles stay; the late factory keeps capacity for its projection)
+  - overtime
+  - accept the shortfall only if every style is still within its tolerance (`projected_by_style`)
+  - **renegotiate the date**: the days the late factory needs at the rate seen, and the chance if the buyer agrees. This replaces "tell the buyer now" in both modes.
+  - "move part of a running style" is listed but disabled (`config.RESCUE_SPLIT_RUNNING_STYLE = False`).
+- `last_style_rescue_day` uses the move's own rule (a new factory's risk-adjusted window must hold the smallest unstarted style whole, from that day). The day-12 warning and the move therefore agree.
+
+**Demo switch (steps 3–4):**
+- `config.DEMO_PROGRAMME` is on by default (`BUNON_DEMO_PROGRAMME=0` restores the old demo).
+- New fictional buyer email `buyer_email_programme_en.txt`. Its styles are attached in code (`programme.load_styles`, from the anonymised delivery orders; no AI).
+- Own capacity is 0.
+- Developer-placeholder personas in `personas_programme.json` for F0288, F2427, F2786 and F2829. The brief for the team is at the top of `PERSONAS_GUIDE.md`.
+- Request and rescue messages name the styles through a text placeholder (`req.styles`, `res.styles`), because style codes contain digits.
+- The app shows a "Styles (in order)" column and the attached-styles table at intake.
+- The pre-D30 demo is kept as regression tests on `op.piece_demo_order()` and `personas.PIECE_PERSONAS_PATH`.
+
+**Live LLM finding:**
+- One what-if answer came back as two characters of another script, with no fact cited, and passed the digit check.
+- `analyst._is_answer` now requires plain English that cites at least one tool fact, otherwise it retries, then falls back to the template.
+- The retry produced a proper answer. Test added.
+
+**Numbers (pinned in `tests/test_styles.py::test_published_demo_numbers`; README, VIDEO_NOTES.md):**
+
+| | Before (piece split, 50,000 pcs) | After (programme, 16,800 pcs, whole styles) |
+|---|---|---|
+| Bunon plan | 5 factories, 25% buffer, 87.5% | 3 factories, 20% over-cut, **32.0%** |
+| Naive / naive + buffer | 1.2% / 77.8% | 1.2% / 13.4% |
+| Split from offers | 84.1% | 32.0% (F2786 counters on rate) |
+| Day-12 update | F1064 9,800 projected, 3,300 short, 81.8% | F2427 6,000 projected, 2,280 short, 0% |
+| Last rescue day | 16 | 13 (F2829) |
+| Rescue | move the shortfall: 85.6%, +34,813 BDT | move S07 to F2829: 43.1%, +40,563 BDT; renegotiate 6 days: 54.9% if agreed |
+
+**Tests:** 226 unit tests; full sweep 30 passed (28 Nov 2026).
+
+**Finding (sweep, 28 Nov 2026):** with the programme, a cap of 2 factories gives a plan at 41.7%, above the default 32.0% with up to 5 factories. The optimiser finds the cheapest plan at each over-cut and, as no plan reaches the target, recommends the most likely of those. It does not search for the most likely plan overall. Nothing changed; it is an open question for the product owner whether to recommend the most likely plan when the target cannot be met. The sweep now expects "no feasible plan" only with 1 factory (2 and 3 are feasible for 16,800 pcs).

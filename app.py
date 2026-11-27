@@ -1342,7 +1342,7 @@ _TO_DAY14 = _TO_DAY12 + ("go_day_update2",)
 JUMPS = ((f"Day {lp.REPLY_DAY} · replies", lp.REPLY_DAY, _TO_DAY2),
          (f"Day {lp.UPDATE_DAY} · update", lp.UPDATE_DAY, _TO_DAY12),
          (f"Day {lp.UPDATE_DAY2} · second update", lp.UPDATE_DAY2, _TO_DAY14),
-         (f"Day {lp.QC_DAY} · QC", lp.QC_DAY, _TO_DAY14 + ("rescue_move", "approve_rescue", "send_rescue", "go_day_qc")))
+         (f"Day {lp.QC_DAY} · QC", lp.QC_DAY, _TO_DAY12 + ("rescue_move", "approve_rescue", "send_rescue", "go_day_qc")))
 
 
 def _pressed(key: str) -> bool:

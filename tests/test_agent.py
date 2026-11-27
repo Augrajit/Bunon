@@ -13,7 +13,7 @@ from bunon import config as C
 from bunon import textnum as tn
 from bunon.llm import CacheMiss, LLMClient
 
-EMAIL = C.DEMO_EMAIL_PATH.read_text(encoding="utf-8")
+EMAIL = C.PIECE_DEMO_EMAIL_PATH.read_text(encoding="utf-8")
 
 
 class FakeProvider:
@@ -141,7 +141,7 @@ def test_intake_offline_miss_asks_human(tmp_path):
 def facts():
     from bunon import optimizer as op
     w = op.load_world()
-    order = op.demo_order()
+    order = op.piece_demo_order()
     p = op.default_params(order)
     cands = op.build_candidates(w, order, p)
     comp = op.compare_three(w, order, p)
@@ -284,7 +284,7 @@ def test_reply_reject_bangla(tmp_path):
 
 def test_replan_from_counter_quantity_locks_exact_quantity(facts):
     from bunon import optimizer as op
-    w = op.load_world(); order = op.demo_order(); p = op.default_params(order)
+    w = op.load_world(); order = op.piece_demo_order(); p = op.default_params(order)
     rec = op.search_buffer(w, order, p, n_sims=2000).recommended
     f = op.largest_line(rec)
     rp = op.replan_from_reply(w, order, p, rec, f, "counter", qty=9000)
@@ -298,7 +298,7 @@ def test_replan_from_counter_quantity_locks_exact_quantity(facts):
 
 def test_replan_from_delay_keeps_factory_and_cuts_its_slack(facts):
     from bunon import optimizer as op
-    w = op.load_world(); order = op.demo_order(); p = op.default_params(order)
+    w = op.load_world(); order = op.piece_demo_order(); p = op.default_params(order)
     rec = op.search_buffer(w, order, p, n_sims=2000).recommended
     f = rec.plan.lines[1].factory_id
     rp = op.replan_from_reply(w, order, p, rec, f, "counter", delay_days=5)
@@ -357,7 +357,7 @@ def test_news_national(tmp_path):
 
 def test_known_event_lowers_current_plan_and_replan_avoids_it():
     from bunon import optimizer as op
-    w = op.load_world(); order = op.demo_order(); p = op.default_params(order)
+    w = op.load_world(); order = op.piece_demo_order(); p = op.default_params(order)
     rec = op.search_buffer(w, order, p, n_sims=3000).recommended
     ev = op.event_from_severity("ashulia_savar", "medium", 3)
     r = op.assess_news(w, order, p, rec, ev)

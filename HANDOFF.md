@@ -117,19 +117,16 @@ Real order documents (27 Nov 2026, DOCS_PROPOSAL.md, approved order §a → §f 
     - step 1 (47ecf60): style MIP `optimizer._solve_styles`, per-style success `simulation._styles_ok`, `bunon/programme.py`, `SENSITIVITY.md`, research asks 20–23;
     - step 2 (1783fcf): loop in style mode (requests name styles, accepters keep their styles, `rescue_move_style`, `projected_by_style`, `renegotiate_days`; the `escalate_buyer` option is now `renegotiate_date` in both modes);
     - persona brief for the team (3b651d7, top of `data/demo/PERSONAS_GUIDE.md`).
-  - **The demo still runs the old 50,000-piece order.** The piece split is kept for orders without styles.
-  - **Step 3, to do (the demo switch):**
-    1. Write a new fictional buyer email for the programme: 16,800 pcs, 10 styles. Keep the deadline (31 Jan 2027), FOB, penalty and AQL.
-    2. Attach the styles with `programme.as_programme` after intake; own capacity 0.
-    3. Move the persona placeholders to F0288, F2427, F2786 and F2829 with the brief's numbers. F2427's day-12 update is about 2,000 pcs with 1 day lost (the rescue moves S07 to F2829); F0288's day-14 update is its late fabric.
-    4. Update `UPDATE_DAY` scripts and `qc_script`.
-    5. App: the plan and offer tables show styles; the rescue drafts pass `styles=d["styles_in"]` to `lp.draft_rescue_request`; the QC table works per factory as now.
-    6. Agent facts: the request and rescue LLM prompts should name the styles (today `req.qty` only). Fall back to the templates until then.
-  - **Step 4, to do:**
-    1. Re-pin `test_published_demo_numbers` and the sweep assertions.
-    2. Re-warm the cache live (`warm_cache`, then live walks as in D21–D28).
-    3. Update the README table, SPEC D30 numbers, the video script notes and CLAUDE.md.
-    4. Full sweep, then merge under the standing rule.
+  - **Steps 3–4 done (28 Nov 2026):**
+    - The programme is the demo (`config.DEMO_PROGRAMME`, default on); numbers are pinned in `tests/test_styles.py::test_published_demo_numbers`, README, `VIDEO_NOTES.md` and SPEC D30.
+    - The cache was warmed live: `warm_cache` plus walks of move, overtime, attribution and day 14.
+    - The old demo stays as piece-split regression tests (`op.piece_demo_order()`, `personas.PIECE_PERSONAS_PATH`).
+  - **Still open for §f:**
+    - The team's persona text for the programme (brief at the top of `PERSONAS_GUIDE.md`); then re-warm.
+    - The memo and the warning do not mention styles yet. They cite factories and pieces, which is correct but less clear.
+    - "Show the maths" scripted factory replies (`factory_replies.json`) are for the old factories and are skipped (not in the plan).
+    - QC and the track record work per factory, not per style.
+    - **Open question:** a 2-factory cap gives 41.7% against the default plan's 32.0% (SPEC D30 finding): the optimiser takes the cheapest plan per over-cut, not the most likely. Ask the product owner whether to change that when the target cannot be met.
   - **Known behaviour:**
     - If the largest factory declines, the split over the remaining repliers can be infeasible because of the district cap; the re-plan step (new factories) handles it.
     - The renegotiate-date chance assumes the buyer agrees.

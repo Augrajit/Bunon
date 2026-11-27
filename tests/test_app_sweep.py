@@ -93,7 +93,7 @@ def test_every_action_at_extreme_settings(name, over, monkeypatch, tmp_path):
     assert not any("LLM intake unavailable" in w.value for w in at.warning), "intake not cached: run warm_cache"
     assert any("Day 0 · Plan" in h.value for h in at.header), "the plan section did not render"
     feasible = not any("No feasible plan" in e.value for e in at.error)
-    if over.get("max_f") in (1, 2, 3):  # no allocation exists: say so plainly, show no empty plan
+    if over.get("max_f") == 1:  # programme (D30): no single factory holds 10 styles; say so, show no empty plan
         assert not feasible
     r.click(key="approve_plan")
     # the thin loop: sourcing round -> replies -> split -> daily update -> rescue -> QC -> track record

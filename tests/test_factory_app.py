@@ -36,9 +36,9 @@ def test_factory_answers_and_updates_in_the_app(monkeypatch, tmp_path):
     assert r.click("Read the email") and r.click("Confirm order"), r.problems
     assert r.click(key="approve_plan") and r.click(key="send_requests"), r.problems
 
-    # day 0, factory app: F0824 (scripted to decline) accepts instead, typed by the factory itself
+    # day 0, factory app: F2786 (scripted to counter) accepts instead, typed by the factory itself
     _as(at, "Factory owner")
-    at.selectbox(key="factory_view_id").set_value("F0824").run()
+    at.selectbox(key="factory_view_id").set_value("F2786").run()
     assert any("Answer the request" in m.value for m in at.markdown), r.problems
     at.radio[0].set_value("Accept")
     r.click("Send answer")
@@ -48,31 +48,31 @@ def test_factory_answers_and_updates_in_the_app(monkeypatch, tmp_path):
     _as(at, "Merchandiser", "Order timeline")
     assert r.click(key="go_day_replies"), r.problems
     offers = next(df.value for df in at.dataframe if "Read by" in df.value.columns)
-    row = offers[offers["Factory"] == "F0824"].iloc[0]
+    row = offers[offers["Factory"] == "F2786"].iloc[0]
     assert row["Read by"] == "typed by the factory" and row["Decision"] == "accept"
-    assert len(offers) == 6
+    assert len(offers) == 4
     assert r.click(key="approve_split"), r.problems
     assert r.click(key="go_day_update"), r.problems
 
-    # day 12, factory app: F1856 posts an on-track update next to F1064's scripted late one; the exporter's
-    # forecast uses both (D22): F1856 as typed, F1064 as read, simulated together
+    # day 12, factory app: F0288 posts an on-track update next to F2427's scripted late one; the exporter's
+    # forecast uses both (D22): F0288 as typed, F2427 as read, simulated together
     _as(at, "Floor supervisor")
-    at.selectbox(key="factory_view_id").set_value("F1856").run()
-    at.number_input[0].set_value(13_600)
+    at.selectbox(key="factory_view_id").set_value("F0288").run()
+    at.number_input[0].set_value(8_000)
     r.click(prefix="Post update for day")
     _as(at, "Merchandiser", "Order timeline")
     assert any("typed in the factory app" in m.value for m in at.markdown), r.problems
     assert any("2 factories sent updates" in m.value for m in at.markdown), r.problems
     table = next(df.value for df in at.dataframe if "Pieces by its ship-by day" in df.value.columns)
-    assert list(table["Factory"]) == ["F1064", "F1856"] and table["Short"].iloc[1] == "0"
+    assert list(table["Factory"]) == ["F2427", "F0288"] and table["Short"].iloc[1] == "0"
     assert at.warning and not any("on track" in s.value for s in at.success)
-    # D23: the exporter records F1064's delay cause; F1064 disputes it in its app; the record shows the dispute
-    assert r.click(key="attr_decide_F1064"), r.problems
+    # D23: the exporter records F2427's delay cause; F2427 disputes it in its app; the record shows the dispute
+    assert r.click(key="attr_decide_F2427"), r.problems
     assert any("Recorded:" in s.value for s in at.success), r.problems
     _as(at, "Factory owner")
-    at.selectbox(key="factory_view_id").set_value("F1064").run()
+    at.selectbox(key="factory_view_id").set_value("F2427").run()
     assert any("Cause recorded for your delay" in m.value for m in at.markdown), r.problems
-    at.text_input(key="dispute_text_F1064").set_value("The whole area had no power.")
+    at.text_input(key="dispute_text_F2427").set_value("The whole area had no power.")
     assert r.click("Dispute this cause"), r.problems
     assert any("You dispute this" in c.value for c in at.caption), r.problems
     _as(at, "Merchandiser", "Order timeline")
@@ -100,10 +100,10 @@ def test_overtime_rescue_is_drafted_and_sent_only_on_approval(monkeypatch, tmp_p
     for key in ("approve_plan", "send_requests", "go_day_replies", "approve_split", "go_day_update", "rescue_surge"):
         assert r.click(key=key), (key, r.problems)
     draft = next(df.value for df in at.dataframe if "Extra pieces" in df.value.columns)
-    assert list(draft["Status"]) == ["draft"] and draft["To"].iloc[0] == "F1064"
+    assert list(draft["Status"]) == ["draft"] and draft["To"].iloc[0] == "F2427"
     assert r.click(key="send_surge") and r.click(key="go_day_qc"), r.problems
     # D27: the QC pre-fill counts the overtime pieces the late factory was asked for
-    assert any("includes the 945 overtime pieces" in c.value for c in at.caption), [c.value for c in at.caption]
+    assert any("includes the 600 overtime pieces" in c.value for c in at.caption), [c.value for c in at.caption]
     assert not r.problems, "\n".join(r.problems)
     log = next(df.value for df in at.dataframe if "Who (role)" in df.value.columns)
     assert {"rescue_chosen", "message_sent"} <= set(log["Kind"])
@@ -132,5 +132,5 @@ def test_factory_hides_its_record_from_new_exporters(monkeypatch, tmp_path):
     _as(at, "Merchandiser", "Order timeline")
     sourcing = next(df.value for df in at.dataframe if "Asked for (pcs)" in df.value.columns)
     col = dict(zip(sourcing["Factory"], sourcing["Record from other exporters"]))
-    assert col["F0288"] == "record not shared" and col["F1856"] == "shared"
+    assert col["F0288"] == "record not shared" and col["F2427"] == "shared"
     assert not r.problems, "\n".join(r.problems)

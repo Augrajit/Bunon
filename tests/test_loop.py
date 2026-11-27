@@ -41,11 +41,11 @@ def world():
 
 @pytest.fixture(scope="module")
 def bundle(world):
-    return sv.compute_plans(world, op.demo_order(), sv.PlanSettings(), n_compliant=442)
+    return sv.compute_plans(world, op.piece_demo_order(), sv.PlanSettings(), n_compliant=442)
 
 
 def answer_key_offers(bundle) -> list[lp.OfferTerms]:
-    pf = ps.load()
+    pf = ps.load(ps.PIECE_PERSONAS_PATH)
     out = []
     for r in lp.sourcing_list(bundle):
         m = ps.messages_for(pf, r.factory_id, "offer_reply")
@@ -189,7 +189,7 @@ def book(tmp_path, monkeypatch):
 
 
 def test_loop_end_to_end_in_the_order_book(world, bundle, book):
-    pf = ps.load()
+    pf = ps.load(ps.PIECE_PERSONAS_PATH)
     oid = book.confirm_order(bundle.order, "Merchandiser", sv.PlanSettings(), None)
     drafts = book.draft_round(oid, bundle, pf)
     assert len(drafts) == 6 and all(m["sent_day"] is None for m in drafts)
@@ -215,7 +215,7 @@ def test_loop_end_to_end_in_the_order_book(world, bundle, book):
 
 
 def test_persona_placeholders_are_flagged_and_cover_the_sourcing_round(bundle):
-    pf = ps.load()
+    pf = ps.load(ps.PIECE_PERSONAS_PATH)
     asked = {r.factory_id for r in lp.sourcing_list(bundle)}
     with_offer = {p.factory_id for p in pf.personas for m in p.messages if m.kind == "offer_reply"}
     assert asked <= with_offer
@@ -224,7 +224,7 @@ def test_persona_placeholders_are_flagged_and_cover_the_sourcing_round(bundle):
 
 def test_placeholder_messages_stay_tagged_when_received(world, bundle, book):
     """Placeholder text is flagged all the way into the app (the team swaps it for their own text)."""
-    pf = ps.load()
+    pf = ps.load(ps.PIECE_PERSONAS_PATH)
     oid = book.confirm_order(bundle.order, "Merchandiser", sv.PlanSettings(), None)
     book.draft_round(oid, bundle, pf)
     book.approve_round(oid, "Merchandiser")
@@ -237,7 +237,7 @@ def test_placeholder_messages_stay_tagged_when_received(world, bundle, book):
 
 def test_factory_inbox_rows_are_order_scoped(bundle, book):
     """Reviewer finding (D14): ids are scoped to the order, so a second order does not take over the first's rows."""
-    pf = ps.load()
+    pf = ps.load(ps.PIECE_PERSONAS_PATH)
     a = book.confirm_order(bundle.order, "Merchandiser", sv.PlanSettings(), None)
     book.draft_round(a, bundle, pf)
     b = book.confirm_order(bundle.order, "Merchandiser", sv.PlanSettings(), None)
@@ -287,7 +287,7 @@ def test_payments_only_by_exporters_once_and_recomputed_from_rows(bundle, book):
 def test_delays_and_causes_are_counted_by_code(bundle, book):
     """PLAN_V2 §0 item 2: code counts delays, missing causes and repeated causes; nothing calls them excuses."""
     oid = book.confirm_order(bundle.order, "Merchandiser", sv.PlanSettings(), None)
-    book.draft_round(oid, bundle, ps.load())
+    book.draft_round(oid, bundle, ps.load(ps.PIECE_PERSONAS_PATH))
     f = bundle.rec.plan.lines[0].factory_id
     for i, (delay, cause) in enumerate([(2, "power cut"), (1, "Power cut "), (3, None), (0, None)]):
         book.store.insert("progress_updates", {"update_id": f"{oid}:u{i}", "order_id": oid, "factory_id": f,
@@ -302,7 +302,7 @@ def test_delays_and_causes_are_counted_by_code(bundle, book):
 
 def _sent_round(bundle, book):
     oid = book.confirm_order(bundle.order, "Merchandiser", sv.PlanSettings(), None)
-    book.draft_round(oid, bundle, ps.load())
+    book.draft_round(oid, bundle, ps.load(ps.PIECE_PERSONAS_PATH))
     return oid
 
 
@@ -328,7 +328,7 @@ def test_a_factory_answer_replaces_its_scripted_reply(bundle, book):
     book.approve_round(oid, "Merchandiser")
     book.factory_reply(oid, "F0824", "accept", None, 3, "Yes, 3 days late", "Floor supervisor")
     book.advance_to(oid, lp.REPLY_DAY, "replies", "Merchandiser")
-    got = book.receive(oid, ps.load(), "offer_reply", list(book.requests(oid)))
+    got = book.receive(oid, ps.load(ps.PIECE_PERSONAS_PATH), "offer_reply", list(book.requests(oid)))
     assert "F0824" not in {m["factory_id"] for m in got} and len(got) == 5
     o = next(x for x in book.offer_terms(oid) if x.factory_id == "F0824")
     assert (o.decision, o.delay_days) == ("counter", 3)
@@ -354,9 +354,9 @@ def test_factory_update_is_stored_as_typed_once_a_day(bundle, book):
 
 # --- the published demo numbers (README, SPEC D14, the video script) ---------------------------------------
 
-def test_published_demo_numbers(world, bundle):
-    """HANDOFF task 5.1: if this fails, the engine or the fixture changed: update README.md, SPEC.md and the
-    video script with the new numbers (and re-warm the cache), never the other way round."""
+def test_piece_split_demo_numbers(world, bundle):
+    """The pre-D30 piece-split demo's numbers (HANDOFF task 5.1), kept as a regression test of the piece split.
+    The published demo is now the programme: tests/test_styles.py::test_published_demo_numbers."""
     assert bundle.rec.risk.p_meet_qty == pytest.approx(0.875, abs=0.0005)
     offers = answer_key_offers(bundle)
     res, cands = lp.split_from_offers(world, bundle, offers)
@@ -377,7 +377,7 @@ def test_published_demo_numbers(world, bundle):
 
 def test_factory_platform_record_recomputes_across_orders(bundle, book):
     """HANDOFF task 4.1: a factory's record over every order in the store, from platform rows only."""
-    pf = ps.load()
+    pf = ps.load(ps.PIECE_PERSONAS_PATH)
     for received, rejected, day in ((1_000, 50, 24), (2_000, 0, 27)):
         oid = book.confirm_order(bundle.order, "Merchandiser", sv.PlanSettings(), None)
         book.draft_round(oid, bundle, pf)
@@ -474,7 +474,7 @@ def test_quoted_rates_price_the_split_and_a_late_ship_date_is_a_delay(world, bun
     assert price["F2829"] == 60.0 and price["F2184"] == 56.0 and price["F1856"] == 57.0
     assert price["F1064"] == next(c.unit_price_bdt for c in bundle.cands if c.factory_id == "F1064")  # no rate quoted
     oid = book.confirm_order(bundle.order, "Merchandiser", sv.PlanSettings(), None)
-    book.draft_round(oid, bundle, ps.load())
+    book.draft_round(oid, bundle, ps.load(ps.PIECE_PERSONAS_PATH))
     finish = date.fromisoformat(book.requests(oid)["F1856"]["finish_by"])
     book.store.insert("offers", {"offer_id": f"{oid}:offer-F1856", "order_id": oid, "factory_id": "F1856",
                                  "decision": "counter", "qty": 13_200, "price_bdt_per_piece": 58.0,
@@ -531,7 +531,7 @@ def test_offline_miss_drafts_with_the_template_and_draft_round_marks_the_source(
     assert d.source == "template" and d.text == "TEMPLATE"
     oid = book.confirm_order(bundle.order, "Merchandiser", sv.PlanSettings(), None)
     text = "Dear Sir, please confirm {{req.qty}} pcs by {{req.finish_by}} and your rate."
-    drafts = book.draft_round(oid, bundle, ps.load(), fake(tmp_path / "f", {"text": text}))
+    drafts = book.draft_round(oid, bundle, ps.load(ps.PIECE_PERSONAS_PATH), fake(tmp_path / "f", {"text": text}))
     assert len(drafts) == 6 and all(m["draft_of"] == "llm" and m["sent_day"] is None for m in drafts)
     assert all(f"{book.requests(oid)[m['factory_id']]['qty']:,}" in m["text"] for m in drafts)
 
@@ -673,7 +673,7 @@ def test_warning_with_several_updates_and_a_previous_chance(tmp_path, world, bun
 def test_qc_prefill_adds_the_overtime_pieces_once_the_request_is_sent(book, world, bundle):
     """D27: with overtime chosen and its request sent, the late factory is expected to deliver its projection plus
     the overtime pieces (never above its approved pieces); before the request is sent, only the projection."""
-    pf = ps.load()
+    pf = ps.load(ps.PIECE_PERSONAS_PATH)
     oid = book.confirm_order(bundle.order, "Merchandiser", sv.PlanSettings(), None)
     book.draft_round(oid, bundle, pf)
     book.approve_round(oid, "Merchandiser")

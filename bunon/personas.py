@@ -20,7 +20,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from bunon import config as C
 from bunon import textnum as tn
 
-PERSONAS_PATH = C.ROOT / "data" / "demo" / ("personas_programme.json" if C.DEMO_PROGRAMME else "personas.json")
+PIECE_PERSONAS_PATH = C.ROOT / "data" / "demo" / "personas.json"  # the pre-D30 piece-split demo (regression tests)
+PERSONAS_PATH = C.ROOT / "data" / "demo" / "personas_programme.json" if C.DEMO_PROGRAMME else PIECE_PERSONAS_PATH
 FORMAT_VERSION = 1
 
 Language = Literal["English", "Banglish", "Bangla"]

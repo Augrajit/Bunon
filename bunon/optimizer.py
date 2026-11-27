@@ -44,15 +44,17 @@ def load_world(db: Path = C.PUBLIC_DB) -> World:
 
 
 def demo_order() -> OrderConstraints:
+    """The demo order: the 10-style programme (SPEC.md D30), or the pre-D30 piece-split order with the flag off."""
     if C.DEMO_PROGRAMME:
         from bunon import programme as pg
-        return pg.as_programme(_demo_base())
-    return _demo_base()
+        return pg.as_programme(piece_demo_order())
+    return piece_demo_order()
 
 
-def _demo_base() -> OrderConstraints:
+def piece_demo_order() -> OrderConstraints:
+    """The pre-D30 demo order: 150,000 basic tees, 100,000 in-house, 50,000 split in pieces (regression tests)."""
     return OrderConstraints(
-        total_qty=C.DEMO_TOTAL_QTY, own_capacity_qty=C.DEMO_OWN_CAPACITY, deadline=C.DEMO_DEADLINE,
+        total_qty=C.PIECE_DEMO_TOTAL_QTY, own_capacity_qty=C.PIECE_DEMO_OWN_CAPACITY, deadline=C.DEMO_DEADLINE,
         delivery_point=C.DELIVERY_POINT_NAME, fabric="100% cotton single jersey", gsm=160, quality_aql=2.5,
         fob_usd_per_piece=C.DEMO_FOB_USD, late_penalty_pct_per_week=C.DEMO_PENALTY_PCT_PER_WEEK,
     )

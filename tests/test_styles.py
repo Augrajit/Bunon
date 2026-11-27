@@ -149,3 +149,51 @@ def test_accept_shortfall_is_judged_per_style_and_renegotiation_names_the_days(l
     assert days == -(-fc.shortfall // int(fc.rate_seen)) or days == max(1, -(-fc.shortfall // fc.rate_seen))
     assert f"{days} more days" in opts["renegotiate_date"].note
     assert opts["renegotiate_date"].p_after > fc.p_after
+
+
+def test_published_demo_numbers():
+    """The programme demo's numbers (SPEC.md D30) as published in README.md, SPEC.md and the video notes. If this
+    fails, the engine or the fixture changed: update those documents (and re-warm the cache), never the other way
+    round."""
+    from bunon import config as C
+    from bunon import loop as lp
+    from bunon import personas as ps
+    from bunon import service as sv
+    assert C.DEMO_PROGRAMME
+    world = op.load_world()
+    b = sv.compute_plans(world, op.demo_order(), sv.PlanSettings(), n_compliant=442)
+    assert b.order.subcontract_qty == 16_800 and b.rec.buffer_pct == 0.2
+    assert b.rec.risk.p_meet_qty == pytest.approx(0.320, abs=0.0005)
+    assert round(b.rec.plan.cost_total) == 2_653_954
+    pf = ps.load()
+    offers = []
+    for r in lp.sourcing_list(b):
+        m = ps.messages_for(pf, r.factory_id, "offer_reply")
+        e = m[0].expected if m else None
+        offers.append(lp.OfferTerms(r.factory_id, e.decision if e else "none", e.qty if e else None,
+                                    e.delay_days if e else None, r.qty, e.price_bdt_per_piece if e else None))
+    res, cands = lp.split_from_offers(world, b, offers)
+    pt = res.recommended
+    assert pt.risk.p_meet_qty == pytest.approx(0.320, abs=0.0005)
+    assert {ln.factory_id: (ln.qty, [s for s, _ in ln.styles]) for ln in pt.plan.lines} == {
+        "F0288": (8_424, ["S01", "S02", "S04", "S10"]), "F2427": (8_280, ["S05", "S06", "S07", "S08"]),
+        "F2786": (3_456, ["S03", "S09"])}
+    fc = lp.forecast_from_updates(world, b, pt, cands, [lp.Update("F2427", 2_000, 1, lp.UPDATE_DAY)])[0]
+    assert (fc.projected, fc.shortfall) == (6_000, 2_280) and fc.p_after == 0.0
+    assert lp.warning_level(fc, b.settings.target) == "below target"
+    excl = {ln.factory_id for ln in pt.plan.lines}
+    assert lp.last_style_rescue_day(world, b, pt, fc, excl, today=lp.UPDATE_DAY) == (13, "F2829")
+    opts = {o.kind: o for o in lp.rescue_options(world, b, pt, cands, fc, [], lp.UPDATE_DAY)}
+    assert opts["move"].note == "S07 to F2829 (+2,304 pcs)"
+    assert opts["move"].p_after == pytest.approx(0.431, abs=0.0005) and round(opts["move"].cost_delta_bdt) == 40_563
+    assert opts["surge"].note.startswith("F2427 +600") and opts["surge"].p_after == 0.0
+    assert not opts["accept_shortfall"].allowed
+    assert "6 more days" in opts["renegotiate_date"].note
+    assert opts["renegotiate_date"].p_after == pytest.approx(0.549, abs=0.0005)
+    # Day 14: F0288's late fabric; by then no outside factory can take a whole unstarted style any more.
+    fcs = lp.forecast_from_updates(world, b, pt, cands, [lp.Update("F2427", 2_000, 1, lp.UPDATE_DAY),
+                                                         lp.Update("F0288", 2_600, 2, lp.UPDATE_DAY2)])
+    assert {f.factory_id: (f.projected, f.shortfall) for f in fcs} == {"F2427": (6_000, 2_280), "F0288": (6_240, 2_184)}
+    assert lp.last_style_rescue_day(world, b, pt, fcs[0], excl, today=lp.UPDATE_DAY2) == (None, None)
+    day14 = {o.kind: o for o in lp.rescue_options(world, b, pt, cands, fcs[0], [], lp.UPDATE_DAY2)}
+    assert not day14["move"].allowed

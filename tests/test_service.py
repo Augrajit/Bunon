@@ -23,7 +23,7 @@ def world():
 
 @pytest.fixture(scope="module")
 def bundle(world):
-    return sv.compute_plans(world, op.demo_order(), sv.PlanSettings(), n_compliant=442)
+    return sv.compute_plans(world, op.piece_demo_order(), sv.PlanSettings(), n_compliant=442)
 
 
 @pytest.fixture()
@@ -58,7 +58,7 @@ def test_roles_and_session_paths():
 
 
 def test_compute_plans_matches_the_engine(world, bundle):
-    order, p = sv.PlanSettings().apply(op.demo_order())
+    order, p = sv.PlanSettings().apply(op.piece_demo_order())
     direct = op.compare_three(world, order, p)["ours"].recommended
     assert bundle.feasible and bundle.rec.plan.plan_id == direct.plan.plan_id
     assert bundle.rec.risk.p_meet_qty == direct.risk.p_meet_qty
@@ -66,7 +66,7 @@ def test_compute_plans_matches_the_engine(world, bundle):
 
 
 def test_order_lifecycle_is_logged_on_the_story_clock(book, bundle):
-    oid = book.confirm_order(op.demo_order(), "Merchandiser", sv.PlanSettings(), "cache", buyer="fictional")
+    oid = book.confirm_order(op.piece_demo_order(), "Merchandiser", sv.PlanSettings(), "cache", buyer="fictional")
     assert book.day(oid) == 0 and book.order(oid).subcontract_qty == 50_000
     v = book.propose(oid, bundle.rec, "Initial plan")
     assert book.propose(oid, bundle.rec, "Initial plan") == v  # re-rendering does not duplicate
@@ -83,7 +83,7 @@ def test_order_lifecycle_is_logged_on_the_story_clock(book, bundle):
 
 
 def test_approving_a_new_plan_supersedes_the_old_one(world, book, bundle):
-    oid = book.confirm_order(op.demo_order(), "Merchandiser", sv.PlanSettings(), None)
+    oid = book.confirm_order(op.piece_demo_order(), "Merchandiser", sv.PlanSettings(), None)
     book.decide(oid, "plan", bundle.rec, "Initial plan", "approved", "Owner / director", "x")
     rp, _ = sv.replan_after_decline(world, bundle)
     book.decide(oid, "replan", rp.new, "Re-plan after decline", "approved", "Production manager", "y")
@@ -93,10 +93,10 @@ def test_approving_a_new_plan_supersedes_the_old_one(world, book, bundle):
 def test_only_exporter_roles_confirm_approve_or_steer(book, bundle):
     """Reviewer finding (D13): the service itself refuses, not only the UI."""
     with pytest.raises(PermissionError):
-        book.confirm_order(op.demo_order(), "Someone's name", sv.PlanSettings(), None)
+        book.confirm_order(op.piece_demo_order(), "Someone's name", sv.PlanSettings(), None)
     with pytest.raises(PermissionError):
-        book.confirm_order(op.demo_order(), "Factory owner", sv.PlanSettings(), None)
-    oid = book.confirm_order(op.demo_order(), "Merchandiser", sv.PlanSettings(), None)
+        book.confirm_order(op.piece_demo_order(), "Factory owner", sv.PlanSettings(), None)
+    oid = book.confirm_order(op.piece_demo_order(), "Merchandiser", sv.PlanSettings(), None)
     for role in FACTORY_ROLES:
         with pytest.raises(PermissionError):
             book.decide(oid, "plan", bundle.rec, "Initial plan", "approved", role, "x")
@@ -107,14 +107,14 @@ def test_only_exporter_roles_confirm_approve_or_steer(book, bundle):
 
 def test_a_reconfirmed_order_starts_again_on_day_zero(book):
     """Reviewer finding (D13): confirming again (or after a logout) must not inherit the old clock."""
-    a = book.confirm_order(op.demo_order(), "Merchandiser", sv.PlanSettings(), None)
+    a = book.confirm_order(op.piece_demo_order(), "Merchandiser", sv.PlanSettings(), None)
     book.advance_to(a, 3, "decline")
-    b = book.confirm_order(op.demo_order(), "Merchandiser", sv.PlanSettings(), None)
+    b = book.confirm_order(op.piece_demo_order(), "Merchandiser", sv.PlanSettings(), None)
     assert a != b and book.day(b) == 0 and [e["kind"] for e in book.timeline(b)] == ["order_confirmed"]
 
 
 def test_steering_lands_on_the_timeline(book):
-    oid = book.confirm_order(op.demo_order(), "Merchandiser", sv.PlanSettings(), None)
+    oid = book.confirm_order(op.piece_demo_order(), "Merchandiser", sv.PlanSettings(), None)
     book.record_steer(oid, "at most four factories", [{"field": "max_factories", "value": 4}], "Production manager")
     ev = book.timeline(oid)[-1]
     assert ev["kind"] == "settings_changed" and "max_factories=4" in ev["summary"]

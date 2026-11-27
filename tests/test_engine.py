@@ -22,7 +22,7 @@ def world():
 
 @pytest.fixture(scope="module")
 def order():
-    return op.demo_order()
+    return op.piece_demo_order()
 
 
 # --- reliability --------------------------------------------------------------
@@ -204,7 +204,7 @@ def test_replan_can_be_infeasible_and_says_so():
     on day 12. No plan covers the order; the result must carry no risk (the app shows 'No feasible
     re-plan' instead of crashing)."""
     w = op.load_world()
-    order = op.demo_order()
+    order = op.piece_demo_order()
     p = op.default_params(order, max_factories=4)
     rec = op.compare_three(w, order, p)["ours"].recommended
     assert rec.plan.lines, "the initial plan must exist for this test to mean anything"

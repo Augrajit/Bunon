@@ -7,17 +7,26 @@ When a Bangladeshi garment exporter can't make a whole buyer order in-house, Bun
 
 **How the AI is used.** An optimiser (PuLP/CBC) and a Monte Carlo simulation produce every number. The LLM (Gemini) handles language: it reads the buyer's email, factory replies in English, Bangla or Banglish, and news headlines; it decides which tools to run for a what-if question; and it writes the decision memo, the messages to factories (English, Banglish, Bangla) and the warning after a daily update; it also suggests why a factory was late, which a person decides and the factory can dispute. It never writes a number itself: extracted values must come with a word-for-word quote that the code checks, and memos and answers cite tool results through placeholders. Anything that fails a check falls back to hand entry or a fixed template.
 
-**Demo results** (synthetic performance data, seed 42; fictional order of 50,000 subcontracted T-shirts, 3 → 31 January 2027; success = at least 98% of them delivered as good pieces after QC by the deadline; target 90%; recomputed 26 Nov 2026, SPEC.md D12):
+**Demo results** (synthetic performance data, seed 42; recomputed 28 Nov 2026, SPEC.md D30). The demo order is a fictional buyer's kids' T-shirt programme of **10 styles, 16,800 pieces, all subcontracted**, modelled on 10 anonymised real delivery orders (`data/demo/docs/`), due 3 → 31 January 2027.
+- **A style always goes whole to one factory**: the interviewee confirmed a style is never split, because a smaller quantity is loss-making for the subcontractor.
+- **Success:** every style has at least 98% of its quantity as good pieces after QC by the deadline.
+- **Target:** 90%.
 
-| | P(on time, within tolerance) | Cost |
+| | P(every style on time, within tolerance) | Cost |
 |---|---|---|
-| Naive: declared capacity + lowest price | 1.2% | |
-| Naive + the same 25% buffer | 77.8% | |
-| **Bunon** (5 factories, 25% buffer) | **87.5%**: below the 90% target, and the app says so | 8,237,537 BDT |
-| Naive rule, buffer needed to match Bunon | 32.5% buffer | +250,477 BDT |
-| After the largest factory declines on day 3 (re-plan) | 84.0% | |
+| Naive: declared capacity + lowest price | 1.2% | 2,105,932 BDT |
+| Naive + the same 20% over-cut | 13.4% | 2,519,298 BDT |
+| **Bunon** (3 factories, 20% over-cut per style) | **32.0%**: far below the 90% target, and the app says so | 2,653,954 BDT |
+| Naive rule, over-cut needed to match Bunon | 57.5% | +659,766 BDT |
+| After the largest factory declines on day 3 (re-plan) | 33.1% | |
 
-The main reason Bunon misses 90% is a placeholder: about 2% of delivered lots fail QC as a whole. That value waits for the expert interview and is deliberately not tuned (SPEC.md D12).
+**Why so low.** With whole styles, a factory that delivers short leaves its last style short, and one style's over-cut cannot cover another style. The same plan read as one undivided product would show 88%. `SENSITIVITY.md` varies one input at a time; no default is tuned.
+- **Largest driver:** short deliveries in the synthetic history, where about 30% of jobs deliver short. With none, the chance would be 73.8%.
+- **Next:** the over-cut and the per-style tolerance.
+- **Small effect:** defects and whole-lot rejection move it by a point or two.
+- **Research asks 20–23** ask for the real values.
+
+The pre-D30 piece-split demo (50,000 pieces over 5 factories, 87.5%) is kept as a regression test of the piece split (`tests/test_loop.py::test_piece_split_demo_numbers`).
 
 Factory funnel (real Open Supply Hub data): 3,214 → 3,196 open → 1,748 make T-shirts → 442 RSC or valid BSCI → 221 with spare capacity, a feasible deadline and compliance still valid on the deadline (synthetic capacity).
 
@@ -63,10 +72,27 @@ python -m bunon.data_gen
 | News headlines (English / Bangla): area, type, duration, severity → fixed table → simulated impact and re-plan | done |
 | What-if analyst: Gemini function calling over simulate / solve / compare (max 6 calls, every call logged) | done |
 | Live LLM with caps (40 calls per visitor, 400 per day); clear messages when no plan or re-plan is feasible | done |
-| Tests: 206 (`pytest -q`) + 30 app click-throughs: 24 extreme settings, the factory app, the story-clock jumps (`pytest -m sweep`) | passing |
+| Whole-style engine (D30): a binary style-to-factory MIP, over-cut per style, per-style success in the simulation, rescue by moving an unstarted style / overtime / accepting a shortfall within tolerance / renegotiating the date | done |
+| Real delivery orders anonymised on the local machine (`bunon/anonymise.py`, D29); the raw PDFs are never committed or sent to the LLM | done |
+| Tests: 226 (`pytest -q`) + 30 app click-throughs: 24 extreme settings, the factory app, the story-clock jumps (`pytest -m sweep`) | passing |
 | Real values for the placeholder assumptions (fill/lateness, costs; see RESEARCH_ASKS.md) | waiting for research |
 
-**The 3-minute demo** (branch `v2`; the live app still runs `main`): **Continue as demo exporter** → **Start a new order** → **Read the email** → **Confirm order** → **Approve** the plan → **Approve and send the requests** → **Next: day 2** (six simulated factories reply; one declines) → **Approve** the split → **Next: day 12** (a Banglish update: "3,500 ready, 2 days late" → warning, chance of success and the last day to rescue) → **Wait: day 14** (a second factory is 2 days behind: both updates forecast together, 5,100 short, the last day to rescue is today) → **Choose: Move the shortfall** → **Approve** → **Approve and send the rescue requests** → **Next: day 26** → switch the role to **Exporter · Quality inspector** → **Record QC** → the **Track record** and the **Timeline**. Switch the role to **Factory · Floor supervisor** to see a factory's phone. The plan comparison, steering and the earlier decline / reply / news what-ifs are under **Show the maths**. Every step replays from the cache. For a short pitch, the **Jump ahead** buttons under the confirmed order (Day 2, Day 12, Day 14, Day 26) press these buttons for you with the default choices; every approval is still recorded under your role.
+**The 3-minute demo** (branch `v2`; numbers in [VIDEO_NOTES.md](VIDEO_NOTES.md)):
+1. **Continue as demo exporter** → **Start a new order** → **Read the email**. The 10 attached delivery orders are read in code (no AI).
+2. **Confirm order** → **Approve** the plan. Three factories get whole styles: F0288 S01, S02, S04, S10; F2427 S05–S08; F2786 S03, S09.
+3. **Approve and send the requests** → **Next: day 2.** The simulated factories reply; F2786 counters on the rate.
+4. **Approve** the split.
+5. **Next: day 12.** F2427's Banglish update says "2,000 ready, 1 day late", which projects 6,000 of 8,280 pieces. The warning gives the chance and the last day to rescue: day 13.
+6. **Choose: Move an unstarted style to another factory** (S07 to the standby F2829) → **Approve** → **Approve and send the rescue requests**.
+7. **Next: day 26** → switch the role to **Exporter · Quality inspector** → **Record QC** → the **Track record** and the **Timeline**.
+
+Other paths:
+- **Wait: day 14.** F0288's late fabric adds a second shortfall. By then no outside factory can take a whole style, so only overtime and renegotiating the date are left.
+- **Factory · Floor supervisor:** switch to this role to see a factory's phone.
+- **Show the maths:** the plan comparison, steering and the decline / reply / news what-ifs.
+- **Jump ahead:** for a short pitch, the buttons under the confirmed order (Day 2, Day 12, Day 14, Day 26) press these buttons for you with the default choices. Every approval is still recorded under your role.
+
+Every step replays from the cache.
 
 **Release check (18 Nov 2026):** a fresh clone of this repo on Windows, with a new virtual environment, no API key and no UTF-8 override, installs in about 1.5 minutes and passes all tests (5 skipped: they need the private raw data, which is not published). A scan of every published file, including the database and the cached LLM answers, against the private list of real factory names, IDs and addresses found no matches. Live app: about 6 s to the first screen and 6 s from "Confirm order" to plans and memo while awake; 30–40 s to wake after a quiet period.
 

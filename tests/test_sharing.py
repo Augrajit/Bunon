@@ -39,7 +39,12 @@ def _order_with(book, fid: str, late: bool) -> str:
 def test_a_hidden_record_shows_as_not_shared_to_new_exporters_only(book):
     mine = _order_with(book, "F1856", late=True)      # this exporter's order
     other = _order_with(book, "F1856", late=False)    # stands for another exporter's order in the same platform
-    assert book.record_shared("F1856")                # shared by default
+    # no silent default: until the factory chooses, exporters it has not worked with see nothing
+    assert book.record_shared("F1856") is None
+    assert book.record_for_exporter("F1856", set())["label"] == "record not shared"
+    assert book.record_for_exporter("F1856", {mine})["own"]["deliveries"] == 1  # its own orders: always
+    book.set_record_sharing("F1856", True, "Factory owner")  # the choice made when it joins
+    assert book.record_shared("F1856") is True
     seen = book.record_for_exporter("F1856", {mine})
     assert seen["own"]["deliveries"] == 1 and seen["own"]["on_time_rate"] == 0.0
     assert seen["others"]["deliveries"] == 1 and seen["others"]["on_time_rate"] == 1.0 and seen["label"] is None
@@ -67,3 +72,16 @@ def test_the_factory_cannot_edit_delete_or_hide_single_events(book):
     assert not any(n.startswith(("delete", "remove")) for n in dir(Store))
     with pytest.raises(Exception):
         book.store.set_share_visibility("F1856", "record", "hidden")  # only the three allowed visibilities
+
+
+def test_simulated_personas_chose_to_share_and_other_factories_have_not_chosen(book):
+    from bunon import personas as ps
+    pf = ps.load()
+    book.record_persona_choices(pf)
+    ids = [p.factory_id for p in pf.personas if p.factory_id != "TBD"]
+    assert ids and all(book.record_shared(f) is True for f in ids)
+    assert book.record_shared("F0001") is None  # a factory that has not joined has made no choice
+    book.set_record_sharing(ids[0], False, "Factory owner")
+    book.record_persona_choices(pf)  # recorded once: a later choice by the factory is never overwritten
+    assert book.record_shared(ids[0]) is False
+    assert "join" in sv.OrderBook.SHARE_BENEFIT or "new orders" in sv.OrderBook.SHARE_BENEFIT

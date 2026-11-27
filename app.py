@@ -622,6 +622,22 @@ def view_factory() -> None:
     with st.container(border=True, key="phone"):
         st.markdown(f"**{fid}** · {row['district']} · <span class='bn-badge'>Simulated</span>",
                     unsafe_allow_html=True)
+        book().record_persona_choices(persona_file())
+        if book().record_shared(fid) is None:  # joining: the factory must choose; there is no silent default
+            st.markdown("**Welcome to Bunon. Who may see your record?**")
+            st.caption(sv.OrderBook.SHARE_BENEFIT + " Exporters you work with always see the events from their "
+                       "own orders. You can change this later.")
+            if st.session_state["role"] not in FACTORY_ROLES:
+                st.caption("This factory has not chosen yet. Switch to a factory role to choose.")
+                return
+            j1, j2 = st.columns(2)
+            if j1.button("Share with new exporters", key=f"join_share_{fid}", type="primary"):
+                book().set_record_sharing(fid, True, st.session_state["role"])
+                st.rerun()
+            if j2.button("Only exporters I work with", key=f"join_private_{fid}"):
+                book().set_record_sharing(fid, False, st.session_state["role"])
+                st.rerun()
+            return
         st.markdown("**Inbox**")
         msgs = [m for m in book().store.messages(st.session_state.get("order_id"), factory_id=fid)
                 if m["direction"] == "in" or m["sent_day"] is not None]  # drafts stay with the exporter
@@ -645,7 +661,8 @@ def view_factory() -> None:
             st.caption("From this demo's orders only (requests, answers, updates, QC on the platform).")
         shared = book().record_shared(fid)
         if st.session_state["role"] in FACTORY_ROLES:
-            want = st.toggle("Let exporters I have not worked with see my record", value=shared, key=f"share_{fid}")
+            want = st.toggle("Let exporters I have not worked with see my record", value=bool(shared),
+                             key=f"share_{fid}", help=sv.OrderBook.SHARE_BENEFIT)
             if want != shared:
                 book().set_record_sharing(fid, want, st.session_state["role"])
                 st.rerun()
@@ -1214,7 +1231,7 @@ def section_sourcing(args, oid: str) -> bool:
                                 "Draft": m["text"], "Written by": "AI (checked)" if m["draft_of"] == "llm"
                                 else "template", "Status": "sent" if m["sent_day"] is not None else "draft",
                                 "Record from other exporters": "shared" if book().record_shared(m["factory_id"])
-                                else "record not shared"}
+                                is True else "record not shared"}
                                for m in drafts]), hide_index=True, width="stretch")
     if book().round_sent(oid):
         st.success("Requests approved and sent in the app (each factory sees it in its inbox).")

@@ -509,7 +509,7 @@ Unit tests 203. Full sweep 29 passed.
 **Why:** the pitch says factories control what they share; it must exist, even in a simple form.
 
 **Rules (the product owner's):**
-- A factory chooses whether exporters it has **not** worked with can see its record. One switch, default "shared", because the platform's point is that a good record helps a factory win work.
+- A factory chooses whether exporters it has **not** worked with can see its record. One switch, chosen by the factory when it joins (D28; first built with a "shared" default).
 - It can **never** edit, delete or hide individual events. No such method exists, events are append-only, and the only setting is the whole record's visibility.
 - A hidden record shows to those exporters as **"record not shared"**.
 - Exporters it has worked with always see the events from their own orders, including late deliveries.
@@ -551,3 +551,23 @@ One click-through: F0288 hides its record in the factory app, and the exporter's
 **Numbers (defaults, overtime path):** F1064 is expected to deliver 9,800 + 945 = 10,745 of its 13,100 pieces; before, 9,800. The move path and the day-12 numbers are unchanged.
 
 **Tests:** 206 unit tests (+1: the projection alone before the request is sent; projection plus overtime after; other factories at their approved pieces). The overtime click-through asserts the QC caption names the 945 overtime pieces. Full sweep 30 passed.
+
+### D28: 27 Nov 2026: no silent default for sharing; F0288's late fabric stays the exporter's side
+
+**Product owner's decisions:**
+1. **Sharing has no silent default.** When a factory joins it must choose whether to share its record with exporters it has not worked with, and it is told the benefit in one line. The demo's simulated factories have chosen to share. This replaces D26's "shared by default".
+2. **F0288's late fabric** ("Our fabric from the dyeing unit came late") stays as the AI's suggestion, "our side (exporter)": the exporter supplies the fabric, and it shows that accountability runs both ways.
+
+**What changed:**
+- `OrderBook.record_shared` returns `True` / `False` as chosen, or `None` before a choice. `None` is never read as consent: exporters it has not worked with see "record not shared", and its own exporters still see their orders' events.
+- `set_record_sharing` logs the first choice as `sharing_chosen` and later ones as `sharing_changed`.
+- `OrderBook.SHARE_BENEFIT`: "Sharing lets exporters you have not worked with yet see your verified on-time and QC record, so a good record can win you new orders."
+- `record_persona_choices(pf)` records the simulated personas' choice to share once, as a `simulated_persona` event, and never overwrites a later choice. It is called when the sourcing round is drafted and when the factory app opens.
+- The factory app has a join step. A factory with no choice sees "Who may see your record?", the benefit line, and two buttons: "Share with new exporters" / "Only exporters I work with". Nothing else shows until it chooses. The toggle afterwards carries the same benefit line.
+
+**Tests:** 207 unit tests (from 206):
+- no choice → not shared to new exporters, own orders still visible
+- the first choice is the factory's
+- personas are recorded as sharing, a factory that has not joined has no choice, and a later choice is never overwritten
+
+The click-throughs are unchanged: F0288 starts as shared and hides its record. Full sweep 30 passed.

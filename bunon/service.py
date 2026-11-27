@@ -289,6 +289,7 @@ class OrderBook:
         """Create the sourcing round's request drafts once. Not sent. With an LLM client, each draft is written by
         the LLM under the placeholder rule (`agent.write_message`; numbers from the plan); otherwise, or if the
         LLM's draft fails the checks, the deterministic template."""
+        self.record_persona_choices(pf)
         if not self.store.rows("sourcing_rounds", order_id):
             reqs = lp.sourcing_list(b)
             lang = {p.factory_id: p.language for p in pf.personas}
@@ -661,26 +662,42 @@ class OrderBook:
     # worked with always see the events from their own orders.
     SHARE_FIELD = "record"
 
+    SHARE_BENEFIT = ("Sharing lets exporters you have not worked with yet see your verified on-time and QC "
+                     "record, so a good record can win you new orders.")
+
     def set_record_sharing(self, factory_id: str, share_with_new_exporters: bool, role: str) -> None:
+        """The factory's own choice: made when it joins (there is no silent default) and changeable later."""
         _require_factory(role, "change who sees its record")
         vis = "all_exporters" if share_with_new_exporters else "exporters_worked_with"
-        if self.store.share_visibility(factory_id, self.SHARE_FIELD) == vis:
+        before = self.store.share_visibility(factory_id, self.SHARE_FIELD)
+        if before == vis:
             return
         self.store.set_share_visibility(factory_id, self.SHARE_FIELD, vis)
-        self.store.add_event(None, 0, C.AS_OF, "sharing_changed",
+        self.store.add_event(None, 0, C.AS_OF, "sharing_chosen" if before is None else "sharing_changed",
                              f"{factory_id} {'shares' if share_with_new_exporters else 'does not share'} its record "
                              "with exporters it has not worked with", actor_role=role, subject=factory_id)
 
-    def record_shared(self, factory_id: str) -> bool:
-        """Default: shared (the platform's point); a factory may switch it off."""
-        return (self.store.share_visibility(factory_id, self.SHARE_FIELD) or "all_exporters") == "all_exporters"
+    def record_shared(self, factory_id: str) -> bool | None:
+        """True / False as the factory chose; None if it has not chosen yet (then nothing is shown to exporters it
+        has not worked with: no choice is never read as consent)."""
+        vis = self.store.share_visibility(factory_id, self.SHARE_FIELD)
+        return None if vis is None else vis == "all_exporters"
+
+    def record_persona_choices(self, pf: ps.PersonaFile) -> None:
+        """The demo's simulated factories chose to share when they joined (recorded once, labelled simulated)."""
+        for p in pf.personas:
+            if p.factory_id != "TBD" and self.store.share_visibility(p.factory_id, self.SHARE_FIELD) is None:
+                self.store.set_share_visibility(p.factory_id, self.SHARE_FIELD, "all_exporters")
+                self.store.add_event(None, 0, C.AS_OF, "sharing_chosen", f"{p.factory_id} chose to share its record "
+                                     "when it joined (simulated persona)", subject=p.factory_id,
+                                     source="simulated_persona")
 
     def record_for_exporter(self, factory_id: str, own_order_ids: set[str]) -> dict:
         """What one exporter sees of a factory: its own orders' record always; the record from every other
         order only if the factory shares it, else the label "record not shared"."""
         others = set(self.store.order_ids()) - set(own_order_ids)
         own = self.factory_platform_record(factory_id, set(own_order_ids))
-        shared = self.record_shared(factory_id)
+        shared = self.record_shared(factory_id) is True
         return {"own": own if own["orders_asked"] else None, "shared": shared,
                 "others": self.factory_platform_record(factory_id, others) if shared else None,
                 "label": None if shared else "record not shared"}

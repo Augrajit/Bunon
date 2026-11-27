@@ -90,9 +90,19 @@ Known issues:
 3. ~~Drafts and the warning are fixed templates~~: since D21 the LLM writes them under the placeholder rule, with the templates as fallback.
 4. `last_rescue_day` may name a factory that was never asked ("until when could anyone still make this", not "who will").
 5. The planner's capacity windows start on day 0, slightly optimistic against production starting on day 2.
-6. Only one scripted update per order; the forecast handles one late factory at a time.
+6. ~~Only one scripted update per order~~: since D22/D25 the forecast takes every factory's latest update, and the demo has a second update on day 14.
 7. The best plan reaches 87.5%, below the 90% target, mainly because of the lot-rejection placeholder (2%). That is honest, not a bug; do not tune it.
 8. Persona text is all placeholder until the team delivers `personas.json`; any change needs a cache re-warm (rule 3).
+
+Remaining open items (27 Nov 2026, after D28; feature work paused for the polish list):
+- **Persona text** (task 2.5): every factory message is a developer placeholder, including F0288's day-14 update (D25). When the team's text arrives: replace `data/demo/personas.json`, run `python -m bunon.personas`, re-warm the cache (rule 3) and update the README/SPEC numbers if they move.
+- **Join step not exercised in the demo:** every factory the demo shows is a persona that has already chosen to share (D28), so the "Who may see your record?" step only appears for a factory with no choice. It is covered by unit tests, not by a click-through.
+- **One exporter per store:** a visitor's store holds one exporter's orders, so "an exporter it has not worked with" is simulated as the view with no own orders (D26). A shared multi-exporter store is not built.
+- **Attribution evidence is entered by hand:** a person records news on the order; the automatic news check of a stated cause is on the README roadmap, not built.
+- **Placeholders waiting for research:** `WARN_DROP_PP` (ask 19), overtime share and premium (ask 18), payment terms (ask 17), price tolerance and range, and the older asks 11–16.
+- **Same-day forecast rows:** `record_forecast` writes once per day and factory, so a row recorded before a second same-day update keeps its earlier chance (D22). The drop rule reads only earlier days, so it is unaffected.
+- **Known issues 4, 5, 7 and 8 above** still stand (rescue-day factory, capacity windows from day 0, 87.5% below target, placeholder personas).
+- **Milestone 5:** 5.3 real-user test, 5.4 docs pass and video, 5.5 release check.
 
 Open questions for the product owner:
 - Gemini tier of the current key (AI Studio); paid tier needed for any real-user test with real messages.

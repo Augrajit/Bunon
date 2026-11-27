@@ -102,6 +102,8 @@ def test_overtime_rescue_is_drafted_and_sent_only_on_approval(monkeypatch, tmp_p
     draft = next(df.value for df in at.dataframe if "Extra pieces" in df.value.columns)
     assert list(draft["Status"]) == ["draft"] and draft["To"].iloc[0] == "F1064"
     assert r.click(key="send_surge") and r.click(key="go_day_qc"), r.problems
+    # D27: the QC pre-fill counts the overtime pieces the late factory was asked for
+    assert any("includes the 945 overtime pieces" in c.value for c in at.caption), [c.value for c in at.caption]
     assert not r.problems, "\n".join(r.problems)
     log = next(df.value for df in at.dataframe if "Who (role)" in df.value.columns)
     assert {"rescue_chosen", "message_sent"} <= set(log["Kind"])

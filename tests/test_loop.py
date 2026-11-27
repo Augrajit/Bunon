@@ -668,3 +668,27 @@ def test_warning_with_several_updates_and_a_previous_chance(tmp_path, world, bun
     one = lp.forecast_after_update(world, bundle, pt, cands, "F1064", 3_500, 2, lp.UPDATE_DAY)
     assert not {"warn.order_shortfall", "warn.p_prev", "warn.others"} & set(
         ag.warning_facts(one, 2, 0.90, None, None, None, "below target"))  # the one-update prompt is unchanged
+
+
+def test_qc_prefill_adds_the_overtime_pieces_once_the_request_is_sent(book, world, bundle):
+    """D27: with overtime chosen and its request sent, the late factory is expected to deliver its projection plus
+    the overtime pieces (never above its approved pieces); before the request is sent, only the projection."""
+    pf = ps.load()
+    oid = book.confirm_order(bundle.order, "Merchandiser", sv.PlanSettings(), None)
+    book.draft_round(oid, bundle, pf)
+    book.approve_round(oid, "Merchandiser")
+    res, cands = lp.split_from_offers(world, bundle, answer_key_offers(bundle))
+    pt = res.recommended
+    book.decide(oid, "split", pt, "Split from offers", "approved", "Merchandiser", "test")
+    book.advance_to(oid, lp.UPDATE_DAY, "update", "Merchandiser")
+    fc = lp.forecast_after_update(world, bundle, pt, cands, "F1064", 3_500, 2, lp.UPDATE_DAY)
+    book.record_forecast(oid, fc, None)
+    planned = {ln.factory_id: ln.qty for ln in pt.plan.lines}
+    assert book.expected_pieces(oid, fc) == {**planned, "F1064": fc.projected}
+    opt = next(o for o in lp.rescue_options(world, bundle, pt, cands, fc, ["F0824"], lp.UPDATE_DAY) if o.kind == "surge")
+    book.choose_rescue(oid, opt, "Production manager")
+    assert book.expected_pieces(oid, fc)["F1064"] == fc.projected  # not sent yet
+    book.send_message(oid, "F1064", "overtime please", "Production manager", "surge-F1064", kind="surge_request")
+    exp = book.expected_pieces(oid, fc)
+    assert exp["F1064"] == min(planned["F1064"], fc.projected + lp.surge_pieces(fc)) == 9_800 + 945
+    assert {f: q for f, q in exp.items() if f != "F1064"} == {f: q for f, q in planned.items() if f != "F1064"}

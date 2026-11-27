@@ -513,6 +513,32 @@ class OrderBook:
         days = [r["story_day"] for r in self.store.rows("rescue_options", order_id) if r["chosen"]]
         return min(days) if days else None
 
+    def expected_pieces(self, order_id: str, fc: lp.Forecast | None) -> dict[str, int]:
+        """What each factory in the approved plan is expected to deliver (code; the QC pre-fill, D27): its
+        approved pieces, capped at the latest projection from its updates; with overtime chosen and the request
+        sent, the late factory's projection plus the overtime pieces (`loop.surge_pieces`, placeholder model),
+        never above its approved pieces."""
+        alloc = self.approved_allocation(order_id)
+        if alloc is None:
+            return {}
+        proj: dict[str, int] = {}
+        for f in sorted(self.store.rows("forecasts", order_id), key=lambda r: r["story_day"]):
+            if f["projected"] is not None:
+                proj[f["factory_id"]] = int(f["projected"])
+        surge = 0
+        if fc is not None and self.chosen_rescue(order_id) == "surge" and any(
+                m["kind"] == "surge_request" and m["factory_id"] == fc.factory_id and m["sent_day"] is not None
+                for m in self.store.messages(order_id)):
+            surge = lp.surge_pieces(fc)
+        out = {}
+        for ln in alloc["lines"]:
+            f, q = ln["factory_id"], ln["qty"]
+            can = min(q, proj[f]) if f in proj else q
+            if surge and fc is not None and f == fc.factory_id:
+                can = min(q, can + surge)
+            out[f] = can
+        return out
+
     def chosen_rescue(self, order_id: str) -> str | None:
         rows = [r for r in self.store.rows("rescue_options", order_id) if r["chosen"]]
         return rows[-1]["kind"] if rows else None

@@ -1620,8 +1620,8 @@ def _surge_request(oid: str, fc) -> bool:
                                 "Written by": "template" if d.source == "template" else "AI (checked)",
                                 "Status": "sent" if sent else "draft"}]), hide_index=True, width="stretch")
     if sent:
-        st.caption("Sent in the app. The overtime is a placeholder model (research ask 18); QC is pre-filled "
-                   "without it, so the inspector enters what actually arrives.")
+        st.caption("Sent in the app. The overtime is a placeholder model (research ask 18); the QC pre-fill "
+                   "includes the overtime pieces, and the inspector enters what actually arrives.")
         return True
     if _role_or_none() is None:
         st.info("Switch to an exporter role to approve the request.")
@@ -1633,7 +1633,7 @@ def _surge_request(oid: str, fc) -> bool:
     return False
 
 
-def section_qc(args, oid: str) -> bool:
+def section_qc(args, oid: str, fc=None) -> bool:
     """Day 26: goods arrive; the quality inspector records good and rejected pieces."""
     st.header(f"Day {lp.QC_DAY} · Receive and QC", anchor="qc")
     if book().day(oid) < lp.QC_DAY:
@@ -1645,21 +1645,21 @@ def section_qc(args, oid: str) -> bool:
     alloc = book().approved_allocation(oid)
     done = {q["factory_id"]: q for q in book().store.rows("qc_records", oid)}
     script = {q.factory_id: q for q in persona_file().qc_script}
-    projected = {f["factory_id"]: f for f in book().store.rows("forecasts", oid)}
+    expected = book().expected_pieces(oid, fc)  # approved pieces, capped at the updates' projections, + overtime
+    surge = book().chosen_rescue(oid) == "surge" and fc is not None and expected.get(fc.factory_id, 0) > fc.projected
     rows = []
     for ln in alloc["lines"]:
         sc = script.get(ln["factory_id"])
-        can_make = ln["qty"]
-        if ln["factory_id"] in projected:  # what the update said it can make (the move plan already locks it there)
-            fcr = projected[ln["factory_id"]]
-            can_make = min(ln["qty"], int(fcr["projected"])) if fcr.get("projected") is not None else ln["qty"]
+        can_make = expected[ln["factory_id"]]
         received = round(can_make * (sc.delivered_share if sc else 1.0))
         rejected = round(received * (sc.reject_share if sc else 0.0))
         rows.append({"factory_id": ln["factory_id"], "received": received, "rejected": rejected,
                      "lot_rejected": bool(sc.lot_rejected) if sc else False,
                      "day": sc.story_day if sc else lp.QC_DAY, "placeholder": bool(sc and sc.placeholder)})
     st.caption("Pre-filled from the scripted delivery and QC outcome (simulated, placeholder shares); the "
-               "inspector checks and records. Only good pieces count.")
+               "inspector checks and records. Only good pieces count."
+               + (f" {fc.factory_id}'s row includes the {expected[fc.factory_id] - fc.projected:,} overtime pieces "
+                  "it was asked for (a placeholder model, research ask 18)." if surge else ""))
     edited = st.data_editor(pd.DataFrame(rows), hide_index=True, width="stretch", key="qc_editor",
                             disabled=["factory_id", "day", "placeholder"])
     if done:
@@ -1798,7 +1798,7 @@ def view_timeline() -> None:
                     if upd is not None:
                         section_attribution(oid)
                         fc, _, opts = upd
-                        if section_rescue(args, oid, fc, opts) and section_qc(args, oid):
+                        if section_rescue(args, oid, fc, opts) and section_qc(args, oid, fc):
                             section_record(oid)
                             section_payments(oid)
     section_ask(args)

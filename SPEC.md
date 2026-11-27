@@ -536,3 +536,18 @@ Unit tests 203. Full sweep 29 passed.
 - no edit/delete/hide/remove method on the service or store, and an unknown visibility is refused
 
 One click-through: F0288 hides its record in the factory app, and the exporter's sourcing table shows "record not shared" for it and "shared" for F1856. Full sweep 30 passed.
+
+### D27: 27 Nov 2026: the QC pre-fill counts the overtime pieces (HANDOFF task 3.3 leftover)
+
+**Why:** with overtime chosen, the QC table was pre-filled with the late factory's projection alone, so the overtime the exporter asked for (and pays a premium on) never reached the delivery figures.
+
+**What:**
+- `OrderBook.expected_pieces(order_id, fc)` (code, tested): each factory's approved pieces, capped at the latest projection from its updates.
+  - With overtime chosen **and** its request sent, the late factory gets its projection plus `loop.surge_pieces(fc)` (placeholder model, research ask 18), never above its approved pieces.
+  - With overtime chosen but the request not yet sent, only the projection counts.
+- The QC section pre-fills from it and says so in its caption.
+- The inspector still enters what actually arrives.
+
+**Numbers (defaults, overtime path):** F1064 is expected to deliver 9,800 + 945 = 10,745 of its 13,100 pieces; before, 9,800. The move path and the day-12 numbers are unchanged.
+
+**Tests:** 206 unit tests (+1: the projection alone before the request is sent; projection plus overtime after; other factories at their approved pieces). The overtime click-through asserts the QC caption names the 945 overtime pieces. Full sweep 30 passed.

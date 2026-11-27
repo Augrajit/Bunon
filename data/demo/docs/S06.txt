@@ -1,0 +1,106 @@
+12/10/2026, 05:12                                                                           Instant Auto DO Generator | COMPANY A
+
+                                                             COMPANY A
+
+                                                                          DELIVERY ORDER
+
+                                                                                DO-S06 · · DRAFT / REVIEW
+
+DO                                                                  Buyer
+DO-S06                                                          BUYER A
+
+PO                                                                  Style
+7000000009, 7000000010                                              S06
+
+Item                                                                Qty (selling units)
+SS BRIB GFX05 SCRN TEE WHITE                                         1,920
+
+Factory                                                             Address / Attn
+FACTORY A                                                            —
+
+Order date                                                          Ship date
+—                                                                   —
+
+Ship on                                                             Cancel date
+—                                                                   —
+
+PO / PACK / SIZE / COLOR BREAKDOWN
+
+PO                           PACK                            RANGE  COLOR                SIZE                                              SKU         QTY
+7000000009                   PACK 1                          4/6X   WHITE                4                                                 8000000014  120
+7000000009                   PACK 1                          4/6X   WHITE                5/6                                               8000000014  120
+7000000009                   PACK 1                          4/6X   WHITE                6X                                                8000000014  120
+7000000009                   PACK 2                          4/6X   SAND                 4                                                 8000000015  120
+7000000009                   PACK 2                          4/6X   SAND                 5/6                                               8000000015  120
+7000000009                   PACK 2                          4/6X   SAND                 6X                                                8000000015  120
+7000000010                   PACK 1                          7/16   WHITE                7/8                                               8000000016  200
+7000000010                   PACK 1                          7/16   WHITE                10/12                                             8000000016  200
+7000000010                   PACK 1                          7/16   WHITE                14/16                                             8000000016  200
+7000000010                   PACK 2                          7/16   SAND                 7/8                                               8000000017  200
+7000000010                   PACK 2                          7/16   SAND                 10/12                                             8000000017  200
+7000000010                   PACK 2                          7/16   SAND                 14/16                                             8000000017  200
+
+PACK 1 · WHITE · 360 units · P06 · 4-02 5/6-02 6X-02                                                                                                                          1/3
+PACK 2 · SAND · 360 units · P06 · 4-02 5/6-02 6X-02
+PACK 1 · WHITE · 600 units · P06 · 7/8-02 10/12-02 14/16-02
+PACK 2 · SAND · 600 units · P06 · 7/8-02 10/12-02 14/16-02
+
+file:///local/do_generator_1.html
+
+12/10/2026, 05:12                                                           Instant Auto DO Generator | COMPANY A
+
+FABRIC BY COLOR AND RANGE
+
+COMPONENT          FABRIC COLOR                               RANGE         RATE / DZN             WASTE                   NET    BOOKING           COMMENT
+TOP FABRIC         WHITE                                      4/6X          1 KG                   2%                      30 KG  30.6 KG
+TOP FABRIC         SAND                                       4/6X          1 KG                   2%                      30 KG  30.6 KG
+TOP FABRIC         WHITE                                      7/16          1.40 KG                2%                      70 KG  71.4 KG
+TOP FABRIC         SAND                                       7/16          1.40 KG                2%                      70 KG  71.4 KG
+
+ ACCESSORIES AND SEWING                           BASIS              WASTE              NET               BOOKING                 COMMENT
+                                                  — M / PC           0%                 —M                — CONE                  CHECK WITH STORE
+ITEM                                              1 PCS/unit         2%                 1,920 PCS         1,959 PCS
+SEWING THREAD                                     1 PCS/unit         2%                 1,920 PCS         1,959 PCS               320 PCS
+CARE LABEL                                        1 PCS/unit         2%                 1,920 PCS         1,959 PCS               163 CTN
+HEAT TRANSFER LABEL                               1 PCS/unit         2%                 1,920 PCS         1,959 PCS               CHECK WITH STORE
+HANDTAG                                           — / PC             0%                 —                 — PCS                   65 MM
+POLYBAG                                           — / PC             0%                 —                 — PCS
+BLISTER POLY                                      — / PC             0%                 —                 — PCS
+CARTON                                            1 PCS/unit         2%                 1,920 PCS         1,959 PCS
+GUM TAPE
+TAG PIN
+
+  PACKING
+
+Same style: 2 separate buyer POs · 0 cartons calculated; remaining PO cartons require confirmation
+Keep cartons marked by their individual PO. PO 7000000009: P06 is 6 pieces per prepack (120 prepacks from 720 PO pieces). The PO does not state prepacks or
+pieces per carton; confirm carton capacity before booking CTN. PO 7000000010: P06 is 6 pieces per prepack (200 prepacks from 1,200 PO pieces). The PO does not
+state prepacks or pieces per carton; confirm carton capacity before booking CTN.
+
+  PO 7000000009 · — cartons
+
+Carton arrangement: REVIEW · 120 prepacks
+P06 is 6 pieces per prepack (120 prepacks from 720 PO pieces). The PO does not state prepacks or pieces per carton; confirm carton capacity before booking CTN.
+Use an approved buyer packing instruction before setting a carton capacity.
+
+  PO 7000000010 · — cartons
+
+Carton arrangement: REVIEW · 200 prepacks
+P06 is 6 pieces per prepack (200 prepacks from 1,200 PO pieces). The PO does not state prepacks or pieces per carton; confirm carton capacity before booking CTN.
+Use an approved buyer packing instruction before setting a carton capacity.
+
+file:///local/do_generator_1.html                                                                                                                   2/3
+
+12/10/2026, 05:12                                          Instant Auto DO Generator | COMPANY A
+
+                                     S06.png
+
+Review: Factory address missing · Attn / factory contact missing · PO 7000000009: ship date missing · PO 7000000010: ship date missing · PO 7000000009: P06 is 6 pieces per prepack (120 prepacks from
+720 PO pieces). The PO does not state prepacks or pieces per carton; confirm carton capacity before booking CTN. PO 7000000010: P06 is 6 pieces per prepack (200 prepacks from 1,200 PO pieces). The PO
+does not state prepacks or pieces per carton; confirm carton capacity before booking CTN. · Confirm mixed carton packing and count for this PO with buyer · SEWING THREAD: Consumption / applicability to
+review · BLISTER POLY: Material / unit / rate source missing · CARTON: Material / unit / rate source missing · GUM TAPE: Material / unit / rate source missing
+
+                   RECEIVED BY                    FACTORY  MERCHANDISER                                   APPROVAL
+
+file:///local/do_generator_1.html                                                                                                                                                           3/3
+

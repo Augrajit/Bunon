@@ -1,0 +1,110 @@
+12/10/2026, 05:20                                                                           Instant Auto DO Generator | COMPANY A
+
+                                                             COMPANY A
+
+                                                                          DELIVERY ORDER
+
+                                                                                DO-S04 · · DRAFT / REVIEW
+
+DO                                                                            Buyer
+DO-S04                                                                    BUYER A
+
+PO                                                                            Style
+7000000007, 7000000008                                                        S04
+
+Item                                                                          Qty (selling units)
+SS BOYF GFX04 SCR WHITE                                                   1,200
+
+Factory                                                                       Address / Attn
+FACTORY A                                                                      —
+
+Order date                                                                    Ship date
+—                                                                             —
+
+Ship on                                                                       Cancel date
+—                                                                             —
+
+PO / PACK / SIZE / COLOR BREAKDOWN
+
+PO                           PACK                            RANGE                       COLOR              SIZE                                  SKU                             QTY
+7000000007                   PACK 1                          4/6X                        WHITE              4                                     8000000011                      200
+7000000007                   PACK 1                          4/6X                        WHITE              5/6                                   8000000011                      200
+7000000007                   PACK 1                          4/6X                        WHITE              6X                                    8000000011                      200
+7000000008                   PACK 1                          7/16                        WHITE              7/8                                   8000000012                      200
+7000000008                   PACK 1                          7/16                        WHITE              10/12                                 8000000012                      200
+7000000008                   PACK 1                          7/16                        WHITE              14/16                                 8000000012                      200
+
+PACK 1 · WHITE · 600 units · P06 · 4-02 5/6-02 6X-02            RANGE         RATE / DZN                                                                            COMMENT
+PACK 1 · WHITE · 600 units · P06 · 7/8-02 10/12-02 14/16-02     4/6X          1 KG
+                                                                7/16          1.40 KG
+FABRIC BY COLOR AND RANGE
+
+COMPONENT                    FABRIC COLOR                                                            WASTE                                 NET    BOOKING
+TOP FABRIC                   WHITE                                                                   2%                                    50 KG  51 KG
+TOP FABRIC                   WHITE                                                                   2%                                    70 KG  71.4 KG
+
+ ACCESSORIES AND SEWING                           BASIS                WASTE                    NET         BOOKING                               COMMENT
+                                                  — M / PC             0%                       —M          — CONE                                CHECK WITH STORE
+ITEM
+SEWING THREAD
+
+file:///local/do_generator_1.html                                                                                                                                       1/3
+
+12/10/2026, 05:20                                                    Instant Auto DO Generator | COMPANY A
+
+   ITEM                                           BASIS       WASTE  NET        BOOKING                             COMMENT
+   STONE                                          PCS/unit                                                          CHECK WITH STORE
+   CARE LABEL                                     1 PCS/unit  %      — PCS      — PCS
+   HEAT TRANSFER LABEL                            1 PCS/unit                                                        306 PCS
+   HANDTAG                                        1 PCS/unit  2%     1,200 PCS  1,224 PCS                           204 CTN
+   POLYBAG                                        1 PCS/unit                                                        CHECK WITH STORE
+   BLISTER POLY                                   — / PC      2%     1,200 PCS  1,224 PCS                           65 MM
+   CARTON                                         — / PC
+   GUM TAPE                                       — / PC      2%     1,200 PCS  1,224 PCS
+   TAG PIN                                        1 PCS/unit
+                                                              2%     1,200 PCS  1,224 PCS
+
+                                                              0%     —          — PCS
+
+                                                              0%     —          — PCS
+
+                                                              0%     —          — PCS
+
+                                                              2%     1,200 PCS  1,224 PCS
+
+  PACKING
+
+Same style: 2 separate buyer POs · 0 cartons calculated; remaining PO cartons require confirmation
+Keep cartons marked by their individual PO. PO 7000000007: P06 is 6 pieces per prepack (100 prepacks from 600 PO pieces). The PO does not state prepacks or
+pieces per carton; confirm carton capacity before booking CTN. PO 7000000008: P06 is 6 pieces per prepack (100 prepacks from 600 PO pieces). The PO does not
+state prepacks or pieces per carton; confirm carton capacity before booking CTN.
+
+  PO 7000000007 · — cartons
+
+Carton arrangement: REVIEW · 100 prepacks
+P06 is 6 pieces per prepack (100 prepacks from 600 PO pieces). The PO does not state prepacks or pieces per carton; confirm carton capacity before booking CTN.
+Use an approved buyer packing instruction before setting a carton capacity.
+
+  PO 7000000008 · — cartons
+
+Carton arrangement: REVIEW · 100 prepacks
+P06 is 6 pieces per prepack (100 prepacks from 600 PO pieces). The PO does not state prepacks or pieces per carton; confirm carton capacity before booking CTN.
+Use an approved buyer packing instruction before setting a carton capacity.
+
+                        S04.png
+
+Review: Factory address missing · Attn / factory contact missing · PO 7000000007: ship date missing · PO 7000000008: ship date missing · PO 7000000007: P06 is 6 pieces per prepack (100 prepacks from
+600 PO pieces). The PO does not state prepacks or pieces per carton; confirm carton capacity before booking CTN. PO 7000000008: P06 is 6 pieces per prepack (100 prepacks from 600 PO pieces). The PO
+does not state prepacks or pieces per carton; confirm carton capacity before booking CTN. · Confirm mixed carton packing and count for this PO with buyer · SEWING THREAD: Consumption / applicability to
+
+file:///local/do_generator_1.html                                                                                                                                                           2/3
+
+12/10/2026, 05:20                                          Instant Auto DO Generator | COMPANY A
+
+review · STONE: Rate, loss %, or purchase unit size missing · BLISTER POLY: Material / unit / rate source missing · CARTON: Material / unit / rate source missing · GUM TAPE: Material / unit / rate source
+missing
+
+                   RECEIVED BY                    FACTORY  MERCHANDISER                                   APPROVAL
+
+file:///local/do_generator_1.html                                                                                                                                                             3/3
+

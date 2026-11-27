@@ -167,3 +167,19 @@ Each factory's synthetic price then varies around 60 BDT (lognormal, sd 12%; rea
 | Material per shirt = 66.5 + 10 | **76.5 BDT** | derived placeholder (`MATERIAL_COST_BDT_PER_PIECE`) |
 
 The material cost is the same at every factory (the exporter supplies it), so it does not change which factories are chosen; it does set the price of every buffer piece. Both figures, and the three Bunon assumptions inside them, are in RESEARCH_ASKS.md (items 4 and 14) for confirmation.
+
+## 7. Anonymised delivery orders (`data/demo/docs/`, DOCS_PROPOSAL.md §a)
+
+- **Source:** 10 real delivery orders shared by a teammate (from one exporter's DO generator). The PDFs stay on the
+  local machine in an ignored folder; they are never committed, never sent to an LLM and never used raw in the demo or
+  tests (`tests/test_no_documents.py`).
+- **Cleaning:** `python -m bunon.anonymise <folder>` (local only) replaces the issuing company, buyer, factory,
+  address / attn, PO numbers, SKUs, style codes, emails, file paths and the graphic words of each item description
+  with consistent fakes (`COMPANY A`, `BUYER A`, `FACTORY A`, POs `7000000001…`, SKUs `8000000001…`, styles
+  `S01–S10`, graphics `GFX01…`). The mapping is in `data/private/doc_mapping.json` (gitignored).
+- **Kept as in the source:** layout, sizes, colours, packs, quantities, fabric rates, waste, trims and every error
+  (for example S01's 4/6X fabric at .1 KG per dozen).
+- **Checks:** a privacy scan refuses to write if any real value or distinctive word of a real name is left;
+  `tests/test_anonymise.py` checks the published files hold only fakes, and against the private mapping where it
+  exists.
+- **Not included:** the scanned 22-page style sheet. A teammate enters its values by hand as the answer key.

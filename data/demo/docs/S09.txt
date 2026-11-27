@@ -1,0 +1,88 @@
+14/10/2026, 05:07                                                                           Instant Auto DO Generator | COMPANY A
+
+                                                             COMPANY A
+
+                                                                          DELIVERY ORDER
+
+                                                                                DO-S09 · · DRAFT / REVIEW
+
+DO                                                                                      Buyer
+DO-S09                                                                              BUYER A
+
+PO                                                                                      Style
+7000000015                                                                              S09
+
+Item                                                                                    Qty (selling units)
+SS BOYF GFX08 SCRN TE WHITE                                                             1,380
+
+Factory                                                                                 Address / Attn
+FACTORY A                                                                                —
+
+Order date                                                                              Ship date
+—                                                                                       —
+
+Ship on                                                                                 Cancel date
+—                                                                                       —
+
+PO / PACK / SIZE / COLOR BREAKDOWN
+
+PO                           PACK                            RANGE               COLOR                       SIZE                          SKU                            QTY
+7000000015                   PACK 1                          7/16                WHITE                       7/8                           8000000026                     300
+7000000015                   PACK 1                          7/16                WHITE                       10/12                         8000000026                     300
+7000000015                   PACK 1                          7/16                WHITE                       14/16                         8000000026                     300
+7000000015                   PACK 2                          7/16                BLACK                       7/8                           8000000027                     160
+7000000015                   PACK 2                          7/16                BLACK                       10/12                         8000000027                     160
+7000000015                   PACK 2                          7/16                BLACK                       14/16                         8000000027                     160
+
+PACK 1 · WHITE · 900 units · P06 · 7/8-02 10/12-02 14/16-02         RATE / DZN                                                                               COMMENT
+PACK 2 · BLACK · 480 units · P06 · 7/8-02 10/12-02 14/16-02         1.40 KG
+                                                                    1.40 KG
+FABRIC BY COLOR AND RANGE
+
+COMPONENT                    FABRIC COLOR                    RANGE                           WASTE                  NET                    BOOKING
+TOP FABRIC                   WHITE                           7/16                            2%                     105 KG                 107.1 KG
+TOP FABRIC                   BLACK                           7/16                            2%                     56 KG                  57.12 KG
+
+ ACCESSORIES AND SEWING                           BASIS             WASTE               NET                         BOOKING                COMMENT
+                                                  — M / PC          0%                  —M                          — CONE                 CHECK WITH STORE
+ITEM
+SEWING THREAD
+
+file:///local/do_generator_1.html                                                                                                                               1/2
+
+14/10/2026, 05:07                                                             Instant Auto DO Generator | COMPANY A
+
+   ITEM                                           BASIS                WASTE  NET        BOOKING                             COMMENT
+   CARE LABEL                                     1 PCS/unit
+   HEAT TRANSFER LABEL                            1 PCS/unit           2%     1,380 PCS  1,408 PCS                           234 PCS
+   HANDTAG                                        1 PCS/unit                                                                 117 CTN
+   POLYBAG                                        1 PCS/unit           2%     1,380 PCS  1,408 PCS                           CHECK WITH STORE
+   BLISTER POLY                                   — / PC                                                                     65 MM
+   CARTON                                         — / PC               2%     1,380 PCS  1,408 PCS
+   GUM TAPE                                       — / PC
+   TAG PIN                                        1 PCS/unit           2%     1,380 PCS  1,408 PCS
+
+                                                                       0%     —          — PCS
+
+                                                                       0%     —          — PCS
+
+                                                                       0%     —          — PCS
+
+                                                                       2%     1,380 PCS  1,408 PCS
+
+  PACKING
+
+Carton arrangement: REVIEW · 230 prepacks
+P06 is 6 pieces per prepack (230 prepacks from 1,380 PO pieces). The PO does not state prepacks or pieces per carton; confirm carton capacity before booking CTN.
+Use an approved buyer packing instruction before setting a carton capacity.
+
+                                    S09.png
+
+Review: Factory address missing · Attn / factory contact missing · Ship date missing · P06 is 6 pieces per prepack (230 prepacks from 1,380 PO pieces). The PO does not state prepacks or pieces per carton;
+confirm carton capacity before booking CTN. · Confirm mixed carton packing and count for this PO with buyer · SEWING THREAD: Rate, loss %, or purchase unit size missing · BLISTER POLY: Material / unit /
+rate source missing · CARTON: Material / unit / rate source missing · GUM TAPE: Material / unit / rate source missing
+
+RECEIVED BY                                                   FACTORY                    MERCHANDISER                                          APPROVAL
+
+file:///local/do_generator_1.html                                                                                                                                                              2/2
+

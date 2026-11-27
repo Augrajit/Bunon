@@ -1,0 +1,80 @@
+12/10/2026, 05:22                                                                             Instant Auto DO Generator | COMPANY A
+
+                                                               COMPANY A
+
+                                                                            DELIVERY ORDER
+
+                                                                                  DO-S05 · · DRAFT / REVIEW
+
+DO                                                                                    Buyer
+DO-S05                                                                            BUYER A
+
+PO                                                                                    Style
+7000000008                                                                            S05
+
+Item                                                                                  Qty (selling units)
+SS BOYF GFX04 SCR WHT/BLK                                                         600
+
+Factory                                                                               Address / Attn
+FACTORY A                                                                              —
+
+Order date                                                                            Ship date
+—                                                                                     —
+
+Ship on                                                                               Cancel date
+—                                                                                     —
+
+PO / PACK / SIZE / COLOR BREAKDOWN
+
+PO                             PACK                            RANGE         COLOR                         SIZE                                     SKU                              QTY
+7000000008                     PACK 1                          7/16          WHT/BLK                       7/8                                      8000000013                       200
+7000000008                     PACK 1                          7/16          WHT/BLK                       10/12                                    8000000013                       200
+7000000008                     PACK 1                          7/16          WHT/BLK                       14/16                                    8000000013                       200
+
+PACK 1 · WHT/BLK · 600 units · P06 · 7/8-02 10/12-02 14/16-02         RATE / DZN                                                                                      COMMENT
+                                                                      1.40 KG
+FABRIC BY COLOR AND RANGE
+
+COMPONENT                      FABRIC COLOR                    RANGE                           WASTE                                         NET    BOOKING
+TOP FABRIC                     WHT/BLK                         7/16                            2%                                            70 KG  71.4 KG
+
+ACCESSORIES AND SEWING
+
+ITEM                                              BASIS               WASTE           NET                  BOOKING                                  COMMENT
+SEWING THREAD                                     — M / PC            %               —M                   — CONE                                   CHECK WITH STORE
+CARE LABEL                                        1 PCS/unit          2%              600 PCS              612 PCS
+HEAT TRANSFER LABEL                               1 PCS/unit          2%              600 PCS              612 PCS                                  102 PCS
+HANDTAG                                           1 PCS/unit          2%              600 PCS              612 PCS
+POLYBAG                                           1 PCS/unit          2%              600 PCS              612 PCS
+BLISTER POLY                                      — / PC              0%              —                    — PCS
+
+file:///local/do_generator_1.html                                                                                                                                          1/2
+
+12/10/2026, 05:22                                                          Instant Auto DO Generator | COMPANY A
+
+   ITEM                                           BASIS                WASTE  NET      BOOKING                            COMMENT
+   STONE                                          PCS/unit                                                                CHECK WITH STORE
+   CARTON                                         — / PC               0%     — PCS    — PCS                              102 CTN
+   GUM TAPE                                       — / PC                                                                  CHECK WITH STORE
+   TAG PIN                                        1 PCS/unit           0%     —        — PCS                              65 MM
+
+                                                                       0%     —        — PCS
+
+                                                                       2%     600 PCS  612 PCS
+
+  PACKING
+
+Carton arrangement: REVIEW · 100 prepacks
+P06 is 6 pieces per prepack (100 prepacks from 600 PO pieces). The PO does not state prepacks or pieces per carton; confirm carton capacity before booking CTN.
+Use an approved buyer packing instruction before setting a carton capacity.
+
+                                    S05.png
+
+Review: Factory address missing · Attn / factory contact missing · Ship date missing · P06 is 6 pieces per prepack (100 prepacks from 600 PO pieces). The PO does not state prepacks or pieces per carton;
+confirm carton capacity before booking CTN. · Confirm mixed carton packing and count for this PO with buyer · SEWING THREAD: Rate, loss %, or purchase unit size missing · BLISTER POLY: Material / unit /
+rate source missing · STONE: Pieces per set missing · CARTON: Material / unit / rate source missing · GUM TAPE: Material / unit / rate source missing
+
+                   RECEIVED BY                                FACTORY                  MERCHANDISER                                         APPROVAL
+
+file:///local/do_generator_1.html                                                                                                                                                            2/2
+

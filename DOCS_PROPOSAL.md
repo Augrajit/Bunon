@@ -153,7 +153,24 @@ subcontractor. That makes §f the plan.
   not flagged.
 - **Estimate:** 8 h (after a and b).
 
-## Proposed order and total
+## Approved order (27 Nov 2026)
+
+The product owner set the order: **§a, then §f, then §b, §c, §d, §g.**
+- **§a** covers the delivery orders only: **done** (D29).
+- **Style-sheet OCR is skipped.** A teammate hand-enters the style-sheet values as the answer key; they also feed the
+  style-sheet vs delivery-order check in §c.
+- **§f rescue options:**
+  - move an unstarted style
+  - overtime
+  - accept a shortfall within tolerance
+  - renegotiate the date
+- **"Move part of a running style"** is not built until the interviewee confirms it ever happens. It stays a disabled
+  option in config.
+- **§f numbers:** all demo numbers are recomputed and re-pinned in one step, then the cache is re-warmed and the
+  README, SPEC and video script notes are updated.
+- **Personas:** the team gets the new styles and quantities as soon as §f's demo programme is fixed.
+
+## Proposed order and total (original proposal, superseded above)
 
 1. §0 privacy steps: **done**.
 2. §a anonymiser (7 h). The teammate writes the §d answer key at the same time, on the anonymised files.

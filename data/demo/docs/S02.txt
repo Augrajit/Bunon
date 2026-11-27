@@ -1,0 +1,106 @@
+12/10/2026, 05:15                                                                           Instant Auto DO Generator | COMPANY A
+
+                                                             COMPANY A
+
+                                                                          DELIVERY ORDER
+
+                                                                                DO-S02 · · DRAFT / REVIEW
+
+DO                                                                  Buyer
+DO-S02                                                          BUYER A
+
+PO                                                                  Style
+7000000003, 7000000004                                              S02
+
+Item                                                                Qty (selling units)
+SS BOYF GFX02 SCRN TE WHITE                                         1,800
+
+Factory                                                             Address / Attn
+FACTORY A                                                            —
+
+Order date                                                          Ship date
+—                                                                   —
+
+Ship on                                                             Cancel date
+—                                                                   —
+
+PO / PACK / SIZE / COLOR BREAKDOWN
+
+PO                           PACK                            RANGE  COLOR                SIZE                                              SKU         QTY
+7000000003                   PACK 1                          7/16   WHITE                7/8                                               8000000005  200
+7000000003                   PACK 1                          7/16   WHITE                10/12                                             8000000005  200
+7000000003                   PACK 1                          7/16   WHITE                14/16                                             8000000005  200
+7000000003                   PACK 2                          7/16   PINK                 7/8                                               8000000006  120
+7000000003                   PACK 2                          7/16   PINK                 10/12                                             8000000006  120
+7000000003                   PACK 2                          7/16   PINK                 14/16                                             8000000006  120
+7000000004                   PACK 1                          4/6X   WHITE                4                                                 8000000007  160
+7000000004                   PACK 1                          4/6X   WHITE                5/6                                               8000000007  160
+7000000004                   PACK 1                          4/6X   WHITE                6X                                                8000000007  160
+7000000004                   PACK 2                          4/6X   PINK                 4                                                 8000000008  120
+7000000004                   PACK 2                          4/6X   PINK                 5/6                                               8000000008  120
+7000000004                   PACK 2                          4/6X   PINK                 6X                                                8000000008  120
+
+PACK 1 · WHITE · 600 units · P06 · 7/8-02 10/12-02 14/16-02                                                                                                                   1/3
+PACK 2 · PINK · 360 units · P06 · 7/8-02 10/12-02 14/16-02
+PACK 1 · WHITE · 480 units · P06 · 4-02 5/6-02 6X-02
+PACK 2 · PINK · 360 units · P06 · 4-02 5/6-02 6X-02
+
+file:///local/do_generator_1.html
+
+12/10/2026, 05:15                                                           Instant Auto DO Generator | COMPANY A
+
+FABRIC BY COLOR AND RANGE
+
+COMPONENT          FABRIC COLOR                               RANGE         RATE / DZN             WASTE                   NET    BOOKING           COMMENT
+TOP FABRIC         WHITE                                      7/16          1.40 KG                2%                      70 KG  71.4 KG
+TOP FABRIC         PINK                                       7/16          1.40 KG                2%                      42 KG  42.84 KG
+TOP FABRIC         WHITE                                      4/6X          1 KG                   2%                      40 KG  40.8 KG
+TOP FABRIC         PINK                                       4/6X          1 KG                   2%                      30 KG  30.6 KG
+
+ ACCESSORIES AND SEWING                           BASIS              WASTE              NET               BOOKING                 COMMENT
+                                                  — M / PC           0%                 —M                — CONE                  CHECK WITH STORE
+ITEM                                              1 PCS/unit         2%                 1,800 PCS         1,836 PCS
+SEWING THREAD                                     1 PCS/unit         2%                 1,800 PCS         1,836 PCS               306 PCS
+CARE LABEL                                        1 PCS/unit         2%                 1,800 PCS         1,836 PCS               153 CTN
+HEAT TRANSFER LABEL                               1 PCS/unit         2%                 1,800 PCS         1,836 PCS               CHECK WITH STORE
+HANDTAG                                           — / PC             0%                 —                 — PCS                   65 MM
+POLYBAG                                           — / PC             0%                 —                 — PCS
+BLISTER POLY                                      — / PC             0%                 —                 — PCS
+CARTON                                            1 PCS/unit         2%                 1,800 PCS         1,836 PCS
+GUM TAPE
+TAG PIN
+
+  PACKING
+
+Same style: 2 separate buyer POs · 0 cartons calculated; remaining PO cartons require confirmation
+Keep cartons marked by their individual PO. PO 7000000003: P06 is 6 pieces per prepack (160 prepacks from 960 PO pieces). The PO does not state prepacks or
+pieces per carton; confirm carton capacity before booking CTN. PO 7000000004: P06 is 6 pieces per prepack (140 prepacks from 840 PO pieces). The PO does not
+state prepacks or pieces per carton; confirm carton capacity before booking CTN.
+
+  PO 7000000003 · — cartons
+
+Carton arrangement: REVIEW · 160 prepacks
+P06 is 6 pieces per prepack (160 prepacks from 960 PO pieces). The PO does not state prepacks or pieces per carton; confirm carton capacity before booking CTN.
+Use an approved buyer packing instruction before setting a carton capacity.
+
+  PO 7000000004 · — cartons
+
+Carton arrangement: REVIEW · 140 prepacks
+P06 is 6 pieces per prepack (140 prepacks from 840 PO pieces). The PO does not state prepacks or pieces per carton; confirm carton capacity before booking CTN.
+Use an approved buyer packing instruction before setting a carton capacity.
+
+file:///local/do_generator_1.html                                                                                                                 2/3
+
+12/10/2026, 05:15                                          Instant Auto DO Generator | COMPANY A
+
+                                     S02.png
+
+Review: Factory address missing · Attn / factory contact missing · PO 7000000003: ship date missing · PO 7000000004: ship date missing · PO 7000000003: P06 is 6 pieces per prepack (160 prepacks from
+960 PO pieces). The PO does not state prepacks or pieces per carton; confirm carton capacity before booking CTN. PO 7000000004: P06 is 6 pieces per prepack (140 prepacks from 840 PO pieces). The PO
+does not state prepacks or pieces per carton; confirm carton capacity before booking CTN. · Confirm mixed carton packing and count for this PO with buyer · SEWING THREAD: Rate, loss %, or purchase unit
+size missing · BLISTER POLY: Material / unit / rate source missing · CARTON: Material / unit / rate source missing · GUM TAPE: Material / unit / rate source missing
+
+                   RECEIVED BY                    FACTORY  MERCHANDISER                                   APPROVAL
+
+file:///local/do_generator_1.html                                                                                                                                                           3/3
+

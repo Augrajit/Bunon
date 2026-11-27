@@ -1,0 +1,967 @@
+[
+ {
+  "style": "S01",
+  "item": "SS OVRSZ BOYFD GFX01 PINK",
+  "pos": [
+   "7000000001",
+   "7000000002"
+  ],
+  "qty": 1920,
+  "ship_date": null,
+  "factory": "FACTORY A",
+  "rows": [
+   {
+    "po": "7000000001",
+    "pack": 4,
+    "range": "4/6X",
+    "colour": "PINK",
+    "size": "4",
+    "sku": "8000000001",
+    "qty": 120
+   },
+   {
+    "po": "7000000001",
+    "pack": 4,
+    "range": "4/6X",
+    "colour": "PINK",
+    "size": "5/6",
+    "sku": "8000000001",
+    "qty": 120
+   },
+   {
+    "po": "7000000001",
+    "pack": 4,
+    "range": "4/6X",
+    "colour": "PINK",
+    "size": "6X",
+    "sku": "8000000001",
+    "qty": 120
+   },
+   {
+    "po": "7000000001",
+    "pack": 5,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "4",
+    "sku": "8000000002",
+    "qty": 120
+   },
+   {
+    "po": "7000000001",
+    "pack": 5,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "5/6",
+    "sku": "8000000002",
+    "qty": 120
+   },
+   {
+    "po": "7000000001",
+    "pack": 5,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "6X",
+    "sku": "8000000002",
+    "qty": 120
+   },
+   {
+    "po": "7000000002",
+    "pack": 4,
+    "range": "7/16",
+    "colour": "PINK",
+    "size": "7/8",
+    "sku": "8000000003",
+    "qty": 200
+   },
+   {
+    "po": "7000000002",
+    "pack": 4,
+    "range": "7/16",
+    "colour": "PINK",
+    "size": "10/12",
+    "sku": "8000000003",
+    "qty": 200
+   },
+   {
+    "po": "7000000002",
+    "pack": 4,
+    "range": "7/16",
+    "colour": "PINK",
+    "size": "14/16",
+    "sku": "8000000003",
+    "qty": 200
+   },
+   {
+    "po": "7000000002",
+    "pack": 5,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "7/8",
+    "sku": "8000000004",
+    "qty": 200
+   },
+   {
+    "po": "7000000002",
+    "pack": 5,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "10/12",
+    "sku": "8000000004",
+    "qty": 200
+   },
+   {
+    "po": "7000000002",
+    "pack": 5,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "14/16",
+    "sku": "8000000004",
+    "qty": 200
+   }
+  ]
+ },
+ {
+  "style": "S02",
+  "item": "SS BOYF GFX02 SCRN TE WHITE",
+  "pos": [
+   "7000000003",
+   "7000000004"
+  ],
+  "qty": 1800,
+  "ship_date": null,
+  "factory": "FACTORY A",
+  "rows": [
+   {
+    "po": "7000000003",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "7/8",
+    "sku": "8000000005",
+    "qty": 200
+   },
+   {
+    "po": "7000000003",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "10/12",
+    "sku": "8000000005",
+    "qty": 200
+   },
+   {
+    "po": "7000000003",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "14/16",
+    "sku": "8000000005",
+    "qty": 200
+   },
+   {
+    "po": "7000000003",
+    "pack": 2,
+    "range": "7/16",
+    "colour": "PINK",
+    "size": "7/8",
+    "sku": "8000000006",
+    "qty": 120
+   },
+   {
+    "po": "7000000003",
+    "pack": 2,
+    "range": "7/16",
+    "colour": "PINK",
+    "size": "10/12",
+    "sku": "8000000006",
+    "qty": 120
+   },
+   {
+    "po": "7000000003",
+    "pack": 2,
+    "range": "7/16",
+    "colour": "PINK",
+    "size": "14/16",
+    "sku": "8000000006",
+    "qty": 120
+   },
+   {
+    "po": "7000000004",
+    "pack": 1,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "4",
+    "sku": "8000000007",
+    "qty": 160
+   },
+   {
+    "po": "7000000004",
+    "pack": 1,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "5/6",
+    "sku": "8000000007",
+    "qty": 160
+   },
+   {
+    "po": "7000000004",
+    "pack": 1,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "6X",
+    "sku": "8000000007",
+    "qty": 160
+   },
+   {
+    "po": "7000000004",
+    "pack": 2,
+    "range": "4/6X",
+    "colour": "PINK",
+    "size": "4",
+    "sku": "8000000008",
+    "qty": 120
+   },
+   {
+    "po": "7000000004",
+    "pack": 2,
+    "range": "4/6X",
+    "colour": "PINK",
+    "size": "5/6",
+    "sku": "8000000008",
+    "qty": 120
+   },
+   {
+    "po": "7000000004",
+    "pack": 2,
+    "range": "4/6X",
+    "colour": "PINK",
+    "size": "6X",
+    "sku": "8000000008",
+    "qty": 120
+   }
+  ]
+ },
+ {
+  "style": "S03",
+  "item": "SS BOYF GFX03 SCRN TEE WHITE",
+  "pos": [
+   "7000000005",
+   "7000000006"
+  ],
+  "qty": 1500,
+  "ship_date": null,
+  "factory": "FACTORY A",
+  "rows": [
+   {
+    "po": "7000000005",
+    "pack": 1,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "4",
+    "sku": "8000000009",
+    "qty": 200
+   },
+   {
+    "po": "7000000005",
+    "pack": 1,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "5/6",
+    "sku": "8000000009",
+    "qty": 200
+   },
+   {
+    "po": "7000000005",
+    "pack": 1,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "6X",
+    "sku": "8000000009",
+    "qty": 200
+   },
+   {
+    "po": "7000000006",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "7/8",
+    "sku": "8000000010",
+    "qty": 300
+   },
+   {
+    "po": "7000000006",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "10/12",
+    "sku": "8000000010",
+    "qty": 300
+   },
+   {
+    "po": "7000000006",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "14/16",
+    "sku": "8000000010",
+    "qty": 300
+   }
+  ]
+ },
+ {
+  "style": "S04",
+  "item": "SS BOYF GFX04 SCR WHITE",
+  "pos": [
+   "7000000007",
+   "7000000008"
+  ],
+  "qty": 1200,
+  "ship_date": null,
+  "factory": "FACTORY A",
+  "rows": [
+   {
+    "po": "7000000007",
+    "pack": 1,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "4",
+    "sku": "8000000011",
+    "qty": 200
+   },
+   {
+    "po": "7000000007",
+    "pack": 1,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "5/6",
+    "sku": "8000000011",
+    "qty": 200
+   },
+   {
+    "po": "7000000007",
+    "pack": 1,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "6X",
+    "sku": "8000000011",
+    "qty": 200
+   },
+   {
+    "po": "7000000008",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "7/8",
+    "sku": "8000000012",
+    "qty": 200
+   },
+   {
+    "po": "7000000008",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "10/12",
+    "sku": "8000000012",
+    "qty": 200
+   },
+   {
+    "po": "7000000008",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "14/16",
+    "sku": "8000000012",
+    "qty": 200
+   }
+  ]
+ },
+ {
+  "style": "S05",
+  "item": "SS BOYF GFX04 SCR WHT/BLK",
+  "pos": [
+   "7000000008"
+  ],
+  "qty": 600,
+  "ship_date": null,
+  "factory": "FACTORY A",
+  "rows": [
+   {
+    "po": "7000000008",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHT/BLK",
+    "size": "7/8",
+    "sku": "8000000013",
+    "qty": 200
+   },
+   {
+    "po": "7000000008",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHT/BLK",
+    "size": "10/12",
+    "sku": "8000000013",
+    "qty": 200
+   },
+   {
+    "po": "7000000008",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHT/BLK",
+    "size": "14/16",
+    "sku": "8000000013",
+    "qty": 200
+   }
+  ]
+ },
+ {
+  "style": "S06",
+  "item": "SS BRIB GFX05 SCRN TEE WHITE",
+  "pos": [
+   "7000000009",
+   "7000000010"
+  ],
+  "qty": 1920,
+  "ship_date": null,
+  "factory": "FACTORY A",
+  "rows": [
+   {
+    "po": "7000000009",
+    "pack": 1,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "4",
+    "sku": "8000000014",
+    "qty": 120
+   },
+   {
+    "po": "7000000009",
+    "pack": 1,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "5/6",
+    "sku": "8000000014",
+    "qty": 120
+   },
+   {
+    "po": "7000000009",
+    "pack": 1,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "6X",
+    "sku": "8000000014",
+    "qty": 120
+   },
+   {
+    "po": "7000000009",
+    "pack": 2,
+    "range": "4/6X",
+    "colour": "SAND",
+    "size": "4",
+    "sku": "8000000015",
+    "qty": 120
+   },
+   {
+    "po": "7000000009",
+    "pack": 2,
+    "range": "4/6X",
+    "colour": "SAND",
+    "size": "5/6",
+    "sku": "8000000015",
+    "qty": 120
+   },
+   {
+    "po": "7000000009",
+    "pack": 2,
+    "range": "4/6X",
+    "colour": "SAND",
+    "size": "6X",
+    "sku": "8000000015",
+    "qty": 120
+   },
+   {
+    "po": "7000000010",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "7/8",
+    "sku": "8000000016",
+    "qty": 200
+   },
+   {
+    "po": "7000000010",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "10/12",
+    "sku": "8000000016",
+    "qty": 200
+   },
+   {
+    "po": "7000000010",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "14/16",
+    "sku": "8000000016",
+    "qty": 200
+   },
+   {
+    "po": "7000000010",
+    "pack": 2,
+    "range": "7/16",
+    "colour": "SAND",
+    "size": "7/8",
+    "sku": "8000000017",
+    "qty": 200
+   },
+   {
+    "po": "7000000010",
+    "pack": 2,
+    "range": "7/16",
+    "colour": "SAND",
+    "size": "10/12",
+    "sku": "8000000017",
+    "qty": 200
+   },
+   {
+    "po": "7000000010",
+    "pack": 2,
+    "range": "7/16",
+    "colour": "SAND",
+    "size": "14/16",
+    "sku": "8000000017",
+    "qty": 200
+   }
+  ]
+ },
+ {
+  "style": "S07",
+  "item": "SS BOYF GFX06 GFX07 CNH WHITE",
+  "pos": [
+   "7000000011",
+   "7000000012"
+  ],
+  "qty": 1920,
+  "ship_date": null,
+  "factory": "FACTORY A",
+  "rows": [
+   {
+    "po": "7000000011",
+    "pack": 1,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "4",
+    "sku": "8000000018",
+    "qty": 120
+   },
+   {
+    "po": "7000000011",
+    "pack": 1,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "5/6",
+    "sku": "8000000018",
+    "qty": 120
+   },
+   {
+    "po": "7000000011",
+    "pack": 1,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "6X",
+    "sku": "8000000018",
+    "qty": 120
+   },
+   {
+    "po": "7000000011",
+    "pack": 2,
+    "range": "4/6X",
+    "colour": "PINK",
+    "size": "4",
+    "sku": "8000000019",
+    "qty": 120
+   },
+   {
+    "po": "7000000011",
+    "pack": 2,
+    "range": "4/6X",
+    "colour": "PINK",
+    "size": "5/6",
+    "sku": "8000000019",
+    "qty": 120
+   },
+   {
+    "po": "7000000011",
+    "pack": 2,
+    "range": "4/6X",
+    "colour": "PINK",
+    "size": "6X",
+    "sku": "8000000019",
+    "qty": 120
+   },
+   {
+    "po": "7000000012",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "7/8",
+    "sku": "8000000020",
+    "qty": 200
+   },
+   {
+    "po": "7000000012",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "10/12",
+    "sku": "8000000020",
+    "qty": 200
+   },
+   {
+    "po": "7000000012",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "14/16",
+    "sku": "8000000020",
+    "qty": 200
+   },
+   {
+    "po": "7000000012",
+    "pack": 2,
+    "range": "7/16",
+    "colour": "PINK",
+    "size": "7/8",
+    "sku": "8000000021",
+    "qty": 200
+   },
+   {
+    "po": "7000000012",
+    "pack": 2,
+    "range": "7/16",
+    "colour": "PINK",
+    "size": "10/12",
+    "sku": "8000000021",
+    "qty": 200
+   },
+   {
+    "po": "7000000012",
+    "pack": 2,
+    "range": "7/16",
+    "colour": "PINK",
+    "size": "14/16",
+    "sku": "8000000021",
+    "qty": 200
+   }
+  ]
+ },
+ {
+  "style": "S08",
+  "item": "SS BOYF GFX06 CNH SCN WHITE",
+  "pos": [
+   "7000000013",
+   "7000000014"
+  ],
+  "qty": 2460,
+  "ship_date": null,
+  "factory": "FACTORY A",
+  "rows": [
+   {
+    "po": "7000000013",
+    "pack": 1,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "4",
+    "sku": "8000000022",
+    "qty": 200
+   },
+   {
+    "po": "7000000013",
+    "pack": 1,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "5/6",
+    "sku": "8000000022",
+    "qty": 200
+   },
+   {
+    "po": "7000000013",
+    "pack": 1,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "6X",
+    "sku": "8000000022",
+    "qty": 200
+   },
+   {
+    "po": "7000000013",
+    "pack": 2,
+    "range": "4/6X",
+    "colour": "BLACK",
+    "size": "4",
+    "sku": "8000000023",
+    "qty": 120
+   },
+   {
+    "po": "7000000013",
+    "pack": 2,
+    "range": "4/6X",
+    "colour": "BLACK",
+    "size": "5/6",
+    "sku": "8000000023",
+    "qty": 120
+   },
+   {
+    "po": "7000000013",
+    "pack": 2,
+    "range": "4/6X",
+    "colour": "BLACK",
+    "size": "6X",
+    "sku": "8000000023",
+    "qty": 120
+   },
+   {
+    "po": "7000000014",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "7/8",
+    "sku": "8000000024",
+    "qty": 300
+   },
+   {
+    "po": "7000000014",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "10/12",
+    "sku": "8000000024",
+    "qty": 300
+   },
+   {
+    "po": "7000000014",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "14/16",
+    "sku": "8000000024",
+    "qty": 300
+   },
+   {
+    "po": "7000000014",
+    "pack": 2,
+    "range": "7/16",
+    "colour": "BLACK",
+    "size": "7/8",
+    "sku": "8000000025",
+    "qty": 200
+   },
+   {
+    "po": "7000000014",
+    "pack": 2,
+    "range": "7/16",
+    "colour": "BLACK",
+    "size": "10/12",
+    "sku": "8000000025",
+    "qty": 200
+   },
+   {
+    "po": "7000000014",
+    "pack": 2,
+    "range": "7/16",
+    "colour": "BLACK",
+    "size": "14/16",
+    "sku": "8000000025",
+    "qty": 200
+   }
+  ]
+ },
+ {
+  "style": "S09",
+  "item": "SS BOYF GFX08 SCRN TE WHITE",
+  "pos": [
+   "7000000015"
+  ],
+  "qty": 1380,
+  "ship_date": null,
+  "factory": "FACTORY A",
+  "rows": [
+   {
+    "po": "7000000015",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "7/8",
+    "sku": "8000000026",
+    "qty": 300
+   },
+   {
+    "po": "7000000015",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "10/12",
+    "sku": "8000000026",
+    "qty": 300
+   },
+   {
+    "po": "7000000015",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "14/16",
+    "sku": "8000000026",
+    "qty": 300
+   },
+   {
+    "po": "7000000015",
+    "pack": 2,
+    "range": "7/16",
+    "colour": "BLACK",
+    "size": "7/8",
+    "sku": "8000000027",
+    "qty": 160
+   },
+   {
+    "po": "7000000015",
+    "pack": 2,
+    "range": "7/16",
+    "colour": "BLACK",
+    "size": "10/12",
+    "sku": "8000000027",
+    "qty": 160
+   },
+   {
+    "po": "7000000015",
+    "pack": 2,
+    "range": "7/16",
+    "colour": "BLACK",
+    "size": "14/16",
+    "sku": "8000000027",
+    "qty": 160
+   }
+  ]
+ },
+ {
+  "style": "S10",
+  "item": "SS BOYF GFX09 SCRN CNH WHITE",
+  "pos": [
+   "7000000016",
+   "7000000017"
+  ],
+  "qty": 2100,
+  "ship_date": null,
+  "factory": "FACTORY A",
+  "rows": [
+   {
+    "po": "7000000016",
+    "pack": 1,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "4",
+    "sku": "8000000028",
+    "qty": 120
+   },
+   {
+    "po": "7000000016",
+    "pack": 1,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "5/6",
+    "sku": "8000000028",
+    "qty": 120
+   },
+   {
+    "po": "7000000016",
+    "pack": 1,
+    "range": "4/6X",
+    "colour": "WHITE",
+    "size": "6X",
+    "sku": "8000000028",
+    "qty": 120
+   },
+   {
+    "po": "7000000016",
+    "pack": 2,
+    "range": "4/6X",
+    "colour": "LILAC",
+    "size": "4",
+    "sku": "8000000029",
+    "qty": 120
+   },
+   {
+    "po": "7000000016",
+    "pack": 2,
+    "range": "4/6X",
+    "colour": "LILAC",
+    "size": "5/6",
+    "sku": "8000000029",
+    "qty": 120
+   },
+   {
+    "po": "7000000016",
+    "pack": 2,
+    "range": "4/6X",
+    "colour": "LILAC",
+    "size": "6X",
+    "sku": "8000000029",
+    "qty": 120
+   },
+   {
+    "po": "7000000017",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "7/8",
+    "sku": "8000000030",
+    "qty": 300
+   },
+   {
+    "po": "7000000017",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "10/12",
+    "sku": "8000000030",
+    "qty": 300
+   },
+   {
+    "po": "7000000017",
+    "pack": 1,
+    "range": "7/16",
+    "colour": "WHITE",
+    "size": "14/16",
+    "sku": "8000000030",
+    "qty": 300
+   },
+   {
+    "po": "7000000017",
+    "pack": 2,
+    "range": "7/16",
+    "colour": "LILAC",
+    "size": "7/8",
+    "sku": "8000000031",
+    "qty": 160
+   },
+   {
+    "po": "7000000017",
+    "pack": 2,
+    "range": "7/16",
+    "colour": "LILAC",
+    "size": "10/12",
+    "sku": "8000000031",
+    "qty": 160
+   },
+   {
+    "po": "7000000017",
+    "pack": 2,
+    "range": "7/16",
+    "colour": "LILAC",
+    "size": "14/16",
+    "sku": "8000000031",
+    "qty": 160
+   }
+  ]
+ }
+]

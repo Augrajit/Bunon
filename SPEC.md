@@ -571,3 +571,16 @@ One click-through: F0288 hides its record in the factory app, and the exporter's
 - personas are recorded as sharing, a factory that has not joined has no choice, and a later choice is never overwritten
 
 The click-throughs are unchanged: F0288 starts as shared and hides its record. Full sweep 30 passed.
+
+### D29: 27 Nov 2026: anonymised delivery orders (DOCS_PROPOSAL.md §a)
+
+**Product owner's order of work:** §a, then §f (whole-style engine), then §b, §c, §d, §g. Style-sheet OCR is skipped: a teammate hand-enters the style-sheet values as the answer key, which also feeds the style-sheet vs delivery-order check in §c.
+
+**What:**
+- `bunon/anonymise.py`, local only and never imported by the app: `pdftotext` text → sensitive values found by layout → consistent fakes → privacy scan → `data/demo/docs/S01–S10.txt` and `programme.json` (header and size breakdown, parsed in code).
+- Replaced: the issuing company, buyer, factory, address / attn, POs (17), SKUs (31), styles (10), file paths, and the graphic words of the item descriptions (9). The number in front of each image name ("3.<style>.png") is dropped too, because it was the real style code's number.
+- Kept: every quantity, rate, waste figure and error.
+
+**The 10 styles:** 600–2,460 pieces (16,800 in all), size ranges 4/6X and 7/16, one or two colours each, 6 pieces per prepack. No ship date, order date or factory address in any of them.
+
+**Tests:** +7 in `tests/test_anonymise.py`, on a made-up sample and on the published files.

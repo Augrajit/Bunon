@@ -155,9 +155,10 @@ def factory_record(history: pd.DataFrame, factory_id: str) -> dict:
 
 
 def order_from_intake(intake, total: int, own: int, deadline: date, fob: float | None, penalty: float | None,
-                      aql: float | None) -> OrderConstraints:
+                      aql: float | None, styles=None) -> OrderConstraints:
     """The order the human confirmed: their form values, plus the text fields and quotes that passed the
-    intake checks (unverified fields stay empty)."""
+    intake checks (unverified fields stay empty). `styles`: a programme's styles from its delivery orders
+    (code-parsed, SPEC.md D30); they then set the subcontracted quantity."""
     def ok(name):
         f = intake.fields.get(name)
         return f.value if f is not None and f.status == "ok" else None
@@ -166,7 +167,8 @@ def order_from_intake(intake, total: int, own: int, deadline: date, fob: float |
         fabric=ok("fabric"), gsm=ok("gsm"), quality_aql=aql or None, fob_usd_per_piece=fob or None,
         late_penalty_pct_per_week=penalty or None, penalty_text=ok("penalty_text"),
         compliance_required=ok("compliance_required") or ["RSC", "BSCI"],
-        source_spans={k: v.source_span for k, v in intake.fields.items() if v.status == "ok" and v.source_span})
+        source_spans={k: v.source_span for k, v in intake.fields.items() if v.status == "ok" and v.source_span},
+        styles=list(styles or []))
 
 
 def reply_terms(res) -> tuple[int | None, int | None]:
@@ -303,7 +305,7 @@ class OrderBook:
                 language = lang.get(r.factory_id, "English")
                 text, source = lp.draft_request(r, language, b.order), "template"
                 if client is not None:
-                    fs = ag.message_facts("request", b.order, qty=r.qty, finish_by=r.finish_by)
+                    fs = ag.message_facts("request", b.order, qty=r.qty, finish_by=r.finish_by, styles=r.styles)
                     d = ag.write_message("request", fs, language, text, client)
                     text, source = d.text, ("llm" if d.source != "template" else "template")
                 self.store.insert("messages", {

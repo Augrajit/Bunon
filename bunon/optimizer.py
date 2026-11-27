@@ -44,6 +44,13 @@ def load_world(db: Path = C.PUBLIC_DB) -> World:
 
 
 def demo_order() -> OrderConstraints:
+    if C.DEMO_PROGRAMME:
+        from bunon import programme as pg
+        return pg.as_programme(_demo_base())
+    return _demo_base()
+
+
+def _demo_base() -> OrderConstraints:
     return OrderConstraints(
         total_qty=C.DEMO_TOTAL_QTY, own_capacity_qty=C.DEMO_OWN_CAPACITY, deadline=C.DEMO_DEADLINE,
         delivery_point=C.DELIVERY_POINT_NAME, fabric="100% cotton single jersey", gsm=160, quality_aql=2.5,

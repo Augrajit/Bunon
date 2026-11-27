@@ -5,6 +5,7 @@ Anything marked ASSUMPTION is a placeholder until the team's research comes in
 """
 from __future__ import annotations
 
+import os
 from datetime import date
 from pathlib import Path
 
@@ -118,9 +119,12 @@ MIN_BATCH_CHOICES = (500, 1_000, 2_000, 3_000)  # ASSUMPTION (research ask 9)
 SETUP_DAYS_RANGE = (3, 7)
 
 # --- Demo order (fictional; PLAN.md §8) -----------------------------------
-DEMO_TOTAL_QTY = 150_000
-DEMO_OWN_CAPACITY = 100_000
-DEMO_SUBCONTRACT_QTY = DEMO_TOTAL_QTY - DEMO_OWN_CAPACITY
+# The demo order (SPEC.md D30). DEMO_PROGRAMME: the 10-style programme (16,800 pcs, all subcontracted, whole
+# styles); off until step 4 re-pins every demo number, then it becomes the default. BUNON_DEMO_PROGRAMME=1 turns it on.
+DEMO_PROGRAMME = os.environ.get("BUNON_DEMO_PROGRAMME", "0") == "1"
+DEMO_TOTAL_QTY = 16_800 if DEMO_PROGRAMME else 150_000
+DEMO_OWN_CAPACITY = 0 if DEMO_PROGRAMME else 100_000
+DEMO_SUBCONTRACT_QTY = 50_000  # the synthetic data's reference scale (data_gen "no hero" checks); not the demo order
 DEMO_DEADLINE = date(2027, 1, 31)   # buyer's stated ex-factory date = the planning deadline (interview)
 DEMO_FOB_USD = 2.40             # ASSUMPTION (research ask 8)
 DEMO_PENALTY_PCT_PER_WEEK = 5.0  # ASSUMPTION (research ask 5)
@@ -180,7 +184,7 @@ LLM_MODE_ENV = "BUNON_LLM_MODE"  # "offline" (default: cache only) or "live"
 LIVE_CALLS_PER_VISITOR = 40
 LIVE_CALLS_PER_DAY = 400
 LLM_BUDGET_PATH = ROOT / "data" / "runtime" / "llm_budget.json"  # gitignored; daily counter
-DEMO_EMAIL_PATH = ROOT / "data" / "demo" / "buyer_email_en.txt"
+DEMO_EMAIL_PATH = ROOT / "data" / "demo" / ("buyer_email_programme_en.txt" if DEMO_PROGRAMME else "buyer_email_en.txt")
 
 # --- Optimiser defaults (PLAN.md §5) --------------------------------------
 QC_DAYS = 3

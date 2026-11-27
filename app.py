@@ -26,7 +26,7 @@ def _reload_bunon_if_changed() -> None:
 
     import bunon
     order = ["config", "schemas", "textnum", "llm", "data_gen", "reliability", "simulation",
-             "optimizer", "agent", "analyst", "store", "decisions", "personas", "loop", "attribution", "service"]
+             "programme", "optimizer", "agent", "analyst", "store", "decisions", "personas", "loop", "attribution", "service"]
     src = Path(bunon.__file__).parent
     digest = hashlib.sha1(b"".join((src / f"{m}.py").read_bytes() for m in order)).hexdigest()
     if getattr(bunon, "_source_digest", None) != digest:
@@ -47,6 +47,7 @@ from bunon import decisions as dl
 from bunon import loop as lp
 from bunon import optimizer as op
 from bunon import personas
+from bunon import programme as pg
 from bunon import reliability as rl
 from bunon import service as sv
 from bunon.data_gen import load_public
@@ -300,6 +301,11 @@ def llm_once(spinner: str, fn, *a):
         with st.spinner(spinner):
             store[k] = fn(*a)
     return store[k]
+
+
+def _styles_cell(ln) -> dict:
+    """Whole styles (SPEC.md D30): the styles a factory makes, in production order (empty for the piece split)."""
+    return {"Styles (in order)": ", ".join(s for s, _ in ln.styles)} if ln.styles else {}
 
 
 def _read_email(email: str):
@@ -905,6 +911,13 @@ def section_intake() -> None:
         f = intake.fields.get(name)
         return f.value if f is not None and f.status == "ok" else default
 
+    if C.DEMO_PROGRAMME:
+        sts = pg.load_styles()
+        st.markdown(f"**Attached delivery orders: {len(sts)} styles, {sum(s.qty for s in sts):,} pieces.** "
+                    "Read in code from the anonymised delivery orders (no AI). Each style goes whole to one factory.")
+        st.dataframe(pd.DataFrame([{"Style": s.style_id, "Item": s.item, "Pieces": s.qty,
+                                    "Size ranges": ", ".join(s.ranges), "Colours": ", ".join(s.colours)}
+                                   for s in sts]), hide_index=True, width="stretch")
     with st.form("confirm_order"):
         st.markdown("**Check and confirm the order.** Blank fields were not verified in the email.")
         a, b, c = st.columns(3)
@@ -925,7 +938,8 @@ def section_intake() -> None:
             elif st.session_state["role"] not in EXPORTER_ROLES:
                 st.error("Switch to an exporter role to confirm an order.")
             else:
-                order = sv.order_from_intake(intake, total, own, deadline, fob, penalty, aql)
+                order = sv.order_from_intake(intake, total, own, deadline, fob, penalty, aql,
+                                             styles=pg.load_styles() if C.DEMO_PROGRAMME else None)
                 st.session_state["order_json"] = order.model_dump_json()
                 st.session_state["order_id"] = book().confirm_order(
                     order, st.session_state["role"], settings(), intake.meta.source if intake.meta else None,
@@ -1307,8 +1321,9 @@ def section_split(args, oid: str, offers: tuple) -> object | None:
     if not res.target_met:
         st.error(f"The factories that said yes cannot reach the {s.target:.0%} target; this is the most likely split.")
     off = {o.factory_id: o for o in offers}
-    st.dataframe(pd.DataFrame([{"Factory": ln.factory_id, "Pieces": ln.qty, "Offered / asked": off[ln.factory_id].qty
-                                or off[ln.factory_id].requested, "Share": f"{ln.share:.0%}"}
+    st.dataframe(pd.DataFrame([{"Factory": ln.factory_id, **_styles_cell(ln), "Pieces": ln.qty,
+                                "Offered / asked": off[ln.factory_id].qty or off[ln.factory_id].requested,
+                                "Share": f"{ln.share:.0%}"}
                                for ln in pt.plan.lines]), hide_index=True, width="stretch")
     book().propose(oid, pt, "Split from offers")
     approval_buttons("split", pt, "Split from offers", f"{len(pt.plan.lines)} factories, P {pt.risk.p_meet_qty:.3f}, "
@@ -1480,8 +1495,8 @@ def _warning_text(args: tuple, offers: tuple, ups: tuple, prev):
     return ag.write_warning(fs, LLMClient())
 
 
-def _write_msg(args: tuple, kind: str, extra: int, total: int, lang: str, template: str):
-    fs = ag.message_facts(kind, run_plans(*args).order, extra=extra, total=total)
+def _write_msg(args: tuple, kind: str, extra: int, total: int, lang: str, template: str, styles: tuple = ()):
+    fs = ag.message_facts(kind, run_plans(*args).order, extra=extra, total=total, styles=styles)
     return ag.write_message(kind, fs, lang, template, LLMClient())
 
 
@@ -1595,12 +1610,14 @@ def section_rescue(args, oid: str, fc, opts) -> bool:
         return False
     extra = [(d["factory_id"], d["new_qty"] - d["old_qty"]) for d in rp.diff
              if d["new_qty"] > d["old_qty"] and d["factory_id"] not in fc.projections]
+    moved = {d["factory_id"]: tuple(d.get("styles_in", ())) for d in rp.diff}
     lang = {p.factory_id: p.language for p in persona_file().personas}
     sent = {m["factory_id"] for m in book().store.messages(oid) if m["kind"] == "rescue_request"}
     written = {f: llm_once("Drafting the rescue requests…", _write_msg, args, "rescue", n, 0, lang.get(f, "English"),
-                           lp.draft_rescue_request(f, n, b.order, lang.get(f, "English"))) for f, n in extra}
+                           lp.draft_rescue_request(f, n, b.order, lang.get(f, "English"), moved.get(f, ())),
+                           moved.get(f, ())) for f, n in extra}
     drafts = [(f, n, written[f].text) for f, n in extra]
-    st.dataframe(pd.DataFrame([{"To": f, "Extra pieces": n, "Draft": t,
+    st.dataframe(pd.DataFrame([{"To": f, "Styles": ", ".join(moved.get(f, ())), "Extra pieces": n, "Draft": t,
                                 "Written by": "template" if written[f].source == "template" else "AI (checked)",
                                 "Status": "sent" if f in sent else "draft"} for f, n, t in drafts]),
                  hide_index=True, width="stretch")
@@ -1787,7 +1804,7 @@ def view_timeline() -> None:
                  "The deadline is fixed: the options are quantity, target or more slack.")
     by_id = {c.factory_id: c for c in cands}
     st.dataframe(pd.DataFrame([{
-        "Factory": ln.factory_id, "District": by_id[ln.factory_id].district, "Pieces": ln.qty,
+        "Factory": ln.factory_id, "District": by_id[ln.factory_id].district, **_styles_cell(ln), "Pieces": ln.qty,
         "Share": f"{ln.share:.0%}", "CM (BDT/pc)": round(ln.unit_price_bdt, 1),
         "Transit (days)": by_id[ln.factory_id].transit_days, "Production days": by_id[ln.factory_id].window_days,
         "Short/late in failed simulations": f"{rec.risk.fail_contribution.get(ln.factory_id, 0):.0%}",

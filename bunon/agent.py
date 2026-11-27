@@ -559,6 +559,17 @@ _PURPOSE = {
               "{{surge.extra}} more pieces, {{surge.total}} pieces in all, before the buyer's deadline "
               "{{surge.deadline}}; the exporter pays the overtime premium. Ask it to confirm."),
 }
+# Whole styles (SPEC.md D30): the request and rescue name the styles through a text placeholder (style codes
+# contain digits, so the LLM never writes them itself).
+_PURPOSE_STYLES = {
+    "request": ("Ask the factory whether it can make the {{req.styles}} of the exporter's kids' T-shirt programme, "
+                "{{req.qty}} pieces in all, for a subcontract order. Each style is made whole by one factory. Fabric "
+                "is supplied by the exporter<GSM>, and production must be complete by {{req.finish_by}}. Ask it to "
+                "confirm and to quote its rate per piece."),
+    "rescue": ("Urgently ask the factory whether it can take the {{res.styles}} of the exporter's kids' T-shirt "
+               "programme, {{res.extra}} pieces (the whole style), fabric supplied by the exporter, still before the "
+               "buyer's deadline {{res.deadline}}. Ask it to confirm."),
+}
 REQUIRED_KEYS = {"request": ("req.qty", "req.finish_by"), "rescue": ("res.extra", "res.deadline"),
                  "surge": ("surge.extra", "surge.deadline")}
 
@@ -581,18 +592,39 @@ FACTS (key = value: meaning):
 {retry}"""
 
 
+def _style_key(kind: str) -> str:
+    return {"request": "req.styles", "rescue": "res.styles"}.get(kind, "")
+
+
+def required_keys(kind: str, fs: FactSheet) -> tuple[str, ...]:
+    k = _style_key(kind)
+    return REQUIRED_KEYS[kind] + ((k,) if k and k in fs else ())
+
+
+def _styles_phrase(styles) -> str:
+    styles = list(styles)
+    one = len(styles) == 1
+    names = styles[0] if one else ", ".join(styles[:-1]) + " and " + styles[-1]
+    return f"style {names}" if one else f"styles {names}"
+
+
 def message_facts(kind: MessageKindOut, order, *, qty: int | None = None, finish_by: date | None = None,
-                  extra: int | None = None, total: int | None = None) -> FactSheet:
-    """The numbers a message may cite, all from code (plan, forecast, order)."""
+                  extra: int | None = None, total: int | None = None, styles=()) -> FactSheet:
+    """The numbers a message may cite, all from code (plan, forecast, order). `styles`: whole styles asked."""
     if kind == "request":
         fs = {"req.qty": Fact(qty, "qty", "pieces we ask this factory to make"),
               "req.finish_by": Fact(finish_by, "date", "date its production must be complete")}
         if order.gsm:
             fs["req.gsm"] = Fact(order.gsm, "int", "fabric weight in GSM (grams per square metre)")
+        if styles:
+            fs["req.styles"] = Fact(_styles_phrase(styles), "text", "the whole styles we ask it to make")
         return fs
     if kind == "rescue":
-        return {"res.extra": Fact(extra, "qty", "extra pieces we ask it to take"),
-                "res.deadline": Fact(order.deadline, "date", "the buyer's deadline")}
+        fs = {"res.extra": Fact(extra, "qty", "extra pieces we ask it to take"),
+              "res.deadline": Fact(order.deadline, "date", "the buyer's deadline")}
+        if styles:
+            fs["res.styles"] = Fact(_styles_phrase(styles), "text", "the whole style(s) we ask it to take")
+        return fs
     return {"surge.extra": Fact(extra, "qty", "extra pieces we ask it to make with overtime"),
             "surge.total": Fact(total, "qty", "pieces it would make in all, with the overtime"),
             "surge.deadline": Fact(order.deadline, "date", "the buyer's deadline")}
@@ -607,7 +639,7 @@ def validate_message(kind: MessageKindOut, text: str, fs: FactSheet, max_words: 
     if words:
         errors.append(f"message: number word(s) {sorted(set(words))[:5]} outside placeholders")
     used = {k.strip() for k in _PH.findall(text)}
-    missing = [k for k in REQUIRED_KEYS[kind] if k not in used]
+    missing = [k for k in required_keys(kind, fs) if k not in used]
     if missing:
         errors.append(f"message: missing required placeholder(s) {missing}")
     if not text.strip():
@@ -628,12 +660,15 @@ def write_message(kind: MessageKindOut, fs: FactSheet, language: str, template: 
                   client: LLMClient | None = None) -> Draft:
     """An LLM-written message under the placeholder rule; one retry; else the deterministic template (code)."""
     client = client or LLMClient()
-    purpose = _PURPOSE[kind].replace("<GSM>", " ({{req.gsm}} GSM)" if "req.gsm" in fs else "")
+    styles = _style_key(kind) in fs
+    purpose = (_PURPOSE_STYLES if styles else _PURPOSE)[kind].replace(
+        "<GSM>", " ({{req.gsm}} GSM)" if "req.gsm" in fs else "")
     words = 120 if language == "Bangla" else 90
 
     def prompt(retry: str) -> str:
         return MESSAGE_PROMPT.format(language_note=_LANG_NOTE.get(language, _LANG_NOTE["English"]),
-                                     purpose=purpose, required=", ".join("{{" + k + "}}" for k in REQUIRED_KEYS[kind]),
+                                     purpose=purpose,
+                                     required=", ".join("{{" + k + "}}" for k in required_keys(kind, fs)),
                                      words=words, facts=_facts_block(fs), retry=retry)
 
     p = prompt("")

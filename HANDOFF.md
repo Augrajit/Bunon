@@ -107,12 +107,32 @@ Remaining open items (27 Nov 2026, after D28; feature work paused for the polish
 Real order documents (27 Nov 2026, DOCS_PROPOSAL.md, approved order §a → §f → §b, §c, §d, §g):
 - **Privacy:** the real PDFs live only in the ignored `data/Documents/` on the developer's machine. Never commit them, never send them (raw or as images) to the LLM, never use them raw in the demo or tests. `tests/test_no_documents.py` guards this.
 - **§a done (D29):** `python -m bunon.anonymise data/Documents` (local only) rewrites `data/demo/docs/S01–S10.txt` and `programme.json`. Its mapping is in `data/private/doc_mapping.json`; keep it, or the fakes change on the next run. The style sheet is out of scope (no OCR); a teammate hand-enters its values as the answer key.
-- **§f next: whole-style engine.**
-  - A style is never split across factories (interviewee).
-  - Rescue options: move an unstarted style, overtime, accept a shortfall within tolerance, renegotiate the date.
-  - "Move part of a running style" stays a disabled config option until the interviewee confirms it happens.
-  - Re-pin every demo number in one step, re-warm the cache, and update README, SPEC and the video script notes.
-  - Give the team the new styles and quantities for the persona messages as soon as the demo programme is fixed.
+- **§f whole-style engine, in progress (SPEC.md D30):**
+  - **Product owner's decisions:**
+    - the programme is the 10 styles at their real quantities (16,800 pcs), all subcontracted;
+    - success is checked per style (every style ≥ (1 − tolerance) × its quantity);
+    - nothing is tuned;
+    - "move part of a running style" stays disabled (`config.RESCUE_SPLIT_RUNNING_STYLE = False`) until the interviewee confirms it happens.
+  - **Done on `v2`, not merged:**
+    - step 1 (47ecf60): style MIP `optimizer._solve_styles`, per-style success `simulation._styles_ok`, `bunon/programme.py`, `SENSITIVITY.md`, research asks 20–23;
+    - step 2 (1783fcf): loop in style mode (requests name styles, accepters keep their styles, `rescue_move_style`, `projected_by_style`, `renegotiate_days`; the `escalate_buyer` option is now `renegotiate_date` in both modes);
+    - persona brief for the team (3b651d7, top of `data/demo/PERSONAS_GUIDE.md`).
+  - **The demo still runs the old 50,000-piece order.** The piece split is kept for orders without styles.
+  - **Step 3, to do (the demo switch):**
+    1. Write a new fictional buyer email for the programme: 16,800 pcs, 10 styles. Keep the deadline (31 Jan 2027), FOB, penalty and AQL.
+    2. Attach the styles with `programme.as_programme` after intake; own capacity 0.
+    3. Move the persona placeholders to F0288, F2427, F2786 and F2829 with the brief's numbers. F2427's day-12 update is about 2,000 pcs with 1 day lost (the rescue moves S07 to F2829); F0288's day-14 update is its late fabric.
+    4. Update `UPDATE_DAY` scripts and `qc_script`.
+    5. App: the plan and offer tables show styles; the rescue drafts pass `styles=d["styles_in"]` to `lp.draft_rescue_request`; the QC table works per factory as now.
+    6. Agent facts: the request and rescue LLM prompts should name the styles (today `req.qty` only). Fall back to the templates until then.
+  - **Step 4, to do:**
+    1. Re-pin `test_published_demo_numbers` and the sweep assertions.
+    2. Re-warm the cache live (`warm_cache`, then live walks as in D21–D28).
+    3. Update the README table, SPEC D30 numbers, the video script notes and CLAUDE.md.
+    4. Full sweep, then merge under the standing rule.
+  - **Known behaviour:**
+    - If the largest factory declines, the split over the remaining repliers can be infeasible because of the district cap; the re-plan step (new factories) handles it.
+    - The renegotiate-date chance assumes the buyer agrees.
 - **Then §b intake, §c cross-document checks, §d evaluation, §g past-order library.**
 
 Open questions for the product owner:

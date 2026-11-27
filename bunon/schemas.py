@@ -90,6 +90,15 @@ class DataGenReport(_Strict):
 
 # --- order ------------------------------------------------------------------
 
+class StyleOrder(_Strict):
+    """One style of a programme (SPEC.md D30): a style always goes whole to one factory (interview)."""
+    style_id: str
+    qty: int = Field(gt=0)
+    item: str = ""
+    ranges: list[str] = []
+    colours: list[str] = []
+
+
 class OrderConstraints(_Strict):
     product: Literal["basic_tshirt"] = "basic_tshirt"
     total_qty: int = Field(gt=0)
@@ -106,10 +115,13 @@ class OrderConstraints(_Strict):
     loss_on_failure_bdt: float | None = Field(None, ge=0)   # manager input, never parsed from the email (D12)
     source_spans: dict[str, str] = {}
     missing_fields: list[str] = []
+    styles: list[StyleOrder] = []   # the subcontracted styles of a programme; empty = one undivided product
 
     @property
     def subcontract_qty(self) -> int:
-        """Computed in code, never by the LLM."""
+        """Computed in code, never by the LLM. A programme: the sum of its subcontracted styles."""
+        if self.styles:
+            return sum(st.qty for st in self.styles)
         return max(0, self.total_qty - self.own_capacity_qty)
 
 
@@ -221,6 +233,10 @@ class OptimizerParams(_Strict):
     fixed_cost_per_factory_bdt: float = Field(0.0, ge=0.0)
     excluded_ids: list[str] = []
     locked_min_qty: dict[str, int] = {}
+    # Whole-style mode (SPEC.md D30): (style_id, order qty) in production order; each style goes whole to one
+    # factory and the buffer is an over-cut within each style. Empty = the piece split.
+    styles: list[tuple[str, int]] = []
+    locked_styles: dict[str, str] = {}   # style_id -> factory_id it must stay at (re-plans)
 
 
 class AllocationLine(_Strict):
@@ -230,6 +246,7 @@ class AllocationLine(_Strict):
     transport_bdt: float
     risk_penalty_bdt: float
     share: float
+    styles: list[tuple[str, int]] = []   # whole-style mode: (style_id, pieces to cut incl. over-cut), in sequence
 
 
 class AllocationPlan(_Strict):
@@ -239,6 +256,7 @@ class AllocationPlan(_Strict):
     lines: list[AllocationLine]
     target_qty: int
     min_good_qty: int | None = None   # success threshold: good pieces >= this (None = target_qty)
+    style_min_good: dict[str, int] = {}  # whole-style mode: every style needs good pieces >= this (D30)
     total_allocated: int
     buffer_qty: int
     cost_production: float     # CM (cut-make) price paid to subcontractors

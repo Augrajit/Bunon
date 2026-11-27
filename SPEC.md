@@ -584,3 +584,30 @@ The click-throughs are unchanged: F0288 starts as shared and hides its record. F
 **The 10 styles:** 600–2,460 pieces (16,800 in all), size ranges 4/6X and 7/16, one or two colours each, 6 pieces per prepack. No ship date, order date or factory address in any of them.
 
 **Tests:** +7 in `tests/test_anonymise.py`, on a made-up sample and on the published files.
+
+### D30: 27 Nov 2026: whole-style engine, step 1 (optimiser, simulation, sensitivity; the demo is not switched yet)
+
+**Why:** the interviewee confirmed that a style is never split across factories, because a smaller quantity is loss-making for the subcontractor.
+
+**Product owner's decisions:**
+- The demo programme is the 10 anonymised styles at their real quantities: 16,800 pieces, all subcontracted.
+- Success is checked **per style**: every style needs good pieces ≥ (1 − tolerance) × its own quantity by the deadline.
+- Nothing is tuned.
+
+**What changed:**
+- `OrderConstraints.styles` (`StyleOrder`), `OptimizerParams.styles` / `locked_styles`, `AllocationLine.styles` (style, pieces to cut, in production order), `AllocationPlan.style_min_good`.
+- `optimizer._solve_styles`: a binary "style s goes to factory f". The buffer is an over-cut within each style (`cut_qty`). Capacity, minimum batch, max factories, the unproven cap and the district cap work as before. The baselines and the buffer search use it when the order has styles.
+- `simulation._styles_ok`: a factory's delivered pieces fill its styles in sequence, so a short factory leaves its last style short. One style's over-cut cannot cover another style.
+- `bunon/programme.py` loads the programme; `config.RESCUE_SPLIT_RUNNING_STYLE = False` (not built until the interviewee confirms it ever happens).
+- The piece split stays for orders without styles. The demo still runs on it until step 2.
+
+**Numbers (programme, defaults, seed 42):**
+- The recommended plan has an over-cut of 20% and uses F0288 (4 styles), F2427 (4) and F2786 (2). Its chance that every style is complete is **32.0%**, against a 90% target.
+- The same plan read as one undivided product would show 88%, because extra pieces anywhere would count.
+- `SENSITIVITY.md` (`python -m bunon.sensitivity`) varies one input at a time:
+  - Short deliveries in the synthetic history are the largest driver: none would mean 73.8%, half as many 49.8%.
+  - Next come the over-cut (0% gives 9.5%) and the per-style tolerance (10% gives 41.1%).
+  - Lateness, lot rejection and defects move the chance by 0.8 to 6.5 points.
+- Research asks 20–23 were added (per-style shortfall accepted, over-cut practice, real defect and lot-rejection rates, how often factories deliver short).
+
+**Tests:** +5 in `tests/test_styles.py`.

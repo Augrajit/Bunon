@@ -67,7 +67,8 @@ def default_params(order: OrderConstraints, **kw) -> OptimizerParams:
                 unproven_cap_pct=C.UNPROVEN_CAP_PCT, max_district_share=C.DISTRICT_CAP_SHARE, lot_size=C.LOT_SIZE,
                 tolerance_pct=C.DELIVERY_TOLERANCE_PCT, min_buffer_pct=C.SAFETY_MARGIN_DEFAULT_PCT,
                 missing_piece_cost_bdt=missing_piece_cost_bdt(order),
-                fixed_cost_per_factory_bdt=C.FIXED_COST_PER_FACTORY_BDT)
+                fixed_cost_per_factory_bdt=C.FIXED_COST_PER_FACTORY_BDT,
+                styles=[(st.style_id, st.qty) for st in order.styles])
     base.update(kw)
     return OptimizerParams(**base)
 
@@ -122,8 +123,21 @@ def _plan_id(method: str, b: float, params: OptimizerParams, qty: dict[str, int]
     return f"{method}-b{round(b * 1000)}-S{params.planned_slack_days}-{h}"
 
 
+def cut_qty(qty: int, b: float) -> int:
+    """Pieces to cut for a style of `qty` with an over-cut buffer b (whole-style mode)."""
+    return int(math.ceil(round(qty * (1 + b), 6)))
+
+
+def style_min_good(params: OptimizerParams) -> dict[str, int]:
+    return {s: math.ceil(round((1 - params.tolerance_pct) * q, 6)) for s, q in params.styles}
+
+
 def make_plan(method: str, qty: dict[str, int], cands: dict[str, Candidate], Q: int, b: float,
-              params: OptimizerParams, status: str = "optimal", **extra) -> AllocationPlan:
+              params: OptimizerParams, status: str = "optimal", styles: dict[str, list[tuple[str, int]]] | None = None,
+              **extra) -> AllocationPlan:
+    """`styles`: whole-style mode, factory -> [(style_id, pieces to cut)] in sequence; qty is then their sum."""
+    if styles is not None:
+        qty = {f: sum(q for _, q in sts) for f, sts in styles.items()}
     qty = {k: v for k, v in qty.items() if v > 0}
     total = sum(qty.values())
     L = params.missing_piece_cost_bdt
@@ -131,8 +145,8 @@ def make_plan(method: str, qty: dict[str, int], cands: dict[str, Candidate], Q: 
         factory_id=i, qty=q, unit_price_bdt=cands[i].unit_price_bdt,
         transport_bdt=cands[i].transport_bdt_per_piece * q,
         risk_penalty_bdt=L * (1 - cands[i].q_effective) * q,
-        share=q / total if total else 0.0,
-    ) for i, q in sorted(qty.items(), key=lambda kv: -kv[1])]
+        share=q / total if total else 0.0, styles=(styles or {}).get(i, []),
+    ) for i, q in sorted(qty.items(), key=lambda kv: (-kv[1], kv[0]))]
     prod = sum(ln.unit_price_bdt * ln.qty for ln in lines)
     trans = sum(ln.transport_bdt for ln in lines)
     mat = C.MATERIAL_COST_BDT_PER_PIECE * total
@@ -146,7 +160,8 @@ def make_plan(method: str, qty: dict[str, int], cands: dict[str, Candidate], Q: 
         cost_production=prod, cost_material=mat, cost_transport=trans, cost_fixed=fixed,
         cost_buffer=buffer_qty * (avg_piece - C.SURPLUS_SALVAGE_BDT_PER_PIECE),
         cost_risk_penalty=sum(ln.risk_penalty_bdt for ln in lines),
-        cost_total=prod + mat + trans + fixed, **extra)
+        cost_total=prod + mat + trans + fixed,
+        style_min_good=style_min_good(params) if params.styles else {}, **extra)
 
 
 def solve_mip(cands: list[Candidate], Q: int, params: OptimizerParams, time_limit: int = 30,
@@ -160,6 +175,8 @@ def solve_mip(cands: list[Candidate], Q: int, params: OptimizerParams, time_limi
     if naive:
         cands = [c.model_copy(update={"window_capacity_risk_adj": c.window_capacity_declared // params.lot_size
                                       * params.lot_size, "q_effective": 1.0, "proven": True}) for c in cands]
+    if params.styles:
+        return _solve_styles(cands, Q, params, time_limit, naive, t0)
     by_id = {c.factory_id: c for c in cands}
     method = ("baseline_buffered" if params.buffer_pct > 0 else "baseline") if naive else "optimised"
     b, lot, L = params.buffer_pct, params.lot_size, params.missing_piece_cost_bdt
@@ -221,6 +238,71 @@ def solve_mip(cands: list[Candidate], Q: int, params: OptimizerParams, time_limi
     return make_plan(method, qty, by_id, Q, b, params, binding_constraints=binding, solver_seconds=secs)
 
 
+def _solve_styles(cands: list[Candidate], Q: int, params: OptimizerParams, time_limit: int, naive: bool,
+                  t0: float) -> AllocationPlan:
+    """Whole-style mode (SPEC.md D30): binary "style s goes to factory f". A factory may take several styles
+    (made in sequence); their cut pieces (order qty x (1 + over-cut b)) must fit its capacity window and reach
+    its minimum batch. Same objective and limits as the piece split: max factories, unproven cap, district cap."""
+    by_id = {c.factory_id: c for c in cands}
+    method = ("baseline_buffered" if params.buffer_pct > 0 else "baseline") if naive else "optimised"
+    b, L = params.buffer_pct, params.missing_piece_cost_bdt
+    cut = {s: cut_qty(q, b) for s, q in params.styles}
+    order = [s for s, _ in params.styles]
+    target = sum(cut.values())
+    for s, f in params.locked_styles.items():
+        if f not in by_id:
+            raise ValueError(f"locked factory {f} is not an eligible candidate")
+    smallest = min(cut.values())
+    use = [c for c in cands if c.window_capacity_risk_adj >= smallest or c.factory_id in params.locked_styles.values()]
+    prob = pulp.LpProblem("styles", pulp.LpMinimize)
+    a = {(s, c.factory_id): pulp.LpVariable(f"a_{s}_{c.factory_id}", cat="Binary")
+         for s in order for c in use if cut[s] <= c.window_capacity_risk_adj}
+    y = {c.factory_id: pulp.LpVariable(f"y_{c.factory_id}", cat="Binary") for c in use}
+    x = {c.factory_id: pulp.lpSum(cut[s] * a[s, c.factory_id] for s in order if (s, c.factory_id) in a) for c in use}
+    unit = {c.factory_id: c.unit_price_bdt + C.MATERIAL_COST_BDT_PER_PIECE + c.transport_bdt_per_piece
+            + L * (1 - c.q_effective) for c in use}
+    prob += pulp.lpSum(unit[i] * x[i] for i in x) + params.fixed_cost_per_factory_bdt * pulp.lpSum(y.values())
+    for s in order:
+        prob += pulp.lpSum(v for (t, _), v in a.items() if t == s) == 1, f"one_{s}"           # whole style
+        if s in params.locked_styles:
+            f = params.locked_styles[s]
+            if (s, f) not in a:
+                return make_plan(method, {}, by_id, Q, b, params, status="infeasible",
+                                 solver_seconds=time.perf_counter() - t0)
+            prob += a[s, f] == 1, f"lock_{s}"
+    for (s, i), v in a.items():
+        prob += v <= y[i], f"open_{s}_{i}"
+    for c in use:
+        i = c.factory_id
+        prob += x[i] <= c.window_capacity_risk_adj * y[i], f"cap_{i}"
+        prob += x[i] >= c.min_batch * y[i], f"minbatch_{i}"
+    prob += pulp.lpSum(y.values()) <= params.max_factories, "max_factories"
+    prob += pulp.lpSum(y.values()) >= params.min_factories, "min_factories"
+    unproven = [c.factory_id for c in use if not c.proven]
+    prob += pulp.lpSum(x[i] for i in unproven) <= params.unproven_cap_pct * target, "unproven_cap"
+    if params.max_district_share is not None and not naive:
+        for d in sorted({c.district for c in use}):
+            members = [c.factory_id for c in use if c.district == d]
+            prob += pulp.lpSum(x[i] for i in members) <= params.max_district_share * target, f"district_{d}"
+    prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=time_limit))
+    status = pulp.LpStatus[prob.status]
+    secs = time.perf_counter() - t0
+    if status != "Optimal":
+        return make_plan(method, {}, by_id, Q, b, params,
+                         status="infeasible" if status == "Infeasible" else "not_solved", solver_seconds=secs)
+    styles: dict[str, list[tuple[str, int]]] = {}
+    for s in order:  # production sequence at each factory = the programme's order
+        f = next(i for (t, i), v in a.items() if t == s and pulp.value(v) > 0.5)
+        styles.setdefault(f, []).append((s, cut[s]))
+    binding = []
+    if len(styles) == params.max_factories:
+        binding.append("max_factories")
+    binding += [f"capacity:{i}" for i, sts in styles.items()
+                if by_id[i].window_capacity_risk_adj - sum(q for _, q in sts) < smallest]
+    return make_plan(method, {}, by_id, Q, b, params, styles=styles, binding_constraints=binding,
+                     solver_seconds=secs)
+
+
 def max_feasible_qty(cands: list[Candidate], params: OptimizerParams) -> int:
     """Largest quantity the hard constraints allow (shown when the order cannot be covered)."""
     lot = params.lot_size
@@ -254,7 +336,8 @@ def solve_baseline(cands: list[Candidate], Q: int, params: OptimizerParams, buff
     plan = solve_mip(cands, Q, p, naive=True)
     by_id = {c.factory_id: c for c in cands}
     qty = {ln.factory_id: ln.qty for ln in plan.lines}
-    return make_plan(plan.method, qty, by_id, Q, buffer_pct, params, status=plan.status,
+    styles = {ln.factory_id: ln.styles for ln in plan.lines} if params.styles and plan.status == "optimal" else None
+    return make_plan(plan.method, qty, by_id, Q, buffer_pct, params, status=plan.status, styles=styles,
                      max_feasible_qty=plan.max_feasible_qty, solver_seconds=plan.solver_seconds)
 
 

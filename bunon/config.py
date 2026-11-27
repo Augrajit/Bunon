@@ -186,6 +186,9 @@ DEMO_EMAIL_PATH = ROOT / "data" / "demo" / "buyer_email_en.txt"
 QC_DAYS = 3
 SURGE_SHARE = 0.15             # PLACEHOLDER: extra daily output a factory gets from overtime (research ask 18)
 SURGE_PRICE_FACTOR = 1.25      # PLACEHOLDER: CM premium paid on overtime pieces (research ask 18)
+# Whole styles (SPEC.md D30): "move part of a running style" is NOT built until the interviewee confirms it ever
+# happens; it is listed as a disabled rescue option. Do not switch this on without that confirmation.
+RESCUE_SPLIT_RUNNING_STYLE = False
 PRICE_MATCH_TOLERANCE = 0.02   # PLACEHOLDER: a quoted rate within 2% of our planned CM rate counts as the same rate
 PRICE_RANGE_BDT = (30.0, 120.0)  # PLACEHOLDER: quoted CM rates outside this range are flagged for a human, not dropped
 WARN_DROP_PP = 0.05            # PLACEHOLDER: a drop of 5 points in the order's chance since the last forecast is a warning (research ask 19)

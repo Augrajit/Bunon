@@ -21,6 +21,25 @@ from bunon import config as C
 from bunon.schemas import AllocationPlan, BundleRisk, ReliabilityForecast, ShockEvent, ShockParams
 
 
+def _styles_ok(plan: AllocationPlan, delivered_i: np.ndarray, rate: np.ndarray, lot_rej: np.ndarray) -> np.ndarray:
+    """Whole-style mode (SPEC.md D30): a factory makes its styles in sequence, so the pieces it delivers fill its
+    first style first; the programme succeeds only if EVERY style has good pieces >= its own threshold
+    (an over-cut of one style cannot cover another). A style in no line fails."""
+    ok = np.ones(delivered_i.shape[0], bool)
+    placed = set()
+    for j, ln in enumerate(plan.lines):
+        cum = 0.0
+        for sid, cut in ln.styles:
+            d = np.clip(delivered_i[:, j] - cum, 0.0, cut)
+            cum += cut
+            good = np.where(lot_rej[:, j], 0.0, d * (1 - rate[:, j]))
+            ok &= good >= plan.style_min_good.get(sid, 0) - 1e-9
+            placed.add(sid)
+    if set(plan.style_min_good) - placed:
+        ok[:] = False
+    return ok
+
+
 def simulate(plan: AllocationPlan, forecasts: dict[str, ReliabilityForecast], slack: dict[str, int],
              districts: dict[str, str], shocks: ShockParams | None = None,
              n_sims: int = C.N_SIMS, seed: int = C.SIM_SEED,
@@ -88,6 +107,7 @@ def simulate(plan: AllocationPlan, forecasts: dict[str, ReliabilityForecast], sl
         frac = np.where(on_time, 1.0, (W + sl) / (W + np.maximum(delay, 1)))
     delivered_i = qty * np.minimum(fill, 1.0) * frac
     lot_rej = np.zeros((n_sims, k), bool)
+    rate = np.zeros((n_sims, k))
     good_i = delivered_i
     has_qc = [x.qc_defect_a is not None for x in f]
     if any(has_qc) and not all(has_qc):
@@ -98,7 +118,10 @@ def simulate(plan: AllocationPlan, forecasts: dict[str, ReliabilityForecast], sl
         lot_rej = rng.random((n_sims, k)) < p_lot
         good_i = np.where(lot_rej, 0.0, delivered_i * (1 - rate))
     total = good_i.sum(axis=1)
-    ok = total >= need
+    if plan.style_min_good:
+        ok = _styles_ok(plan, delivered_i, rate, lot_rej)
+    else:
+        ok = total >= need
     p = float(ok.mean())
 
     failed = ~ok

@@ -88,3 +88,64 @@ def test_a_short_factory_leaves_its_last_style_short(setup):
 def test_running_style_split_is_disabled():
     from bunon import config as C
     assert C.RESCUE_SPLIT_RUNNING_STYLE is False
+
+
+# --- the order loop with whole styles ------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def loop_case(setup):
+    from bunon import loop as lp
+    from bunon import service as sv
+    world, order, params, cands = setup
+    b = sv.compute_plans(world, order, sv.PlanSettings(), n_compliant=442)
+    reqs = lp.sourcing_list(b)
+    offers = [lp.OfferTerms(r.factory_id, "accept", None, None, r.qty) for r in reqs]
+    res, split = lp.split_from_offers(world, b, offers)
+    pt = res.recommended
+    big = pt.plan.lines[0]
+    fc = lp.forecast_after_update(world, b, pt, split, big.factory_id, big.qty // 8, 3, lp.UPDATE_DAY)
+    return world, b, reqs, pt, split, fc
+
+
+def test_requests_name_whole_styles_and_accepters_keep_them(loop_case):
+    from bunon import loop as lp
+    world, b, reqs, pt, split, fc = loop_case
+    plan_reqs = [r for r in reqs if r.role == "plan"]
+    assert sorted(s for r in plan_reqs for s in r.styles) == [f"S{i:02d}" for i in range(1, 11)]
+    text = lp.draft_request(plan_reqs[0], "English", b.order)
+    assert all(s in text for s in plan_reqs[0].styles) and f"{plan_reqs[0].qty:,}" in text
+    # every factory accepted: each keeps exactly the styles it was asked for
+    assert {ln.factory_id: tuple(s for s, _ in ln.styles) for ln in pt.plan.lines} == \
+        {r.factory_id: r.styles for r in plan_reqs}
+
+
+def test_rescue_moves_only_unstarted_whole_styles(loop_case):
+    from bunon import config as C
+    from bunon import loop as lp
+    world, b, reqs, pt, split, fc = loop_case
+    unstarted = {s for s, _ in lp.unstarted_styles(pt, fc.factory_id, fc.pieces_done)}
+    started = {s for s, _ in lp.styles_at(pt, fc.factory_id)} - unstarted
+    assert started and unstarted  # a quarter done: the first style is running
+    opts = {o.kind: o for o in lp.rescue_options(world, b, pt, split, fc, [], lp.UPDATE_DAY)}
+    assert list(opts) == ["move", "surge", "accept_shortfall", "renegotiate_date", "split_running"]
+    mv = opts["move"]
+    assert mv.allowed and mv.replan is not None
+    moved = {s for d in mv.replan.diff for s in d["styles_in"]}
+    assert moved and moved <= unstarted  # never a running style, never another factory's style
+    new_at = {ln.factory_id: {s for s, _ in ln.styles} for ln in mv.replan.new.plan.lines}
+    assert started <= new_at[fc.factory_id]
+    assert sorted(s for v in new_at.values() for s in v) == [f"S{i:02d}" for i in range(1, 11)]  # still whole
+    assert mv.p_after > fc.p_after
+    assert not opts["split_running"].allowed and C.RESCUE_SPLIT_RUNNING_STYLE is False
+
+
+def test_accept_shortfall_is_judged_per_style_and_renegotiation_names_the_days(loop_case):
+    from bunon import loop as lp
+    world, b, reqs, pt, split, fc = loop_case
+    opts = {o.kind: o for o in lp.rescue_options(world, b, pt, split, fc, [], lp.UPDATE_DAY)}
+    rows = lp.projected_by_style(pt, fc.projections)
+    assert opts["accept_shortfall"].allowed == all(got >= need for _, _, got, need in rows)
+    days = lp.renegotiate_days(fc)
+    assert days == -(-fc.shortfall // int(fc.rate_seen)) or days == max(1, -(-fc.shortfall // fc.rate_seen))
+    assert f"{days} more days" in opts["renegotiate_date"].note
+    assert opts["renegotiate_date"].p_after > fc.p_after

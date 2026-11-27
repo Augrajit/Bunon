@@ -101,7 +101,7 @@ def test_every_action_at_extreme_settings(name, over, monkeypatch, tmp_path):
     r.click(key="go_day_replies")
     r.click(key="approve_split")
     r.click(key="go_day_update")
-    r.click(key="rescue_move") or r.click(key="rescue_accept_shortfall") or r.click(key="rescue_escalate_buyer")
+    r.click(key="rescue_move") or r.click(key="rescue_accept_shortfall") or r.click(key="rescue_renegotiate_date")
     r.click(key="approve_rescue")
     r.click(key="send_rescue")
     r.click(key="go_day_qc")

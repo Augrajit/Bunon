@@ -77,7 +77,7 @@ def test_factory_answers_and_updates_in_the_app(monkeypatch, tmp_path):
     assert any("You dispute this" in c.value for c in at.caption), r.problems
     _as(at, "Merchandiser", "Order timeline")
     assert any("The factory disputes this" in s.value for s in at.success), r.problems
-    assert r.click(key="rescue_escalate_buyer") and r.click(key="go_day_qc"), r.problems
+    assert r.click(key="rescue_renegotiate_date") and r.click(key="go_day_qc"), r.problems
     assert not r.problems, "\n".join(r.problems)
     log = next(df.value for df in at.dataframe if "Who (role)" in df.value.columns)
     assert {"Factory owner", "Floor supervisor"} <= set(log["Who (role)"])

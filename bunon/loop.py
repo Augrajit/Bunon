@@ -41,6 +41,7 @@ class Request:
     qty: int
     finish_by: date
     role: str          # "plan" (in the recommended plan) or "standby" (best proven factory outside it)
+    styles: tuple[str, ...] = ()   # whole styles asked of this factory (SPEC.md D30); () for a standby
 
 
 def sourcing_list(b, n_standby: int = 1) -> list[Request]:
@@ -48,7 +49,7 @@ def sourcing_list(b, n_standby: int = 1) -> list[Request]:
     outside the plan (by forecast deliverable pieces) as standbys for their forecast capacity."""
     by_id = {c.factory_id: c for c in b.cands}
     finish = lambda c: C.AS_OF + timedelta(days=ship_by_day(b.order, c) - c.slack_days)  # noqa: E731
-    reqs = [Request(ln.factory_id, ln.qty, finish(by_id[ln.factory_id]), "plan")
+    reqs = [Request(ln.factory_id, ln.qty, finish(by_id[ln.factory_id]), "plan", tuple(s for s, _ in ln.styles))
             for ln in sorted(b.rec.plan.lines, key=lambda ln: (-ln.qty, ln.factory_id))]
     planned = {r.factory_id for r in reqs}
     spare = sorted((c for c in b.cands if c.factory_id not in planned and c.proven),
@@ -57,10 +58,29 @@ def sourcing_list(b, n_standby: int = 1) -> list[Request]:
     return reqs
 
 
+def _styles_text(styles) -> str:
+    styles = list(styles)
+    return styles[0] if len(styles) == 1 else ", ".join(styles[:-1]) + " and " + styles[-1]
+
+
 def draft_request(req: Request, language: str, order) -> str:
-    """Deterministic request text; every number comes from the plan (code)."""
+    """Deterministic request text; every number comes from the plan (code). Whole styles: the request names
+    the styles (each goes whole to this factory)."""
     qty, when = f"{req.qty:,}", f"{req.finish_by:%d %b %Y}"
     fabric = f"{order.gsm} GSM " if order.gsm else ""
+    if req.styles:
+        sty = _styles_text(req.styles)
+        word = "style" if len(req.styles) == 1 else "styles"
+        if language == "Banglish":
+            return (f"Assalamu alaikum bhai. Amader kids T-shirt programme theke {word} {sty} apnake dite chai, "
+                    f"mot {qty} pcs (style bhag hobe na), fabric amra dibo. Production shesh {when} er moddhe. "
+                    "Parben kina, ar rate koto, janaben.")
+        if language == "Bangla":
+            return (f"আসসালামু আলাইকুম। আমাদের কিডস টি-শার্ট প্রোগ্রামের {sty} স্টাইল আপনাকে দিতে চাই, মোট {qty} পিস "
+                    f"(স্টাইল ভাগ হবে না), কাপড় আমরা দেব, উৎপাদন শেষ {when} এর মধ্যে। নিতে পারবেন কি না এবং রেট কত, জানাবেন।")
+        return (f"Dear Sir, we would like to place a subcontract order from our kids' T-shirt programme: {word} {sty}, "
+                f"{qty} pcs in all (each style whole), fabric supplied by us, production complete by {when}. Please "
+                "confirm whether you can take them and your rate per piece.")
     if language == "Banglish":
         return (f"Assalamu alaikum bhai. Amader ekta order ache: basic crew-neck T-shirt, {fabric}fabric amra dibo. "
                 f"{qty} pcs, production shesh {when} er moddhe. Parben kina, ar rate koto, janaben.")
@@ -72,8 +92,15 @@ def draft_request(req: Request, language: str, order) -> str:
             "per piece.")
 
 
-def draft_rescue_request(factory_id: str, extra: int, order, language: str = "English") -> str:
+def draft_rescue_request(factory_id: str, extra: int, order, language: str = "English", styles=()) -> str:
     when = f"{order.deadline:%d %b %Y}"
+    if styles:
+        sty, word = _styles_text(styles), ("style" if len(styles) == 1 else "styles")
+        if language == "Banglish":
+            return (f"Bhai, ekta urgent request: amader {word} {sty} ({extra:,} pcs, puro style) nite parben? Buyer "
+                    f"deadline {when}, fabric amra dibo. Janaben please.")
+        return (f"Dear Sir, an urgent request: could you take {word} {sty} from our kids' T-shirt programme, "
+                f"{extra:,} pcs (the whole style)? The buyer's deadline is {when}; fabric supplied by us. Please confirm.")
     if language == "Banglish":
         return (f"Bhai, ekta urgent request: aro {extra:,} pcs basic T-shirt nite parben? Buyer deadline {when}, "
                 "fabric amra dibo. Janaben please.")
@@ -116,7 +143,9 @@ def split_from_offers(world: op.World, b, offers: list[OfferTerms]) -> tuple[Pla
         if o.decision not in ("accept", "counter") or o.factory_id not in by_id:
             continue
         c = by_id[o.factory_id]
-        offered = (o.qty if o.qty is not None else o.requested) // lot * lot
+        offered = o.qty if o.qty is not None else o.requested
+        if not b.params.styles:  # the piece split works in lots; whole styles keep their exact pieces
+            offered = offered // lot * lot
         cap = min(offered, c.window_capacity_risk_adj)
         if cap < lot:
             continue
@@ -131,6 +160,11 @@ def split_from_offers(world: op.World, b, offers: list[OfferTerms]) -> tuple[Pla
         cands.append(c.model_copy(update=upd))
     declined = [o.factory_id for o in offers if o.decision == "reject"]
     p = b.params.model_copy(update={"excluded_ids": sorted(set(b.params.excluded_ids) | set(declined))})
+    if b.params.styles:  # whole styles: a factory that accepted keeps exactly the styles it was asked for
+        asked = {r.factory_id: r.styles for r in sourcing_list(b)}
+        took = {o.factory_id for o in offers if o.decision == "accept" and (o.qty is None or o.qty >= o.requested)}
+        p = p.model_copy(update={"locked_styles": {s: f for f in sorted(took) if f in {c.factory_id for c in cands}
+                                                   for s in asked.get(f, ())}})
     res = op.search_buffer(world, b.order, p, b.settings.target, shocks=b.settings.shocks,
                            partial_lots=b.settings.partial, cands=cands)
     return res, cands
@@ -240,13 +274,19 @@ def forecast_after_update(world: op.World, b, point: BufferPoint, cands: list[Ca
                                  start_day)[0]
 
 
-def _risk_with(world: op.World, b, point: BufferPoint, cands: list[Candidate], qtys: dict[str, int]):
+def _risk_with(world: op.World, b, point: BufferPoint, cands: list[Candidate], qtys: dict[str, int],
+               extra_days: int = 0):
     """Re-simulate the order with the given factories making exactly their `qtys` (taken as certain), the rest
-    as forecast."""
-    lines = [ln.model_copy(update={"qty": qtys[ln.factory_id]}) if ln.factory_id in qtys else ln
-             for ln in point.plan.lines]
-    plan: AllocationPlan = point.plan.model_copy(update={"lines": [ln for ln in lines if ln.qty > 0]})
-    slack = {x.factory_id: x.slack_days for x in cands}
+    as forecast. `extra_days`: a later deadline (renegotiated) gives every other factory that much more slack."""
+    return _risk_plan(world, b, point.plan, cands, qtys, extra_days)
+
+
+def _risk_plan(world: op.World, b, plan: AllocationPlan, cands: list[Candidate], qtys: dict[str, int],
+               extra_days: int = 0):
+    lines = [ln.model_copy(update={"qty": min(ln.qty, qtys[ln.factory_id])}) if ln.factory_id in qtys else ln
+             for ln in plan.lines]
+    plan = plan.model_copy(update={"lines": [ln for ln in lines if ln.qty > 0]})
+    slack = {x.factory_id: x.slack_days + extra_days for x in cands}
     slack.update({f: 10_000 for f in qtys})
     dist = {x.factory_id: x.district for x in cands}
     win = {x.factory_id: x.window_days for x in cands} if b.settings.partial else None
@@ -300,7 +340,7 @@ def warning_level(fc: Forecast, target: float, prev_p: float | None = None) -> s
 
 @dataclass(frozen=True)
 class RescueOption:
-    kind: str                 # move / surge / accept_shortfall / escalate_buyer
+    kind: str                 # move / surge / accept_shortfall / renegotiate_date / split_running
     title: str
     p_after: float | None
     cost_delta_bdt: float | None
@@ -349,12 +389,151 @@ def rescue_move(world: op.World, b, point: BufferPoint, split_cands: list[Candid
                         old=point, new=new, diff=diff)
 
 
+def styles_at(point: BufferPoint, factory_id: str) -> list[tuple[str, int]]:
+    return next((list(ln.styles) for ln in point.plan.lines if ln.factory_id == factory_id), [])
+
+
+def unstarted_styles(point: BufferPoint, factory_id: str, pieces_done: int) -> list[tuple[str, int]]:
+    """A factory makes its styles in sequence: a style is unstarted if the pieces done have not reached it yet."""
+    out, cum = [], 0
+    for s, q in styles_at(point, factory_id):
+        if cum >= pieces_done:
+            out.append((s, q))
+        cum += q
+    return out
+
+
+def projected_by_style(point: BufferPoint, projections: dict[str, int]) -> list[tuple[str, str, int, int]]:
+    """(factory, style, projected pieces, pieces needed) for every style at an updated factory: the projection
+    fills its styles in sequence."""
+    need = point.plan.style_min_good
+    out = []
+    for f, proj in sorted(projections.items()):
+        left = proj
+        for s, q in styles_at(point, f):
+            got = max(0, min(q, left))
+            left -= q
+            out.append((f, s, got, need.get(s, 0)))
+    return out
+
+
+def rescue_move_style(world: op.World, b, point: BufferPoint, split_cands: list[Candidate], fc: Forecast,
+                      excluded: list[str], day: int) -> ReplanResult | None:
+    """Whole styles (SPEC.md D30): move the late factory's UNSTARTED styles to another factory. Every style that
+    is running or at another factory stays where it is; the late factory keeps capacity for what it can make
+    (its projection) and the styles it has started; factories outside the round can join but start on `day`.
+    Scored on the same footing as the forecast: every updated factory taken as certain at its projection."""
+    movable = {s for s, _ in unstarted_styles(point, fc.factory_id, fc.pieces_done)}
+    if not movable:
+        return None
+    proj = fc.projections
+    by_id = {c.factory_id: c for c in split_cands}
+    old_q = {ln.factory_id: ln.qty for ln in point.plan.lines}
+    locked = {s: ln.factory_id for ln in point.plan.lines for s, _ in ln.styles if s not in movable}
+    cands = []
+    for f in old_q:
+        c = by_id[f]
+        if f == fc.factory_id:
+            started = sum(q for s, q in styles_at(point, f) if s not in movable)
+            cap = max(proj[f], started)
+            c = c.model_copy(update={"window_capacity_risk_adj": cap, "window_capacity_declared": cap,
+                                     "min_batch": min(c.min_batch, cap), "slack_days": 10_000,
+                                     "q_effective": world.forecasts[f].good_share})
+        cands.append(c)
+    excl = sorted(set(b.params.excluded_ids) | set(excluded))
+    later = op.build_candidates(world, b.order, b.params.model_copy(update={"excluded_ids": excl}),
+                                as_of=C.AS_OF + timedelta(days=day))
+    cands += [c for c in later if c.factory_id not in old_q]
+    p = b.params.model_copy(update={"buffer_pct": point.buffer_pct, "locked_styles": locked, "excluded_ids": excl,
+                                    "locked_min_qty": {}})
+    plan = op.solve_mip(cands, b.order.subcontract_qty, p)
+    if plan.status != "optimal":
+        return None
+    risk = _risk_plan(world, b, plan, cands, proj)
+    new = BufferPoint(buffer_pct=point.buffer_pct, plan=plan, risk=risk)
+    new_q = {ln.factory_id: ln.qty for ln in plan.lines}
+    old_s = {ln.factory_id: {s for s, _ in ln.styles} for ln in point.plan.lines}
+    new_s = {ln.factory_id: {s for s, _ in ln.styles} for ln in plan.lines}
+    diff = [{"factory_id": i, "old_qty": old_q.get(i, 0), "new_qty": new_q.get(i, 0),
+             "styles_in": sorted(new_s.get(i, set()) - old_s.get(i, set())),
+             "styles_out": sorted(old_s.get(i, set()) - new_s.get(i, set()))}
+            for i in sorted(set(old_q) | set(new_q), key=lambda i: (-max(old_q.get(i, 0), new_q.get(i, 0)), i))]
+    moved = [f"{s} to {d['factory_id']}" for d in diff for s in d["styles_in"]]
+    return ReplanResult(excluded_id=fc.factory_id,
+                        reason=f"can make about {fc.projected:,} pieces (update on day {day}); "
+                               + ("moves " + ", ".join(moved) if moved else "no style needs to move"),
+                        old=point, new=new, diff=diff)
+
+
+def renegotiate_days(fc: Forecast) -> int | None:
+    """Extra days the late factory needs at the rate seen to finish its planned pieces (None: no rate seen)."""
+    if fc.rate_seen <= 0:
+        return None
+    return max(1, math.ceil(fc.shortfall / fc.rate_seen))
+
+
+def _style_rescue_options(world: op.World, b, point: BufferPoint, split_cands: list[Candidate], fc: Forecast,
+                          excluded: list[str], day: int) -> list[RescueOption]:
+    """Whole styles (SPEC.md D30): (1) move an unstarted style; (2) overtime at the late factory; (3) accept the
+    shortfall, only if every style is still within its tolerance; (4) renegotiate the date with the buyer;
+    (5) moving part of a running style is listed but disabled until the interviewee confirms it happens."""
+    out: list[RescueOption] = []
+    movable = unstarted_styles(point, fc.factory_id, fc.pieces_done)
+    rp = rescue_move_style(world, b, point, split_cands, fc, excluded, day) if movable else None
+    title = "Move an unstarted style to another factory"
+    if rp is not None and any(d["styles_in"] for d in rp.diff):
+        moved = [d for d in rp.diff if d["styles_in"]]
+        out.append(RescueOption("move", title, rp.new.risk.p_meet_qty, rp.new.plan.cost_total - point.plan.cost_total,
+                                rp, True, "; ".join(f"{', '.join(d['styles_in'])} to {d['factory_id']} "
+                                                    f"(+{d['new_qty'] - d['old_qty']:,} pcs)" for d in moved)))
+    else:
+        why = ("every style at " + fc.factory_id + " is already in production" if not movable
+               else "no style needs to move" if rp is not None
+               else "no factory can take a whole unstarted style under the current limits")
+        out.append(RescueOption("move", title, None, None, None, False, why))
+    extra = surge_pieces(fc)
+    if extra > 0:
+        price = next(ln.unit_price_bdt for ln in point.plan.lines if ln.factory_id == fc.factory_id)
+        risk = _risk_with(world, b, point, split_cands, {**fc.projections, fc.factory_id: fc.projected + extra})
+        out.append(RescueOption("surge", "Overtime at the same factory", risk.p_meet_qty,
+                                extra * price * (C.SURGE_PRICE_FACTOR - 1), None, True,
+                                f"{fc.factory_id} +{extra:,} with overtime ({extra:,} of {fc.shortfall:,} short)"))
+    else:
+        out.append(RescueOption("surge", "Overtime at the same factory", None, None, None, False,
+                                "no production days left for overtime"))
+    rows = projected_by_style(point, fc.projections)
+    short = [(f, s, got, need) for f, s, got, need in rows if got < need]
+    ok = not short
+    out.append(RescueOption(
+        "accept_shortfall", "Accept the shortfall (within tolerance)", fc.p_after, 0.0, None, ok,
+        "every style is still within its tolerance" if ok else
+        "; ".join(f"{s} at {f}: {got:,} projected, {need:,} needed" for f, s, got, need in short)))
+    days = renegotiate_days(fc)
+    if days is not None:
+        later = min(fc.planned, fc.projected + int(fc.rate_seen * days))
+        risk = _risk_with(world, b, point, split_cands, {**fc.projections, fc.factory_id: later}, extra_days=days)
+        new_date = b.order.deadline + timedelta(days=days)
+        out.append(RescueOption("renegotiate_date", "Renegotiate the date with the buyer", risk.p_meet_qty, None,
+                                None, True, f"ask for {days} more days (to {new_date:%d %b %Y}); the chance holds "
+                                "only if the buyer agrees"))
+    else:
+        out.append(RescueOption("renegotiate_date", "Renegotiate the date with the buyer", None, None, None, True,
+                                "no production rate seen yet; the date is the buyer's to change"))
+    if not C.RESCUE_SPLIT_RUNNING_STYLE:
+        out.append(RescueOption("split_running", "Move part of a running style", None, None, None, False,
+                                "not offered: waiting for the interviewee to confirm this ever happens"))
+    return out
+
+
 def rescue_options(world: op.World, b, point: BufferPoint, split_cands: list[Candidate], fc: Forecast,
                    excluded: list[str], day: int) -> list[RescueOption]:
     """(1) move the shortfall (`rescue_move`); (1b) overtime at the late factory (`surge_pieces`, placeholder
     model); (2) accept the shortfall, only if the expected good pieces still
     meet the tolerance; (3) tell the buyer early. All chances on the same footing: the late factory's projection
-    taken as certain, everyone else as forecast. Numbers from the optimiser and simulation only."""
+    taken as certain, everyone else as forecast. Numbers from the optimiser and simulation only.
+    Whole styles (the plan has styles): `_style_rescue_options`."""
+    if point.plan.style_min_good:
+        return _style_rescue_options(world, b, point, split_cands, fc, excluded, day)
     out: list[RescueOption] = []
     rp = rescue_move(world, b, point, split_cands, fc, excluded, day)
     if rp is not None:
@@ -380,6 +559,6 @@ def rescue_options(world: op.World, b, point: BufferPoint, split_cands: list[Can
     out.append(RescueOption("accept_shortfall", "Accept the shortfall", fc.p_after, 0.0, None, ok,
                             "expected good pieces still meet the tolerance" if ok
                             else "expected good pieces fall below the tolerance"))
-    out.append(RescueOption("escalate_buyer", "Tell the buyer now", None, None, None, True,
+    out.append(RescueOption("renegotiate_date", "Renegotiate the date with the buyer", None, None, None, True,
                             "always possible; the deadline and quantity are the buyer's to change"))
     return out

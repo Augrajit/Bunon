@@ -276,6 +276,9 @@ def _solve_styles(cands: list[Candidate], Q: int, params: OptimizerParams, time_
         i = c.factory_id
         prob += x[i] <= c.window_capacity_risk_adj * y[i], f"cap_{i}"
         prob += x[i] >= c.min_batch * y[i], f"minbatch_{i}"
+    for f, q in params.locked_min_qty.items():  # a confirmed factory keeps at least its pieces
+        if f in x:
+            prob += x[f] >= q, f"lockqty_{f}"
     prob += pulp.lpSum(y.values()) <= params.max_factories, "max_factories"
     prob += pulp.lpSum(y.values()) >= params.min_factories, "min_factories"
     unproven = [c.factory_id for c in use if not c.proven]
@@ -456,7 +459,10 @@ def replan_locked(world: World, order: OrderConstraints, params: OptimizerParams
     if excluded_id not in old_q:
         raise ValueError(f"{excluded_id} is not in the plan")
     locked = {f: q for f, q in old_q.items() if f != excluded_id}
-    p2 = params.model_copy(update={"excluded_ids": [*params.excluded_ids, excluded_id], "locked_min_qty": locked})
+    # Whole styles: a confirmed factory keeps exactly its styles; the decliner's styles are placed again.
+    styles = {s: ln.factory_id for ln in old.plan.lines if ln.factory_id != excluded_id for s, _ in ln.styles}
+    p2 = params.model_copy(update={"excluded_ids": [*params.excluded_ids, excluded_id], "locked_min_qty": locked,
+                                   "locked_styles": {**params.locked_styles, **styles}})
     original = {c.factory_id: c for c in build_candidates(world, order, p2, as_of=as_of)}
     later = {c.factory_id: c for c in build_candidates(world, order, p2, as_of=as_of + timedelta(days=days_elapsed))}
     cands = [original[f] for f in locked if f in original] + [c for f, c in later.items() if f not in locked]

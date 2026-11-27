@@ -126,7 +126,7 @@ def test_accept_shortfall_only_within_tolerance(world, bundle):
         fc = lp.forecast_after_update(world, bundle, pt, cands, fid, done, 2, 12)
         opts = {o.kind: o for o in lp.rescue_options(world, bundle, pt, cands, fc, ["F0824"], 12)}
         assert opts["accept_shortfall"].allowed == (fc.expected_good_after >= fc.min_good)
-        assert opts["escalate_buyer"].allowed
+        assert opts["renegotiate_date"].allowed
         if opts["move"].allowed:
             assert opts["move"].p_after is not None and opts["move"].replan.new.risk is not None
 

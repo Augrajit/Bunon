@@ -1,7 +1,7 @@
 """Click-through sweep of the Streamlit app (app.py) at extreme sidebar settings.
 
 Every sidebar control is set to its ends, plus tight and loose combinations and each toggle off;
-at each setting every action is clicked: plan, approve, scripted decline, the 4 demo factory replies,
+at each setting every action is clicked: plan, approve, scripted decline,
 the 3 demo news items, the what-if examples and steering. Runs offline (cached LLM answers only, no
 network) and writes the decision log to a temporary file.
 
@@ -147,11 +147,6 @@ def test_every_action_at_extreme_settings(name, over, monkeypatch, tmp_path):
     r.click("Interpret")
     r.click(prefix="Simulate:")
     r.click(key="approve_replan")
-    for i in range(4):
-        if r.click(key=f"reply_ex_{i}"):
-            r.click("Read the reply")
-            r.click("Re-plan with this reply")
-            r.click(key="approve_reply_replan")
     for i in range(3):
         if r.click(key=f"news_ex_{i}"):
             r.click("Read the news")

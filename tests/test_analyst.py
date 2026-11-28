@@ -170,3 +170,10 @@ def test_an_answer_in_another_script_without_facts_is_retried_then_template(ctx,
 def test_junk_before_a_good_answer_is_still_rejected():
     assert not an._is_answer("သမft\nWe checked {{c1.p_meet}} for the plan and a human decides.")
     assert an._is_answer("We checked {{c1.p_meet}} for the plan and a human decides.")
+
+
+def test_bangla_answers_pass_the_junk_filter():
+    """D33: the filter keeps Bangla (and Bangla mixed with English), and still rejects other scripts."""
+    assert an._is_answer("পরিকল্পনার সম্ভাবনা {{c1.p_meet}}, একজন মানুষ সিদ্ধান্ত নেবেন।")
+    assert an._is_answer("We checked {{c1.p_meet}}: সম্ভাবনা কমেছে, a human decides.")
+    assert not an._is_answer("သမ We checked {{c1.p_meet}} and a human decides.")

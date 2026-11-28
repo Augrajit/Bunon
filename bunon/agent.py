@@ -290,13 +290,55 @@ def factsheet_for_plan(order: OrderConstraints, comparison: dict, match, cands, 
                                             f"{fid}: share of failed simulations in which it was short, late or had its lot rejected at QC")
     for d, s in district_shares(rec.plan, cands).items():
         fs[f"district.{d}.share"] = Fact(s, "pct", f"share of pieces in district {d}")
+    if order.styles:
+        _style_facts(fs, order, rec, bl)
     return fs
+
+
+SHIPS = "probability that the programme ships by the buyer's date (every factory on time; lateness cancels it)"
+
+
+def _style_facts(fs: FactSheet, order: OrderConstraints, rec, bl) -> None:
+    """D33, whole styles (D30/D31): which styles each factory makes, the success rule, and the expected cost of
+    short pieces and rejects. Tolerance is not a gate, so its facts are dropped."""
+    from bunon import optimizer as op
+    params = op.default_params(order)
+    for k in ("plan.tolerance", "plan.min_good"):
+        fs.pop(k, None)
+    fs["plan.p_meet"] = Fact(rec.risk.p_meet_qty, "prob", "recommended plan: " + SHIPS)
+    fs["base.p_meet"] = Fact(fs["base.p_meet"].value, "prob", "naive plan: " + SHIPS)
+    fs["basebuf.p_meet"] = Fact(fs["basebuf.p_meet"].value, "prob", "naive plan with the same over-cut: " + SHIPS)
+    fs["plan.target_p"] = Fact(fs["plan.target_p"].value, "prob", "target probability that the programme ships on time")
+    fs["plan.buffer_pct"] = Fact(rec.buffer_pct, "pct", "recommended plan: extra pieces cut within each style (over-cut)")
+    fs["plan.n_styles"] = Fact(len(order.styles), "int", "styles in the programme; each goes whole to one factory")
+    fs["plan.short_pcs"] = Fact(round(rec.risk.expected_short_pcs), "qty",
+                                "recommended plan: good pieces expected short of the styles' quantities if it ships")
+    fs["plan.short_cost"] = Fact(op.quality_cost_bdt(rec.risk, params), "bdt",
+                                 "recommended plan: expected cost of short pieces and QC rejects (lost FOB less salvage)")
+    fs["plan.short_piece_value"] = Fact(params.short_piece_value_bdt, "bdt", "revenue lost per good piece short")
+    if bl.risk:
+        fs["base.short_cost"] = Fact(op.quality_cost_bdt(bl.risk, params), "bdt",
+                                     "naive plan: expected cost of short pieces and QC rejects")
+    for ln in rec.plan.lines:
+        fid = ln.factory_id
+        names = [s for s, _ in ln.styles]
+        fs[f"line.{fid}.styles"] = Fact(", ".join(names), "text", f"{fid}: the styles it makes, in order")
+        fs[f"line.{fid}.n_styles"] = Fact(len(names), "int", f"{fid}: number of styles it makes")
+        fs[f"line.{fid}.fail_share"] = Fact(rec.risk.fail_contribution.get(fid, 0.0), "pct",
+                                            f"{fid}: share of failed simulations in which it was late or failed")
 
 
 def factsheet_for_replan(base: FactSheet, rp) -> FactSheet:
     """Facts for the re-plan memo: the original plan's headline plus the new plan and its diff."""
     old, new = rp.old, rp.new
-    fs: FactSheet = {k: v for k, v in base.items() if k.startswith(("order.", "plan.target_p", "plan.slack_days"))}
+    fs: FactSheet = {k: v for k, v in base.items() if k.startswith(("order.", "plan.target_p", "plan.slack_days",
+                                                                       "plan.n_styles"))}
+    if "plan.short_piece_value" in base and rp.new.risk is not None:  # D33: whole styles
+        from bunon import config as C
+        v = base["plan.short_piece_value"].value
+        fs["new.short_cost"] = Fact(rp.new.risk.expected_short_pcs * v
+                                    - rp.new.risk.expected_reject_pcs * C.REJECT_SALVAGE_BDT_PER_PIECE, "bdt",
+                                    "new plan: expected cost of short pieces and QC rejects")
     fs.update({
         "replan.reason": Fact(rp.reason, "text", "what happened to the declining factory, a complete phrase: write \"{{fac:ID}} {{replan.reason}}\""),
         "old.p_meet": Fact(old.risk.p_meet_qty, "prob", "original plan: probability that the subcontracted quantity arrives on time as good pieces, within the delivery tolerance"),
@@ -425,7 +467,18 @@ def validate_memo(memo: MemoLLM, fs: FactSheet) -> list[str]:
         errors += check_text(where, t, fs)
     if not memo.summary.strip() or not memo.recommendation.strip():
         errors.append("summary and recommendation must not be empty")
+    used = {k.strip() for _, t in texts for k in _PH.findall(t)}
+    for k in memo_required(fs):
+        if k not in used:
+            errors.append(f"missing required placeholder {{{{{k}}}}}")
+    if "plan.n_styles" in fs and not any(k.startswith("line.") and k.endswith(".styles") for k in used):
+        errors.append("name the styles each factory makes, as {{line.F0123.styles}}")
     return errors
+
+
+def memo_required(fs: FactSheet) -> list[str]:
+    """D33: a whole-style programme's memo must say how many styles there are and what short pieces cost."""
+    return [k for k in ("plan.n_styles", "plan.short_cost", "new.short_cost") if k in fs]
 
 
 def render_text(t: str, fs: FactSheet) -> str:
@@ -478,7 +531,9 @@ def template_memo(kind: Literal["initial", "replan"], fs: FactSheet) -> MemoLLM:
         )
     lines = sorted((k.split(".")[1] for k in fs if k.startswith("line.") and k.endswith(".qty")),
                    key=lambda f: -fs[f"line.{f}.qty"].value)
-    alloc = "; ".join(f"{{{{fac:{f}}}}} {{{{line.{f}.qty}}}} pieces" for f in lines)
+    styled = "plan.n_styles" in fs
+    alloc = "; ".join(f"{{{{fac:{f}}}}} {{{{line.{f}.qty}}}} pieces" + (f" (styles {{{{line.{f}.styles}}}})" if styled
+                                                                       else "") for f in lines)
     rejected = [
         "Naive plan (declared capacity, lowest price): {{base.p_meet}} probability at {{base.cost_total}}.",
         "Naive plan with the same buffer: {{basebuf.p_meet}} at {{basebuf.cost_total}}.",
@@ -491,6 +546,21 @@ def template_memo(kind: Literal["initial", "replan"], fs: FactSheet) -> MemoLLM:
     if top:
         risks.insert(0, "{{fac:" + top + "}} is short or late in {{line." + top + ".fail_share}} of the "
                      "simulated failures: watch it closely.")
+    if styled:
+        if "base.short_cost" in fs:
+            rejected[0] = ("Naive plan (declared capacity, lowest price): {{base.p_meet}} probability at "
+                           "{{base.cost_total}}, with {{base.short_cost}} expected for short pieces and rejects.")
+        risks.insert(0, "Short pieces and rejects are a cost, not a failure: about {{plan.short_pcs}} pieces short "
+                        "expected, {{plan.short_cost}}.")
+        return MemoLLM(
+            summary=("Give the {{plan.n_styles}} styles, each whole, to {{plan.n_factories}} factories "
+                     "({{plan.pieces}} pieces, {{plan.buffer_pct}} over-cut). Probability that the programme ships "
+                     "by the buyer's date: {{plan.p_meet}} against a target of {{plan.target_p}}; total cost "
+                     "{{plan.cost_total}}, plus {{plan.short_cost}} expected for short pieces and rejects."),
+            recommendation="Approve this allocation: " + alloc + ".",
+            rejected_alternatives=rejected, risks=risks,
+            human_actions=["Confirm capacity, styles and dates with each factory before issuing purchase orders.",
+                           "Nothing has been sent. A person must approve and send every purchase order."])
     return MemoLLM(
         summary=("Allocate {{plan.pieces}} pieces ({{plan.buffer_pct}} buffer) across {{plan.n_factories}} "
                  "factories. Probability of on-time delivery within tolerance: {{plan.p_meet}} against a target of "
@@ -503,9 +573,21 @@ def template_memo(kind: Literal["initial", "replan"], fs: FactSheet) -> MemoLLM:
     )
 
 
+def _memo_extra(fs: FactSheet) -> str:
+    """D33: extra rules for a whole-style programme (the piece-split prompt is unchanged, so its cache holds)."""
+    if "plan.n_styles" not in fs:
+        return ""
+    req = ", ".join("{{" + k + "}}" for k in memo_required(fs))
+    return ("7. This order is a programme of whole styles: each style goes whole to one factory. Success means the "
+            "programme ships by the buyer's date; short pieces and QC rejects are a cost, not a failure. Say which "
+            "styles each factory makes (cite {{line.F0123.styles}}) and what short pieces are expected to cost. "
+            f"You must use these placeholders: {req}.\n")
+
+
 def write_memo(fs: FactSheet, kind: Literal["initial", "replan"], client: LLMClient | None = None) -> DecisionMemo:
     client = client or LLMClient()
-    base_prompt = MEMO_PROMPT.format(extra="", context=_CONTEXT[kind], facts=_facts_block(fs), retry="")
+    extra = _memo_extra(fs)
+    base_prompt = MEMO_PROMPT.format(extra=extra, context=_CONTEXT[kind], facts=_facts_block(fs), retry="")
     assert_pseudonymous(base_prompt)
     errors: list[str] = []
     meta = None
@@ -521,7 +603,7 @@ def write_memo(fs: FactSheet, kind: Literal["initial", "replan"], client: LLMCli
             return DecisionMemo(kind, memo, _render_md(memo, fs), meta.source, meta, attempt, errors)
         errors += [f"attempt {attempt}: {e}" for e in errs]
         prompt = MEMO_PROMPT.format(
-            extra="", context=_CONTEXT[kind], facts=_facts_block(fs),
+            extra=extra, context=_CONTEXT[kind], facts=_facts_block(fs),
             retry="\nYOUR PREVIOUS ANSWER WAS REJECTED FOR THESE REASONS; FIX THEM:\n- " + "\n- ".join(errs))
     memo = template_memo(kind, fs)
     assert not validate_memo(memo, fs), validate_memo(memo, fs)
@@ -713,7 +795,8 @@ FACTS (key = value: meaning):
 
 
 def warning_facts(fc, delay: int | None, target: float, last_day: int | None, last_date: date | None,
-                  last_by: str | None, level: str, prev_p: float | None = None) -> FactSheet:
+                  last_by: str | None, level: str, prev_p: float | None = None, short_styles: str | None = None,
+                  short_cost: float | None = None) -> FactSheet:
     """Facts for the warning text, all from loop.forecast_from_updates and loop.last_rescue_day (code). With
     several updated factories, `fc` is the one furthest behind and the order-wide shortfall is added; with a
     previous forecast from updates (`prev_p`), the chance then is added. Both are left out when absent, so the
@@ -742,6 +825,10 @@ def warning_facts(fc, delay: int | None, target: float, last_day: int | None, la
         if fc.workers_present is not None and fc.workers_planned:
             fs["warn.workers_present"] = Fact(fc.workers_present, "qty", "workers who came to work")
             fs["warn.workers_planned"] = Fact(fc.workers_planned, "qty", "workers planned")
+    if short_styles:  # D33: which styles would ship short, and what shipping short costs
+        fs["warn.short_styles"] = Fact(short_styles, "text", "styles projected short, with projected and ordered pieces")
+    if short_cost is not None:
+        fs["warn.short_cost"] = Fact(short_cost, "bdt", "expected cost of short pieces and rejects if it ships short")
     if getattr(fc, "others", ()):
         fs["warn.others"] = Fact(len(fc.others), "qty", "other factories that also sent an update")
         fs["warn.order_shortfall"] = Fact(fc.order_shortfall, "qty",
@@ -766,6 +853,10 @@ def template_warning(fs: FactSheet) -> WarningLLM:
                "The chance the order succeeds moves from {{warn.p_prev}} at the previous update to {{warn.p_after}}. "))
     if "warn.order_shortfall" in fs:
         expl += "With the other updates, the order is {{warn.order_shortfall}} pieces short in all. "
+    if "warn.short_styles" in fs:
+        expl += "Projected short: {{warn.short_styles}}. "
+    if "warn.short_cost" in fs:
+        expl += "Shipping short on the date would cost about {{warn.short_cost}} in short pieces and rejects. "
     expl += ("A rescue is still possible until {{warn.last_date}}." if "warn.last_date" in fs
              else "No factory outside the plan can still make the shortfall in time.")
     return WarningLLM(headline=f + " is behind.", explanation=expl)
@@ -776,7 +867,8 @@ _VAGUE = re.compile(r"\b(a few|few|several|some|many|a lot of|lots of|a number o
 
 def warning_required(fs: FactSheet) -> list[str]:
     return [k for k in ("warn.pieces_done", "warn.delay", "warn.projected", "warn.shortfall", "warn.p_after",
-                        "warn.last_date", "warn.order_shortfall", "warn.p_prev") if k in fs]
+                        "warn.last_date", "warn.order_shortfall", "warn.p_prev", "warn.short_styles",
+                        "warn.short_cost") if k in fs]
 
 
 def validate_warning(w: WarningLLM, fs: FactSheet) -> list[str]:

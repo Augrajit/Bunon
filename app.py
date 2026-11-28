@@ -893,7 +893,6 @@ def view_maths() -> None:
 # =============================================================================
 
 DAYS = sv.DECLINE_DAY
-REPLIES = json.loads((C.ROOT / "data" / "demo" / "factory_replies.json").read_text(encoding="utf-8"))
 NEWS = json.loads((C.ROOT / "data" / "demo" / "news.json").read_text(encoding="utf-8"))
 WHATIF_EXAMPLES = (
     "If the Ashulia stoppage turns severe, what happens to our plan, and what should we do?",
@@ -1055,14 +1054,10 @@ def section_followup(args) -> None:
         st.caption("Paste what a factory wrote back. The LLM classifies it as accept / reject / counter and pulls "
                    "out quantity, delay and conditions, each with a word-for-word quote that the code checks. The "
                    "code, not the LLM, settles the final category, and a counter-offer is locked into the re-plan.")
+        # D33: the scripted example replies were for the pre-programme factories and are gone; the order's own
+        # replies are in the order timeline. Paste any reply here to see how it is read.
         plan_ids = [ln.factory_id for ln in rec.plan.lines]
         planned = {ln.factory_id: ln.qty for ln in rec.plan.lines}
-        ex = st.columns(len(REPLIES))
-        for i, r in enumerate(REPLIES):
-            if ex[i].button(f"{r['factory_id']} · {r['language']}", key=f"reply_ex_{i}",
-                            disabled=r["factory_id"] not in planned):
-                st.session_state["reply_text"] = r["text"]
-                st.session_state["reply_factory"] = r["factory_id"]
         if st.session_state.get("reply_factory") not in plan_ids:
             st.session_state["reply_factory"] = plan_ids[0]
         fid = st.selectbox("Reply from", plan_ids, key="reply_factory",
@@ -1275,7 +1270,8 @@ def _role_or_none() -> str | None:
 
 
 def _simulated_tag(msg: dict) -> str:
-    return "simulated · placeholder text" if msg.get("draft_of") == "placeholder" else "simulated"
+    # D33: the developer's stand-in persona text is shown as such (the team chose not to replace it)
+    return "simulated · written by the developer" if msg.get("draft_of") == "placeholder" else "simulated"
 
 
 def section_sourcing(args, oid: str) -> bool:
@@ -1594,12 +1590,18 @@ def _show_update(oid: str, m: dict, qty: dict) -> None:
 
 
 def _warning_text(args: tuple, offers: tuple, ups: tuple, prev):
-    fcs, (last, last_by), _ = _forecast(args, offers, ups)
+    fcs, (last, last_by), opts = _forecast(args, offers, ups)
     fc = fcs[0]
     delay = next(u.delay_days for u in ups if u.factory_id == fc.factory_id)
     target = run_plans(*args).settings.target
+    short_styles, short_cost = None, None
+    if fc.whole_styles:  # D33: name the styles that would ship short, and what shipping short costs
+        pt = _split(args, offers)[0].recommended
+        rows = [(f, s, got, pt.plan.style_qty.get(s, 0)) for f, s, got, _ in lp.projected_by_style(pt, fc.projections)]
+        short_styles = "; ".join(f"{s} at {f} ({got:,} of {q:,})" for f, s, got, q in rows if got < q) or None
+        short_cost = next((o.quality_cost_bdt for o in opts if o.kind == "accept_shortfall"), None)
     fs = ag.warning_facts(fc, delay, target, last, book().date_of(last) if last is not None else None, last_by,
-                          lp.warning_level(fc, target, prev), prev)
+                          lp.warning_level(fc, target, prev), prev, short_styles, short_cost)
     return ag.write_warning(fs, LLMClient())
 
 
@@ -1686,8 +1688,10 @@ def section_rescue(args, oid: str, fc, opts) -> bool:
     st.dataframe(pd.DataFrame([{"Option": o.title, "Chance of success": "" if o.p_after is None else f"{o.p_after:.1%}",
                                 "Extra cost": "" if o.cost_delta_bdt is None else bdt(o.cost_delta_bdt),
                                 **({"Expected cost of short pieces": "" if o.quality_cost_bdt is None
-                                    else bdt(o.quality_cost_bdt)} if any(x.quality_cost_bdt is not None
-                                                                          for x in opts) else {}),
+                                    else bdt(o.quality_cost_bdt),
+                                    "Expected total cost": "" if o.quality_cost_bdt is None
+                                    else bdt((o.cost_delta_bdt or 0.0) + o.quality_cost_bdt)}
+                                   if any(x.quality_cost_bdt is not None for x in opts) else {}),
                                 "Details": o.note, "Possible": "yes" if o.allowed else "no"} for o in opts]),
                  hide_index=True, width="stretch")
     chosen = book().chosen_rescue(oid)

@@ -80,7 +80,7 @@ python -m bunon.data_gen
 | Whole-style engine (D30): a binary style-to-factory MIP, over-cut per style, per-style success in the simulation, rescue by moving an unstarted style / overtime / accepting a shortfall within tolerance / renegotiating the date | done |
 | Real delivery orders anonymised on the local machine (`bunon/anonymise.py`, D29); the raw PDFs are never committed or sent to the LLM | done |
 | Interview calibration (D31): ship-by-date success, quality as a cost, attendance in the daily update, the floor representative, ranking, new entrants; `python -m bunon.calibrate` | done |
-| Tests: 238 (`pytest -q`) + 31 app click-throughs: 24 extreme settings, the factory app, the floor representative, the story-clock jumps (`pytest -m sweep`) | passing |
+| Tests: 239 (`pytest -q`) + 31 app click-throughs: 24 extreme settings, the factory app, the floor representative, the story-clock jumps (`pytest -m sweep`) | passing |
 | Real values for the placeholder assumptions (fill/lateness, costs; see RESEARCH_ASKS.md) | waiting for research |
 
 **The 3-minute demo** (branch `v2`; numbers in [VIDEO_NOTES.md](VIDEO_NOTES.md)):
@@ -100,9 +100,9 @@ Other paths:
 
 Every step replays from the cache.
 
-**Release check (18 Nov 2026):** a fresh clone of this repo on Windows, with a new virtual environment, no API key and no UTF-8 override, installs in about 1.5 minutes and passes all tests (5 skipped: they need the private raw data, which is not published). A scan of every published file, including the database and the cached LLM answers, against the private list of real factory names, IDs and addresses found no matches. Live app: about 6 s to the first screen and 6 s from "Confirm order" to plans and memo while awake; 30–40 s to wake after a quiet period.
+**Release check:** the last full one was on 18 Nov 2026, before the programme demo. It covered a fresh clone, a new virtual environment, the tests and a privacy scan of every published file. The next one is planned for the final week (HANDOFF.md §4).
 
-Design decisions and their before/after numbers are logged in [SPEC.md](SPEC.md) (D1–D12). The Day 2 calibration checkpoint is in [CHECKPOINT_DAY2.md](CHECKPOINT_DAY2.md).
+Design decisions and their before/after numbers are logged in [SPEC.md](SPEC.md) (D1–D33). The Day 2 calibration checkpoint is in [CHECKPOINT_DAY2.md](CHECKPOINT_DAY2.md).
 
 ## Roadmap (not built)
 

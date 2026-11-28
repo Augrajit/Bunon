@@ -238,10 +238,13 @@ class Toolbox:
 
 
 def _is_answer(text: str) -> bool:
-    """An answer cites at least one fact and is written in English letters only (the analyst answers in English;
-    seen live twice, D30/D31: a few characters of another script, once before an otherwise good answer)."""
+    """An answer cites at least one fact and is written in Latin or Bangla letters only (seen live twice, D30/D31:
+    a few characters of another script, once before an otherwise good answer). Bangla is allowed (D33), so an
+    answer in Bangla or with a Bangla word is never thrown away; any other script is junk."""
     letters = [ch for ch in text if ch.isalpha()]
-    return "{{" in text and len(text.split()) >= 5 and bool(letters) and all(ch.isascii() for ch in letters)
+    bangla = lambda ch: "ঀ" <= ch <= "৿"  # noqa: E731
+    return ("{{" in text and len(text.split()) >= 5 and bool(letters)
+            and all(ch.isascii() or bangla(ch) for ch in letters))
 
 
 def _template(calls: list[ToolCallLog]) -> str:

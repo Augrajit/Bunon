@@ -737,3 +737,23 @@ At 95% the remaining failures come mostly from correlated shocks, which the opti
 **Numbers:** unchanged. The fabric text and GSM enter no calculation, and fabric per piece comes from the delivery orders' kg per dozen (D31).
 
 **Cache:** the intake and the request drafts were re-warmed live; the memos and what-ifs were unaffected.
+
+### D33: 28 Nov 2026: developer persona label, memo and warning name styles and short-piece cost, total cost per rescue, Bangla-safe filter, old replies removed
+
+**Product owner's decisions:** the persona text stays the developer's and is labelled as such. Then, in order: the memo and warning, removing the old scripted replies, and a docs tidy-up.
+
+**What:**
+- **Label:** a stand-in persona message now shows as "simulated · written by the developer" (was "simulated · placeholder text"). The text is unchanged, so the cache holds.
+- **Memo (whole styles):**
+  - New facts: `plan.n_styles`, `line.<F>.styles`, `line.<F>.n_styles`, `plan.short_pcs`, `plan.short_cost`, `base.short_cost`, and `new.short_cost` in a re-plan.
+  - The success wording is now "ships by the buyer's date", and the tolerance facts are dropped.
+  - The memo must cite the number of styles, the short-piece cost and at least one factory's styles. A memo that leaves them out is retried, then the template is used, which names them too.
+- **Warning (whole styles):** it names the styles projected short (e.g. "S09 at F1558 (60 of 1,380)") and the expected cost of shipping short, both required.
+- **Rescue table:** an "Expected total cost" column, the cash cost plus the expected short-piece cost (e.g. move: 29,928 + 191,070 = 220,998 BDT; ship short: 541,303 BDT).
+- **Analyst junk filter:** it now allows Bangla script (U+0980–U+09FF) as well as Latin; any other script is still rejected (tests in English, Bangla and mixed).
+- **"Show the maths":** the four scripted example replies were for the pre-programme factories and are removed (the buttons and their `warm_cache` step). The paste-a-reply reader stays. `factory_replies.json` stays for the parser tests.
+- **Docs:** HANDOFF is rewritten to the current state and the agreed order of remaining work; README's test count and release-check note are updated.
+
+**Numbers:** unchanged (no engine change). The memo and warning were re-warmed live; the app walks are clean.
+
+**About an earlier request:** the product owner asked whether four fixes from an earlier message are done: the expected total cost per option, a shortage warning, a Bangla-safe filter and the memo. That message is not in this session's record. The four were read as the total-cost column, the warning naming the short styles and their cost, the Bangla-safe analyst filter and the style-aware memo above.

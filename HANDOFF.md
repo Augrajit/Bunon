@@ -1,8 +1,18 @@
 # HANDOFF: how to continue Bunon without the original assistant
 
-Written 26 Nov 2026 on branch `v2`. Read this together with `CLAUDE.md` (rules and commands), `PLAN_V2.md` (the approved plan; its decisions block wins) and `SPEC.md` (dated decision log, D1–D14 and later).
+Written 26 Nov 2026 on branch `v2`, brought up to date on 28 Nov 2026 (after D33). Read this together with `CLAUDE.md` (rules and commands), `PLAN_V2.md` (the approved plan; its decisions block wins) and `SPEC.md` (dated decision log, D1–D33).
 
-**State in one paragraph.** `main` (the live app, https://buunon.streamlit.app/) still runs the pre-PLAN_V2 demo. `v2` holds D12 (success = good pieces after QC within a tolerance), D13 (order store, service layer, the app around one order's timeline) and D14 (the thin loop end to end: sourcing → offers → split → update → forecast → rescue → QC → track record). All of it replays offline from the LLM cache. Merge `v2` into `main` only when the product owner approves.
+**State in one paragraph.**
+- **Where it lives.** `main` (the live app, https://buunon.streamlit.app/) and `v2` are the same. Every task is merged under the standing rule: `pytest -q` and the full `pytest -m sweep` pass, the old `main` is tagged `pre-<task>`, then `main` fast-forwards.
+- **The demo** is a fictional buyer's kids' T-shirt programme: 10 whole styles, 16,800 pieces, all subcontracted. The styles are modelled on 10 anonymised real delivery orders (D29–D30).
+- **The success rule** comes from the interview: the programme ships by the buyer's date, and short pieces and rejects are a cost (D31). Synthetic lateness is calibrated so that the naive plan succeeds 90% of the time (a placeholder anchor).
+- **The story:**
+  - **Plan:** F0288 six styles, F1558 four, 92.1%, plus a new entrant F0882 with a priced trial style.
+  - **Day 12:** F1558 at 64% of its daily target (42 of 60 workers), and the floor representative's count flagged.
+  - **Rescue:** move S03 and S09 to F2829.
+  - **Then:** QC, the track record and the timeline.
+- **Cache:** everything replays offline from the LLM cache.
+- **Persona text:** written by the developer and labelled so in the app (D33).
 
 ---
 
@@ -53,6 +63,11 @@ The login page has a "Continue as demo exporter" button; nothing typed there is 
 | `bunon/reliability.py` | Empirical-Bayes forecast per factory (`eb-3`): on-time probability, delay distribution, capacity factor, defect rate and lot rejection. `fit(history, ids)`. |
 | `bunon/simulation.py` | Monte Carlo `simulate(plan, forecasts, slack, ...)` → P(good pieces after QC by the deadline ≥ (1 − tol) × Q), seeded. |
 | `bunon/optimizer.py` | `load_world`, `demo_order`, `build_candidates`, `solve_mip` (PuLP/CBC), `solve_baseline` (naive), `search_buffer`, `compare_three`, `baseline_to_match`, re-plans (`replan_exclude`, `replan_locked`, `replan_from_reply`), news events (`event_from_severity`, `adjust_for_events`, `search_with_events`, `assess_news`). |
+| `bunon/programme.py` | The demo programme (D30): `load_styles` from `data/demo/docs/programme.json`, `as_programme`, fabric and material per style from the delivery orders' rates (D31). |
+| `bunon/calibrate.py` | Calibration to the base rate (D31): `python -m bunon.calibrate --target 0.90` scales only the synthetic lateness (then shocks) until the naive plan hits the anchor; writes `data/calibration.json`, applied in `load_world` (`BUNON_CALIBRATION=0` turns it off). |
+| `bunon/profiles.py` | New-entrant profiles (D31): `data/demo/factory_profiles.json`, `eligible_new_entrant` (a vouch and a site visit at most `NEW_ENTRANT_VISIT_DAYS` old). |
+| `bunon/sensitivity.py` | Writes `SENSITIVITY.md`: one input at a time, and the calibration at anchors 0.80 / 0.90 / 0.95. |
+| `bunon/anonymise.py` | Local only, never imported by the app (D29): real delivery orders in the ignored `data/Documents/` → `data/demo/docs/S01–S10.txt` + `programme.json`; mapping in `data/private/doc_mapping.json`. |
 | `bunon/attribution.py` | Delay attribution rules (D23): `CATEGORIES`, `NewsEvent`, `Delay`, `matching_events` (district or national, during production). No LLM. |
 | `bunon/loop.py` | The order loop's engine steps: `sourcing_list`, `draft_request` / `draft_rescue_request` (templates), `OfferTerms`, `split_from_offers`, `Forecast`, `forecast_after_update`, `last_rescue_day`, `RescueOption`, `rescue_move`, `rescue_options`. Constants `REPLY_DAY=2`, `UPDATE_DAY=12`, `QC_DAY=26`. |
 
@@ -71,6 +86,7 @@ The login page has a "Continue as demo exporter" button; nothing typed there is 
 | `bunon/store.py` | SQLite per visitor session (`data/runtime/sessions/<32-hex>.db`). Tables in `SCHEMA` (orders, sourcing_rounds, messages, offers, allocations, progress_updates, forecasts, rescue_options, qc_records, payments, events, attributions, share_settings). `events` is append-only: the timeline on the story clock. Column-checked `insert`, `rows`, `update_messages`. `cleanup_sessions(24h)`. |
 | `bunon/service.py` | No Streamlit import. `PlanSettings`, `compute_plans` → `PlanBundle`, what-if helpers, `factory_record` (synthetic history), and `OrderBook`: `confirm_order`, `advance_to`, `propose`, `decide`, `draft_round`, `approve_round`, `receive`, `record_offer`, `offer_terms`, `record_update`, `record_forecast`, `choose_rescue`, `send_message`, `record_qc`, `track_record`. Role checks live here. |
 | `bunon/decisions.py` | Legacy approval log (`BUNON_DECISIONS_DB`) and the draft purchase-order text. |
+| `data/demo/personas_programme.json`, `floor_reports.json`, `factory_profiles.json` | The programme demo's simulated factories (F0288, F1558, F2314 standby, F2829 rescue), the floor representative's day-12 count and F0882's profile. All written by the developer (labelled in the app). `personas.json` below is the pre-D30 fixture, kept for the piece-split regression tests. |
 | `bunon/personas.py` + `data/demo/personas.json` | Persona fixture: six simulated factories (F1856, F1064, F2184, F0824, F0288, F2829) and the scripted QC shares. Every message is currently `placeholder: true` (developer's stand-in). How to swap in the team's text: `data/demo/PERSONAS_GUIDE.md`. |
 | `bunon/checkpoint.py` | Regenerates `CHECKPOINT_DAY2.md` (old milestone report). |
 
@@ -82,75 +98,53 @@ The login page has a "Continue as demo exporter" button; nothing typed there is 
 
 ---
 
-## 4. Known issues and open questions
+## 4. Known issues, open items and the order of remaining work
 
-Known issues:
-1. ~~F2829's standby reply parsed as counter~~: fixed in D20 (a rate within 2% of our planned rate is an accept).
-2. ~~Prices read only as free text~~: since D20 the rate and ship date are quoted numbers; the rate prices the split.
-3. ~~Drafts and the warning are fixed templates~~: since D21 the LLM writes them under the placeholder rule, with the templates as fallback.
-4. `last_rescue_day` may name a factory that was never asked ("until when could anyone still make this", not "who will").
-5. The planner's capacity windows start on day 0, slightly optimistic against production starting on day 2.
-6. ~~Only one scripted update per order~~: since D22/D25 the forecast takes every factory's latest update, and the demo has a second update on day 14.
-7. The best plan reaches 87.5%, below the 90% target, mainly because of the lot-rejection placeholder (2%). That is honest, not a bug; do not tune it.
-8. Persona text is all placeholder until the team delivers `personas.json`; any change needs a cache re-warm (rule 3).
+**Known issues (current):**
+1. `last_rescue_day` (piece split) may name a factory that was never asked. The whole-style version (`last_style_rescue_day`) uses the move's own rule.
+2. The planner's capacity windows start on day 0, slightly optimistic against production starting on day 2 (item 10 below).
+3. At a 95% calibration anchor Bunon is 0.3 points below the naive plan: correlated shocks are not in the optimiser's per-factory risk term (SPEC D31). This is reported, not tuned.
+4. A rescue that moves styles to a new factory can lower the chance slightly, because the new factory adds lateness risk, while cutting the short-piece cost. The rescue table shows the chance, the cash cost, the expected short-piece cost and their total, so a person can weigh them.
+5. QC and the track record work per factory, not per style (item 9 below).
+6. One exporter per visitor store: "an exporter it has not worked with" is simulated (D26).
+7. Attribution evidence is entered by hand. The automatic news check is roadmap only.
+8. Same-day forecast rows: `record_forecast` writes once per day and factory (D22). The drop rule reads only earlier days, so it is unaffected.
 
-Remaining open items (27 Nov 2026, after D28; feature work paused for the polish list):
-- **Persona text** (task 2.5): every factory message is a developer placeholder, including F0288's day-14 update (D25). When the team's text arrives: replace `data/demo/personas.json`, run `python -m bunon.personas`, re-warm the cache (rule 3) and update the README/SPEC numbers if they move.
-- **Join step not exercised in the demo:** every factory the demo shows is a persona that has already chosen to share (D28), so the "Who may see your record?" step only appears for a factory with no choice. It is covered by unit tests, not by a click-through.
-- **One exporter per store:** a visitor's store holds one exporter's orders, so "an exporter it has not worked with" is simulated as the view with no own orders (D26). A shared multi-exporter store is not built.
-- **Attribution evidence is entered by hand:** a person records news on the order; the automatic news check of a stated cause is on the README roadmap, not built.
-- **Placeholders waiting for research:** `WARN_DROP_PP` (ask 19), overtime share and premium (ask 18), payment terms (ask 17), price tolerance and range, and the older asks 11–16.
-- **Same-day forecast rows:** `record_forecast` writes once per day and factory, so a row recorded before a second same-day update keeps its earlier chance (D22). The drop rule reads only earlier days, so it is unaffected.
-- **Known issues 4, 5, 7 and 8 above** still stand (rescue-day factory, capacity windows from day 0, 87.5% below target, placeholder personas).
-- **Milestone 5:** 5.3 real-user test, 5.4 docs pass and video, 5.5 release check.
+**Privacy (real documents):**
+- **Where they live:** the real PDFs, the style-sheet OCR archive and the interview notes are only in the ignored `data/Documents/` on the developer's machine.
+- **Never** commit them, upload them (or their OCR) to online notebooks, cloud drives or AI tools, or send them to Gemini.
+- **Anonymiser:** `python -m bunon.anonymise data/Documents` (local) rewrites the anonymised `data/demo/docs/`. Keep `data/private/doc_mapping.json`, or the fakes change.
+- **To check:** the style sheet was OCR'd in an online notebook before this rule was written down; its owner was asked to make it private or delete it.
 
-Real order documents (27 Nov 2026, DOCS_PROPOSAL.md, approved order §a → §f → §b, §c, §d, §g):
-- **Privacy:** the real PDFs live only in the ignored `data/Documents/` on the developer's machine. Never upload them (or OCR output of them) to online notebooks, cloud drives or AI tools; process them only on the local machine. An OCR archive of the style sheet exists in `data/Documents/` (ignored) and has not been anonymised. Never commit them, never send them (raw or as images) to the LLM, never use them raw in the demo or tests. `tests/test_no_documents.py` guards this.
-- **§a done (D29):** `python -m bunon.anonymise data/Documents` (local only) rewrites `data/demo/docs/S01–S10.txt` and `programme.json`. Its mapping is in `data/private/doc_mapping.json`; keep it, or the fakes change on the next run. The style sheet is out of scope (no OCR); a teammate hand-enters its values as the answer key.
-- **§f whole-style engine, in progress (SPEC.md D30):**
-  - **Product owner's decisions:**
-    - the programme is the 10 styles at their real quantities (16,800 pcs), all subcontracted;
-    - success is checked per style (every style ≥ (1 − tolerance) × its quantity);
-    - nothing is tuned;
-    - "move part of a running style" stays disabled (`config.RESCUE_SPLIT_RUNNING_STYLE = False`) until the interviewee confirms it happens.
-  - **Done on `v2`, not merged:**
-    - step 1 (47ecf60): style MIP `optimizer._solve_styles`, per-style success `simulation._styles_ok`, `bunon/programme.py`, `SENSITIVITY.md`, research asks 20–23;
-    - step 2 (1783fcf): loop in style mode (requests name styles, accepters keep their styles, `rescue_move_style`, `projected_by_style`, `renegotiate_days`; the `escalate_buyer` option is now `renegotiate_date` in both modes);
-    - persona brief for the team (3b651d7, top of `data/demo/PERSONAS_GUIDE.md`).
-  - **Steps 3–4 done (28 Nov 2026):**
-    - The programme is the demo (`config.DEMO_PROGRAMME`, default on); numbers are pinned in `tests/test_styles.py::test_published_demo_numbers`, README, `VIDEO_NOTES.md` and SPEC D30.
-    - The cache was warmed live: `warm_cache` plus walks of move, overtime, attribution and day 14.
-    - The old demo stays as piece-split regression tests (`op.piece_demo_order()`, `personas.PIECE_PERSONAS_PATH`).
-  - **Still open for §f:**
-    - The team's persona text for the programme (brief at the top of `PERSONAS_GUIDE.md`); then re-warm.
-    - The memo and the warning do not mention styles yet. They cite factories and pieces, which is correct but less clear.
-    - "Show the maths" scripted factory replies (`factory_replies.json`) are for the old factories and are skipped (not in the plan).
-    - QC and the track record work per factory, not per style.
-    - ~~Open question (cheapest vs most likely plan)~~: superseded by D31; the default plan now meets the target.
-  - **Known behaviour:**
-    - If the largest factory declines, the split over the remaining repliers can be infeasible because of the district cap; the re-plan step (new factories) handles it.
-    - The renegotiate-date chance assumes the buyer agrees.
-- **Then §b intake, §c cross-document checks, §d evaluation, §g past-order library.**
+**Waiting on others:**
+- **The team:** a native-speaker review of the developer's persona text (optional since D33). If they reword a message: run `python -m bunon.personas`, re-warm, then run both test suites.
+- **Research asks 24–29**, the failure base rate first. When it arrives:
+  1. run `python -m bunon.calibrate --target <figure>` and `python -m bunon.sensitivity`;
+  2. re-pin `tests/test_styles.py::test_published_demo_numbers`;
+  3. update README, VIDEO_NOTES and SPEC;
+  4. re-warm the cache.
+- **Older asks 11–23:** placeholders such as overtime, payment terms, salvage, mismatch threshold and output threshold. Never tune them.
+- **The interviewee:** whether "move part of a running style" ever happens. It stays disabled until then (`config.RESCUE_SPLIT_RUNNING_STYLE`).
 
-Interview calibration (28 Nov 2026, SPEC.md D31; done and merged):
-- **Success rule (whole styles):** ship by the buyer's date. Short pieces and rejects are a cost. Tolerance is not a gate.
-- **Calibration:** lateness is calibrated so the naive plan succeeds 90% of the time (placeholder anchor).
-  - Re-run `python -m bunon.calibrate --target <T>` when the interviewee gives a figure, then `python -m bunon.sensitivity`, re-pin `test_published_demo_numbers`, update README/VIDEO_NOTES/SPEC and re-warm the cache.
-  - `BUNON_CALIBRATION=0` switches it off.
-- **Interview values:** QC 3.5% and lot rejection 0.5% are set in the generator (DB regenerated; only the QC columns changed). Material per style comes from the delivery orders' fabric rates.
-- **Daily update:** attendance (`update_v2`), the output-vs-target warning signal, and the **floor representative** role (cannot approve) with the mismatch flag.
-- **Ranking and new entrants:** ranking by capacity, workers, capability, quality. New entrant F0882 (simulated profile) with a priced trial style.
-- **Piece-split regression:** these tests run on `tests/fixtures/bunon_pre_d31.db`, uncalibrated.
-- **Open:**
-  - the team's persona text (brief at the top of `PERSONAS_GUIDE.md`, including the floor count and F0882's profile);
-  - research asks 24–29 (the failure base rate first);
-  - at a 95% anchor Bunon is 0.3 points below the naive plan, because correlated shocks are not in the optimiser's per-factory risk term (reported in SPEC D31; a possible next step is to add shock exposure to the risk term);
-  - the memo still does not mention styles or the quality cost.
+**The order of remaining work (agreed 28 Nov 2026):**
+1. **Now, done (D33):**
+   - persona label "written by the developer";
+   - the memo and the warning name the styles and the short-piece cost;
+   - an expected total cost per rescue option;
+   - a Bangla-safe junk filter for the analyst;
+   - the old scripted factory replies removed from "Show the maths";
+   - this docs tidy-up.
+2. **After the renewal, in this order:**
+   1. **§b document intake** (DOCS_PROPOSAL.md): the AI reads an anonymised delivery order into a structured order, every value quoted, with new `textnum` cases for sizes such as "10/12" and ".1 KG".
+   2. **§c cross-document checks** in code: totals within a delivery order, fabric rate per dozen against similar styles (S01's 0.1 kg/dzn), style sheet against delivery order. The style-sheet values come from the teammate's hand-made answer key, not from the online OCR.
+   3. **Item 9:** QC and the track record per style.
+   4. **Item 10:** capacity windows start on day 2 (known issue 2). This changes the pinned numbers: re-pin and re-warm.
+3. **The final week:** the release check (HANDOFF 5.5): a clean clone, `pytest -q`, `pytest -m sweep`, a privacy scan of every published file (database, cache, `data/demo/docs/`, fixtures), live timing on Streamlit Cloud, then tag. Also record the video (`VIDEO_NOTES.md`, under 181 s).
+4. **Optional, if time is left:** §d accuracy evaluation, §g learn-from-past-orders library, the real-user test (5.3).
 
 Open questions for the product owner:
-- Gemini tier of the current key (AI Studio); paid tier needed for any real-user test with real messages.
-- Final submission deadline (assumed about 24 Dec; live final 26 Dec).
-- Research asks 11–16 in `RESEARCH_ASKS.md` (whole-lot rejection frequency first; the T-shirt share of a set's sewing price checks the 40% assumption).
+- The final submission deadline (assumed about 24 Dec; live final 26 Dec).
+- The Gemini tier of the current key (AI Studio); a paid tier is needed for any real-user test with real messages.
 
 ---
 
@@ -193,10 +187,10 @@ Check it works: open the Factory app view at phone width (`resize_window` mobile
 4.3 **Done (SPEC.md D26)** as one switch per factory (`OrderBook.set_record_sharing`, `record_for_exporter`). Planned: **Factory controls sharing** (`share_settings`): factory role sets per-field visibility; the exporter view hides private fields. Test.
 
 ### Milestone 5: polish and release (17–24 Dec)
-5.1 **Done:** `tests/test_loop.py::test_published_demo_numbers`. Demo fixture frozen: a test asserts the README/SPEC demo numbers (split 84.1%, projected 9,800, shortfall 3,300, P 81.8%, last rescue day 16, move 85.6% / +34,813 BDT since D20) so script, README and video stay consistent. Update them whenever the engine or fixture changes.
+5.1 **Done; the published numbers are now pinned in `tests/test_styles.py::test_published_demo_numbers` (D31). The text below describes the pre-D30 piece-split pins, kept in `tests/test_loop.py::test_piece_split_demo_numbers`.** Originally: `tests/test_loop.py::test_published_demo_numbers`. Demo fixture frozen: a test asserts the README/SPEC demo numbers (split 84.1%, projected 9,800, shortfall 3,300, P 81.8%, last rescue day 16, move 85.6% / +34,813 BDT since D20) so script, README and video stay consistent. Update them whenever the engine or fixture changes.
 5.2 **Done (SPEC.md D25)**, plus a second update day (`loop.UPDATE_DAY2 = 14`, F0288 placeholder update). Planned: Story-clock jump buttons for the 3-minute pitch (PLAN_V2 §7): "Day 2 replies", "Day 12 update", "Day 26 QC" each replays to that checkpoint.
 5.3 Real-user test (one merchandiser, paid tier if real text, consent), notes in SPEC.md.
-5.4 Docs pass (README, SPEC, PROMPTS, DATA_PROVENANCE), video under 181 s.
+5.4 Docs pass (README, SPEC, PROMPTS, DATA_PROVENANCE): done 28 Nov 2026 (D33). Video under 181 s: still to record, from `VIDEO_NOTES.md`.
 5.5 Release check: clean clone, `pytest -q`, `pytest -m sweep`, privacy scan, live timing; merge `v2` → `main` only with approval; tag.
 Cut order if behind (PLAN_V2 §9): 0a phone frame → narrow page, 0b analyst/steering off the UI, then attribution, payments, Bangla, polish. Never cut: order → sourcing → follow-up → warning → rescue → record.
 

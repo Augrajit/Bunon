@@ -24,7 +24,10 @@ SESSIONS_DIR_ENV = "BUNON_STORE_DIR"  # tests point the per-session stores elsew
 
 EXPORTER_ROLES = ("Owner / director", "Merchandiser", "Production manager", "Quality inspector")
 FACTORY_ROLES = ("Factory owner", "Floor supervisor")
-ROLES = EXPORTER_ROLES + FACTORY_ROLES
+# D31: the exporter's floor representative posts the daily update from inside the factory. Exporter staff, but it
+# only reports: it is not in EXPORTER_ROLES, so it cannot confirm or approve anything.
+FLOOR_REP_ROLE = "Floor representative"
+ROLES = EXPORTER_ROLES + (FLOOR_REP_ROLE,) + FACTORY_ROLES
 
 EventSource = Literal["platform", "synthetic_history", "simulated_persona"]
 
@@ -55,7 +58,8 @@ CREATE TABLE IF NOT EXISTS allocations (
 CREATE TABLE IF NOT EXISTS progress_updates (
     update_id TEXT PRIMARY KEY, order_id TEXT NOT NULL, factory_id TEXT NOT NULL, story_day INTEGER NOT NULL,
     text TEXT NOT NULL, pieces_done_cum INTEGER, delay_days INTEGER, cause_text TEXT, cause_category TEXT,
-    quotes TEXT, parse_status TEXT, is_simulated INTEGER NOT NULL DEFAULT 0);
+    quotes TEXT, parse_status TEXT, is_simulated INTEGER NOT NULL DEFAULT 0,
+    workers_present INTEGER, workers_planned INTEGER, reporter TEXT NOT NULL DEFAULT 'factory');
 CREATE TABLE IF NOT EXISTS forecasts (
     order_id TEXT NOT NULL, story_day INTEGER NOT NULL, factory_id TEXT NOT NULL,
     expected_good_by_deadline REAL, p10 REAL, p90 REAL, p_meet_order REAL, last_rescue_day INTEGER, projected INTEGER,

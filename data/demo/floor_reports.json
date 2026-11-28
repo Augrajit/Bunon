@@ -1,0 +1,15 @@
+{
+ "format_version": 1,
+ "simulated_notice": "SIMULATED counts by the exporter's floor representative for the Bunon demo (SPEC.md D31). Developer placeholders until the team writes them; used only as form defaults, a person still posts them.",
+ "reports": [
+  {
+   "factory_id": "F1558",
+   "story_day": 12,
+   "pieces_done": 1600,
+   "workers_present": 42,
+   "workers_planned": 60,
+   "note": "Two lines short of operators; the cutting table is ahead of sewing.",
+   "placeholder": true
+  }
+ ]
+}

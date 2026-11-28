@@ -141,6 +141,23 @@ What it changed:
 - **Safety margin** (minimum over-allocation) is optional, default 0%.
 - **Delivery point:** subcontractors deliver to the exporter's own factory (the Gazipur point).
 
+### 6.0 Follow-up interview (28 Nov 2026, same source, anonymised; SPEC.md D31)
+
+**Single-source expert input.** Applied as one calibration change (D31):
+- **Success:** the programme must ship by the buyer's date, because lateness causes cancellation. Defects and short pieces are a cost, not a failure. Rejects are sold at a loss (salvage value: PLACEHOLDER, 30 BDT per piece). Tolerance stays a research question, not a gate.
+- **Failures are rare.** No figure was given. The synthetic lateness is calibrated so that the naive plan succeeds about 90% of the time (a PLACEHOLDER anchor; `python -m bunon.calibrate`).
+- **QC defect rate: 3.5%**, the midpoint of the interviewee's 3-4%. It is set in the synthetic-history generator (`config.QC_DEFECT_MEAN`), and the database was regenerated. QC uses its own random stream, so every other column of the history is unchanged.
+- **Whole-lot rejection is rare** and is salvaged at a loss, not lost. The chance is a PLACEHOLDER, 0.5%.
+- **The exporter supplies the fabric** (confirmed). Fabric per shirt comes from the anonymised delivery orders, not from the interview:
+  - 1 kg per dozen in sizes 4/6X (about 0.083 kg per piece);
+  - 1.40 kg per dozen in 7/16 (about 0.117 kg per piece);
+  - 2% fabric waste.
+  - S01's .1 kg is a known document error and is not used.
+- **Typical delay cause:** worker absence and low productivity. The daily update now carries attendance (workers present against planned), and the warning signal is output against the daily target.
+- **The exporter's floor representative** posts the daily update from inside the factory. A factory's own report is shown next to it, and differences above a PLACEHOLDER threshold (5%) are flagged.
+- **Factory ranking:** capacity, then workers, then capability, then quality.
+- **New entrants:** a factory with no history can be trusted through a vouch and a site visit. The demo profile (F0882) is simulated and hand-written (`data/demo/factory_profiles.json`).
+
 ### 6.1 How the two per-piece prices were derived (Bunon's placeholders, not interview figures)
 
 Only the two inputs marked "interview" were said by the interviewee. Every other number in these calculations is Bunon's own assumption, chosen on 26 Nov 2026 before any result was computed, and labelled `PLACEHOLDER` in `bunon/config.py`.
@@ -183,3 +200,10 @@ The material cost is the same at every factory (the exporter supplies it), so it
   `tests/test_anonymise.py` checks the published files hold only fakes, and against the private mapping where it
   exists.
 - **Not included:** the scanned 22-page style sheet. A teammate enters its values by hand as the answer key.
+
+## 8. Demo fixtures added in D31
+
+- `data/demo/factory_profiles.json`: one simulated new-entrant profile (F0882: owner background, a vouch, a site visit). Developer placeholder text, labelled simulated.
+- `data/demo/floor_reports.json`: the floor representative's scripted day-12 count (form defaults only; a person posts it). Developer placeholder.
+- `data/calibration.json`: the lateness multiplier chosen by `python -m bunon.calibrate --target 0.90`.
+- `tests/fixtures/bunon_pre_d31.db`: the pre-D31 synthetic database (QC 2%, lot rejection 2%), frozen for the piece-split regression tests. Same public, pseudonymous, synthetic content as `data/processed/bunon.db`.

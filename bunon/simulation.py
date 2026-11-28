@@ -21,6 +21,28 @@ from bunon import config as C
 from bunon.schemas import AllocationPlan, BundleRisk, ReliabilityForecast, ShockEvent, ShockParams
 
 
+def _style_pieces(plan: AllocationPlan, delivered_i: np.ndarray, rate: np.ndarray,
+                  lot_rej: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Whole styles (D31): per run, good pieces short of each style's order quantity (summed over styles) and
+    pieces rejected at QC. A factory's delivered pieces fill its styles in sequence; one style's over-cut cannot
+    cover another style; a rejected lot is all rejects."""
+    short = np.zeros(delivered_i.shape[0])
+    rejects = np.zeros(delivered_i.shape[0])
+    placed = set()
+    for j, ln in enumerate(plan.lines):
+        cum = 0.0
+        for sid, cut in ln.styles:
+            d = np.clip(delivered_i[:, j] - cum, 0.0, cut)
+            cum += cut
+            good = np.where(lot_rej[:, j], 0.0, d * (1 - rate[:, j]))
+            rejects += d - good
+            short += np.maximum(0.0, plan.style_qty.get(sid, 0) - good)
+            placed.add(sid)
+    for sid in set(plan.style_qty) - placed:
+        short += plan.style_qty[sid]
+    return short, rejects
+
+
 def _styles_ok(plan: AllocationPlan, delivered_i: np.ndarray, rate: np.ndarray, lot_rej: np.ndarray) -> np.ndarray:
     """Whole-style mode (SPEC.md D30): a factory makes its styles in sequence, so the pieces it delivers fill its
     first style first; the programme succeeds only if EVERY style has good pieces >= its own threshold
@@ -118,21 +140,31 @@ def simulate(plan: AllocationPlan, forecasts: dict[str, ReliabilityForecast], sl
         lot_rej = rng.random((n_sims, k)) < p_lot
         good_i = np.where(lot_rej, 0.0, delivered_i * (1 - rate))
     total = good_i.sum(axis=1)
-    if plan.style_min_good:
+    exp_short = exp_rej = 0.0
+    if plan.style_qty:
+        # D31 (interview): success = the programme ships by the buyer date; lateness causes cancellation. A factory
+        # that is late beyond its slack, or fails catastrophically, sinks it; short pieces and rejects are a cost.
+        placed = {s for ln in plan.lines for s, _ in ln.styles}
+        ok = (on_time & ~cat).all(axis=1) & (placed >= set(plan.style_qty))
+        sp, rj = _style_pieces(plan, delivered_i, rate, lot_rej)
+        base = ok if ok.any() else np.ones_like(ok)
+        exp_short, exp_rej = float(sp[base].mean()), float(rj[base].mean())
+    elif plan.style_min_good:
         ok = _styles_ok(plan, delivered_i, rate, lot_rej)
     else:
         ok = total >= need
     p = float(ok.mean())
 
     failed = ~ok
-    short = (~on_time) | cat | lot_rej
+    short = (~on_time) | cat | (lot_rej if not plan.style_qty else np.zeros_like(lot_rej))
     contrib = {i: (float(short[failed, j].mean()) if failed.any() else 0.0) for j, i in enumerate(ids)}
     counts, edges = np.histogram(total, bins=30)
     return BundleRisk(
         plan_id=plan.plan_id, n_sims=n_sims, seed=seed, p_meet_qty=p,
         p_meet_se=float(np.sqrt(p * (1 - p) / n_sims)),
         expected_delivered=float(delivered_i.sum(axis=1).mean()),
-        expected_good=float(total.mean()), min_good_qty=need,
+        expected_good=float(total.mean()), min_good_qty=need, expected_short_pcs=exp_short,
+        expected_reject_pcs=exp_rej,
         delivered_p5=int(np.percentile(total, 5)), delivered_p50=int(np.percentile(total, 50)),
         shortfall_p95=int(max(0.0, need - np.percentile(total, 5))),
         histogram=[(int(e), int(c)) for e, c in zip(edges[:-1], counts)],

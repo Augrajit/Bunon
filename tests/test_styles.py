@@ -6,6 +6,7 @@ import pytest
 
 from bunon import optimizer as op
 from bunon import programme as pg
+from bunon import config as C
 from bunon.schemas import AllocationLine, AllocationPlan
 
 
@@ -62,27 +63,40 @@ def test_locked_style_stays_and_baseline_assigns_whole_styles(setup):
     assert sorted(s for ln in base.lines for s, _ in ln.styles) == [s.style_id for s in order.styles]
 
 
-def test_a_short_factory_leaves_its_last_style_short(setup):
-    """Pieces fill a factory's styles in sequence, and one style's over-cut cannot cover another style."""
+def test_success_is_shipping_on_time_and_short_pieces_are_a_cost(setup):
+    """D31: the programme succeeds when every factory ships by its date; short pieces and rejects are a cost.
+    Pieces still fill a factory's styles in sequence, and one style's over-cut cannot cover another style."""
     world, order, params, cands = setup
     plan = op.solve_mip(cands, order.subcontract_qty, params.model_copy(update={"buffer_pct": 0.1}))
     risk = op.evaluate(plan, cands, world, True)
-    # The same plan read as one undivided product (extra pieces anywhere count) looks far safer.
-    pooled = op.evaluate(plan.model_copy(update={"style_min_good": {}}), cands, world, True)
-    assert risk.p_meet_qty < pooled.p_meet_qty
-    # One factory with two styles: delivering exactly the first style's pieces plus the second's threshold passes,
-    # one piece fewer fails, whatever the first style's over-cut.
-    from bunon.simulation import _styles_ok
+    assert plan.style_qty == dict(params.styles)
+    assert risk.expected_short_pcs > 0 and risk.expected_reject_pcs > 0
+    assert op.quality_cost_bdt(risk, params) == pytest.approx(
+        risk.expected_short_pcs * params.short_piece_value_bdt
+        - risk.expected_reject_pcs * C.REJECT_SALVAGE_BDT_PER_PIECE)
+    # tolerance is no longer a gate: changing it leaves the chance as it is
+    loose = plan.model_copy(update={"style_min_good": {k: 0 for k in plan.style_min_good}})
+    assert op.evaluate(loose, cands, world, True).p_meet_qty == risk.p_meet_qty
+    from bunon.simulation import _style_pieces
     import numpy as np
     ln = AllocationLine(factory_id="F0001", qty=2_200, unit_price_bdt=1, transport_bdt=0, risk_penalty_bdt=0, share=1,
                         styles=[("A", 1_200), ("B", 1_000)])
     p = AllocationPlan(plan_id="t", method="optimised", status="optimal", lines=[ln], target_qty=2_000,
                        total_allocated=2_200, buffer_qty=200, cost_production=0, cost_material=0, cost_transport=0,
                        cost_fixed=0, cost_buffer=0, cost_risk_penalty=0, cost_total=0,
-                       style_min_good={"A": 980, "B": 980})
-    d = np.array([[1_200 + 980], [1_200 + 979], [980 + 1_000]], float)
+                       style_qty={"A": 1_000, "B": 1_000})
+    d = np.array([[2_200.0], [1_900.0]])
     z = np.zeros_like(d)
-    assert _styles_ok(p, d, z, z.astype(bool)).tolist() == [True, False, False]
+    short, rej = _style_pieces(p, d, z, z.astype(bool))
+    assert short.tolist() == [0.0, 300.0] and rej.tolist() == [0.0, 0.0]  # A's 200 extra cannot cover B
+
+
+def test_material_comes_from_the_delivery_orders_fabric_rates():
+    from bunon import programme as pg
+    s = next(x for x in pg.load_styles() if x.style_id == "S05")  # 7/16 only
+    assert s.qty_by_range == {"7/16": 600}
+    assert pg.fabric_kg_per_piece(s) == pytest.approx(1.40 / 12 * 1.02)
+    assert pg.material_bdt_per_piece(s) == pytest.approx(1.40 / 12 * 1.02 * C.FABRIC_BDT_PER_KG + C.TRIMS_BDT_PER_PIECE)
 
 
 def test_running_style_split_is_disabled():
@@ -135,36 +149,38 @@ def test_rescue_moves_only_unstarted_whole_styles(loop_case):
     new_at = {ln.factory_id: {s for s, _ in ln.styles} for ln in mv.replan.new.plan.lines}
     assert started <= new_at[fc.factory_id]
     assert sorted(s for v in new_at.values() for s in v) == [f"S{i:02d}" for i in range(1, 11)]  # still whole
-    assert mv.p_after > fc.p_after
+    assert mv.quality_cost_bdt < opts["accept_shortfall"].quality_cost_bdt  # moving saves short pieces
     assert not opts["split_running"].allowed and C.RESCUE_SPLIT_RUNNING_STYLE is False
 
 
-def test_accept_shortfall_is_judged_per_style_and_renegotiation_names_the_days(loop_case):
+def test_shipping_short_is_always_possible_and_renegotiation_names_the_days(loop_case):
+    """D31: tolerance is not a gate; shipping short on the date is always an option, priced."""
     from bunon import loop as lp
     world, b, reqs, pt, split, fc = loop_case
     opts = {o.kind: o for o in lp.rescue_options(world, b, pt, split, fc, [], lp.UPDATE_DAY)}
-    rows = lp.projected_by_style(pt, fc.projections)
-    assert opts["accept_shortfall"].allowed == all(got >= need for _, _, got, need in rows)
+    assert opts["accept_shortfall"].allowed and opts["accept_shortfall"].quality_cost_bdt > 0
     days = lp.renegotiate_days(fc)
     assert days == -(-fc.shortfall // int(fc.rate_seen)) or days == max(1, -(-fc.shortfall // fc.rate_seen))
     assert f"{days} more days" in opts["renegotiate_date"].note
-    assert opts["renegotiate_date"].p_after > fc.p_after
+    assert opts["renegotiate_date"].p_after >= fc.p_after
 
 
 def test_published_demo_numbers():
-    """The programme demo's numbers (SPEC.md D30) as published in README.md, SPEC.md and the video notes. If this
-    fails, the engine or the fixture changed: update those documents (and re-warm the cache), never the other way
-    round."""
-    from bunon import config as C
+    """The programme demo's numbers (SPEC.md D30, D31) as published in README.md, SPEC.md and VIDEO_NOTES.md. If
+    this fails, the engine, the calibration or the fixture changed: update those documents (and re-warm the cache),
+    never the other way round."""
+    from bunon import calibrate as cal
     from bunon import loop as lp
     from bunon import personas as ps
     from bunon import service as sv
-    assert C.DEMO_PROGRAMME
+    assert C.DEMO_PROGRAMME and cal.load() == {"late_mult": 0.1828, "shock_mult": 1.0}
     world = op.load_world()
     b = sv.compute_plans(world, op.demo_order(), sv.PlanSettings(), n_compliant=442)
-    assert b.order.subcontract_qty == 16_800 and b.rec.buffer_pct == 0.2
-    assert b.rec.risk.p_meet_qty == pytest.approx(0.320, abs=0.0005)
-    assert round(b.rec.plan.cost_total) == 2_653_954
+    assert b.order.subcontract_qty == 16_800 and b.rec.buffer_pct == 0.0
+    assert b.rec.risk.p_meet_qty == pytest.approx(0.9212, abs=0.0005)
+    assert b.comp["baseline"].risk.p_meet_qty == pytest.approx(0.900, abs=0.0005)  # the calibration anchor
+    assert round(b.rec.plan.cost_total) == 1_765_173
+    assert round(op.quality_cost_bdt(b.rec.risk, b.params)) == 233_571
     pf = ps.load()
     offers = []
     for r in lp.sourcing_list(b):
@@ -172,28 +188,32 @@ def test_published_demo_numbers():
         e = m[0].expected if m else None
         offers.append(lp.OfferTerms(r.factory_id, e.decision if e else "none", e.qty if e else None,
                                     e.delay_days if e else None, r.qty, e.price_bdt_per_piece if e else None))
+    assert [r.factory_id for r in lp.sourcing_list(b)] == ["F0288", "F1558", "F2314"]
     res, cands = lp.split_from_offers(world, b, offers)
     pt = res.recommended
-    assert pt.risk.p_meet_qty == pytest.approx(0.320, abs=0.0005)
+    assert pt.risk.p_meet_qty == pytest.approx(0.9212, abs=0.0005)
     assert {ln.factory_id: (ln.qty, [s for s, _ in ln.styles]) for ln in pt.plan.lines} == {
-        "F0288": (8_424, ["S01", "S02", "S04", "S10"]), "F2427": (8_280, ["S05", "S06", "S07", "S08"]),
-        "F2786": (3_456, ["S03", "S09"])}
-    fc = lp.forecast_from_updates(world, b, pt, cands, [lp.Update("F2427", 2_000, 1, lp.UPDATE_DAY)])[0]
-    assert (fc.projected, fc.shortfall) == (6_000, 2_280) and fc.p_after == 0.0
-    assert lp.warning_level(fc, b.settings.target) == "below target"
+        "F0288": (10_080, ["S02", "S04", "S05", "S07", "S08", "S10"]), "F1558": (6_720, ["S01", "S03", "S06", "S09"])}
+    fc = lp.forecast_from_updates(world, b, pt, cands, [lp.Update("F1558", 1_800, 1, lp.UPDATE_DAY, 42, 60)])[0]
+    assert (fc.projected, fc.shortfall) == (5_400, 1_320) and round(fc.output_ratio, 2) == 0.64
+    assert fc.p_after == pytest.approx(0.9555, abs=0.0005) and lp.warning_level(fc, b.settings.target) == "watch"
     excl = {ln.factory_id for ln in pt.plan.lines}
-    assert lp.last_style_rescue_day(world, b, pt, fc, excl, today=lp.UPDATE_DAY) == (13, "F2829")
+    assert lp.last_style_rescue_day(world, b, pt, fc, excl, today=lp.UPDATE_DAY) == (12, "F2829")
     opts = {o.kind: o for o in lp.rescue_options(world, b, pt, cands, fc, [], lp.UPDATE_DAY)}
-    assert opts["move"].note == "S07 to F2829 (+2,304 pcs)"
-    assert opts["move"].p_after == pytest.approx(0.431, abs=0.0005) and round(opts["move"].cost_delta_bdt) == 40_563
-    assert opts["surge"].note.startswith("F2427 +600") and opts["surge"].p_after == 0.0
-    assert not opts["accept_shortfall"].allowed
-    assert "6 more days" in opts["renegotiate_date"].note
-    assert opts["renegotiate_date"].p_after == pytest.approx(0.549, abs=0.0005)
-    # Day 14: F0288's late fabric; by then no outside factory can take a whole unstarted style any more.
-    fcs = lp.forecast_from_updates(world, b, pt, cands, [lp.Update("F2427", 2_000, 1, lp.UPDATE_DAY),
+    assert opts["move"].note == "S03, S09 to F2829 (+2,880 pcs)"
+    assert opts["move"].p_after == pytest.approx(0.9182, abs=0.0005) and round(opts["move"].cost_delta_bdt) == 29_928
+    assert round(opts["move"].quality_cost_bdt) == 191_070
+    assert round(opts["accept_shortfall"].quality_cost_bdt) == 541_303 and opts["accept_shortfall"].allowed
+    assert opts["surge"].note.startswith("F1558 +540") and round(opts["surge"].quality_cost_bdt) == 385_453
+    assert "4 more days" in opts["renegotiate_date"].note
+    assert opts["renegotiate_date"].p_after == pytest.approx(0.9777, abs=0.0005)
+    # Day 14: F0288's late fabric; by then no outside factory can take whole unstarted styles any more.
+    fcs = lp.forecast_from_updates(world, b, pt, cands, [lp.Update("F1558", 1_800, 1, lp.UPDATE_DAY, 42, 60),
                                                          lp.Update("F0288", 2_600, 2, lp.UPDATE_DAY2)])
-    assert {f.factory_id: (f.projected, f.shortfall) for f in fcs} == {"F2427": (6_000, 2_280), "F0288": (6_240, 2_184)}
+    assert {f.factory_id: (f.projected, f.shortfall) for f in fcs} == {"F0288": (6_240, 3_840), "F1558": (5_400, 1_320)}
     assert lp.last_style_rescue_day(world, b, pt, fcs[0], excl, today=lp.UPDATE_DAY2) == (None, None)
-    day14 = {o.kind: o for o in lp.rescue_options(world, b, pt, cands, fcs[0], [], lp.UPDATE_DAY2)}
-    assert not day14["move"].allowed
+    # New entrant: one trial style, priced, not chosen automatically
+    assert [c.factory_id for c in sv.new_entrants(b)] == ["F0882"]
+    sid, bp = sv.trial_style(world, b, "F0882")
+    assert sid == "S10" and bp.risk.p_meet_qty == pytest.approx(0.8884, abs=0.0005)
+    assert round(bp.plan.cost_total - b.rec.plan.cost_total) == 33_840

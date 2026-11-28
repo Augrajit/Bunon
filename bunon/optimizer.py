@@ -34,13 +34,21 @@ class World:
     shocks: ShockParams
 
 
-def load_world(db: Path = C.PUBLIC_DB) -> World:
+def load_world(db: Path = C.PUBLIC_DB, calibrated: bool = True) -> World:
+    """Data + fitted model. `calibrated`: apply data/calibration.json (SPEC.md D31: lateness and shock frequency
+    calibrated to the interview's base rate; `python -m bunon.calibrate`)."""
     d = load_public(db)
     f = d["factories"].merge(d["factory_synth"], on="factory_id")
     for col in ("tee_capable", "compliant", "rsc", "bsci_valid"):
         f[col] = f[col].astype(bool)
     ids = f["factory_id"].tolist()
-    return World(factories=f, forecasts=rl.fit(d["history"], ids), shocks=rl.estimate_shocks(d["history"], f))
+    w = World(factories=f, forecasts=rl.fit(d["history"], ids), shocks=rl.estimate_shocks(d["history"], f))
+    if calibrated:
+        from bunon import calibrate as cal
+        c = cal.load()
+        if c != cal.IDENTITY:
+            w = cal.apply(w, c["late_mult"], c["shock_mult"])
+    return w
 
 
 def demo_order() -> OrderConstraints:
@@ -71,13 +79,29 @@ def missing_piece_cost_bdt(order: OrderConstraints) -> float:
     return loss_on_failure_bdt(order) / order.subcontract_qty if order.subcontract_qty else 0.0
 
 
+def _style_material(order: OrderConstraints) -> dict[str, float]:
+    from bunon import programme as pg
+    return {st.style_id: pg.material_bdt_per_piece(st) for st in order.styles}
+
+
+def quality_cost_bdt(risk: BundleRisk | None, params: OptimizerParams) -> float:
+    """D31: expected cost of short pieces and rejects when the programme ships: lost revenue on every good piece
+    short of a style's quantity, less what the rejects fetch when sold at a loss (salvage)."""
+    if risk is None:
+        return 0.0
+    return (risk.expected_short_pcs * params.short_piece_value_bdt
+            - risk.expected_reject_pcs * C.REJECT_SALVAGE_BDT_PER_PIECE)
+
+
 def default_params(order: OrderConstraints, **kw) -> OptimizerParams:
     base = dict(planned_slack_days=C.PLANNED_SLACK_DAYS, max_factories=C.MAX_FACTORIES,
                 unproven_cap_pct=C.UNPROVEN_CAP_PCT, max_district_share=C.DISTRICT_CAP_SHARE, lot_size=C.LOT_SIZE,
                 tolerance_pct=C.DELIVERY_TOLERANCE_PCT, min_buffer_pct=C.SAFETY_MARGIN_DEFAULT_PCT,
                 missing_piece_cost_bdt=missing_piece_cost_bdt(order),
                 fixed_cost_per_factory_bdt=C.FIXED_COST_PER_FACTORY_BDT,
-                styles=[(st.style_id, st.qty) for st in order.styles])
+                styles=[(st.style_id, st.qty) for st in order.styles],
+                style_material_bdt=_style_material(order),
+                short_piece_value_bdt=(order.fob_usd_per_piece or C.DEMO_FOB_USD) * C.USD_BDT)
     base.update(kw)
     return OptimizerParams(**base)
 
@@ -88,6 +112,13 @@ def haversine_km(lat, lng, lat0, lng0):
     lat, lng, lat0, lng0 = map(np.radians, (lat, lng, lat0, lng0))
     a = np.sin((lat - lat0) / 2) ** 2 + np.cos(lat) * np.cos(lat0) * np.sin((lng - lng0) / 2) ** 2
     return 2 * 6371.0 * np.arcsin(np.sqrt(a))
+
+
+def risk_terms(fc: ReliabilityForecast, slack: int, fill_mult: float = 1.0) -> dict:
+    """D31 risk of one factory: p_fail = late beyond its slack (a later finish than the latest one is late for
+    sure) or a catastrophe; short_share = expected share of its pieces not delivered good."""
+    p_on = rl.p_on_time(fc, slack) if slack >= 0 else 0.0
+    return {"p_fail": 1 - p_on * (1 - fc.p_catastrophe), "short_share": 1 - fc.fill_mean * fill_mult * fc.good_share}
 
 
 def build_candidates(world: World, order: OrderConstraints, params: OptimizerParams,
@@ -101,6 +132,8 @@ def build_candidates(world: World, order: OrderConstraints, params: OptimizerPar
     f = f[~f["factory_id"].isin(params.excluded_ids)]
     road_km = haversine_km(f["lat"], f["lng"], *C.DELIVERY_POINT_LATLNG) * C.ROAD_CIRCUITY
     S = params.planned_slack_days
+    from bunon import profiles as pf
+    profs = pf.load()
     out = []
     for row, km in zip(f.itertuples(index=False), road_km):
         transit = int(math.ceil(km / C.ROAD_KM_PER_DAY)) + 1
@@ -112,6 +145,8 @@ def build_candidates(world: World, order: OrderConstraints, params: OptimizerPar
         if cap_declared < row.min_batch:
             continue
         fc = world.forecasts[row.factory_id]
+        if fc.n_jobs == 0 and not pf.eligible_new_entrant(profs.get(row.factory_id)):
+            continue  # D31: no history and nobody vouches / no recent site visit: not a candidate
         cap_risk = int(cap_declared * fc.fill_mean // params.lot_size * params.lot_size)
         out.append(Candidate(
             factory_id=row.factory_id, district=row.district,
@@ -120,7 +155,9 @@ def build_candidates(world: World, order: OrderConstraints, params: OptimizerPar
             transit_days=transit, slack_days=S, window_days=window,
             window_capacity_declared=cap_declared, window_capacity_risk_adj=cap_risk,
             min_batch=int(row.min_batch), proven=not fc.thin_history,
-            q_effective=fc.fill_mean * rl.p_on_time(fc, S) * fc.good_share,
+            q_effective=fc.fill_mean * rl.p_on_time(fc, S) * fc.good_share, **risk_terms(fc, S),
+            workers=int(row.workers), qc_defect=fc.qc_defect_mean,
+            capability=int(bool(row.has_printing)) + int(bool(row.has_knitting)) + int(bool(row.has_dyeing)),
         ))
     return out
 
@@ -158,7 +195,11 @@ def make_plan(method: str, qty: dict[str, int], cands: dict[str, Candidate], Q: 
     ) for i, q in sorted(qty.items(), key=lambda kv: (-kv[1], kv[0]))]
     prod = sum(ln.unit_price_bdt * ln.qty for ln in lines)
     trans = sum(ln.transport_bdt for ln in lines)
-    mat = C.MATERIAL_COST_BDT_PER_PIECE * total
+    if styles is not None and params.style_material_bdt:  # D31: material per style from the delivery orders
+        mat = sum(params.style_material_bdt.get(s, C.MATERIAL_COST_BDT_PER_PIECE) * q
+                  for sts in styles.values() for s, q in sts)
+    else:
+        mat = C.MATERIAL_COST_BDT_PER_PIECE * total
     fixed = params.fixed_cost_per_factory_bdt * len(lines)
     buffer_qty = max(0, total - Q)
     avg_piece = (prod + trans + mat) / total if total else 0.0
@@ -170,7 +211,8 @@ def make_plan(method: str, qty: dict[str, int], cands: dict[str, Candidate], Q: 
         cost_buffer=buffer_qty * (avg_piece - C.SURPLUS_SALVAGE_BDT_PER_PIECE),
         cost_risk_penalty=sum(ln.risk_penalty_bdt for ln in lines),
         cost_total=prod + mat + trans + fixed,
-        style_min_good=style_min_good(params) if params.styles else {}, **extra)
+        style_min_good=style_min_good(params) if params.styles else {},
+        style_qty=dict(params.styles), **extra)
 
 
 def solve_mip(cands: list[Candidate], Q: int, params: OptimizerParams, time_limit: int = 30,
@@ -183,7 +225,8 @@ def solve_mip(cands: list[Candidate], Q: int, params: OptimizerParams, time_limi
     t0 = time.perf_counter()
     if naive:
         cands = [c.model_copy(update={"window_capacity_risk_adj": c.window_capacity_declared // params.lot_size
-                                      * params.lot_size, "q_effective": 1.0, "proven": True}) for c in cands]
+                                      * params.lot_size, "q_effective": 1.0, "proven": True,
+                                      "p_fail": 0.0, "short_share": 0.0}) for c in cands]
     if params.styles:
         return _solve_styles(cands, Q, params, time_limit, naive, t0)
     by_id = {c.factory_id: c for c in cands}
@@ -268,9 +311,14 @@ def _solve_styles(cands: list[Candidate], Q: int, params: OptimizerParams, time_
          for s in order for c in use if cut[s] <= c.window_capacity_risk_adj}
     y = {c.factory_id: pulp.LpVariable(f"y_{c.factory_id}", cat="Binary") for c in use}
     x = {c.factory_id: pulp.lpSum(cut[s] * a[s, c.factory_id] for s in order if (s, c.factory_id) in a) for c in use}
+    # D31: one late or failed factory cancels the programme, so each factory used costs its p_fail x the loss on
+    # failure; each piece costs its expected shortfall at the revenue a short piece loses.
+    loss = L * Q
+    V = params.short_piece_value_bdt
     unit = {c.factory_id: c.unit_price_bdt + C.MATERIAL_COST_BDT_PER_PIECE + c.transport_bdt_per_piece
-            + L * (1 - c.q_effective) for c in use}
-    prob += pulp.lpSum(unit[i] * x[i] for i in x) + params.fixed_cost_per_factory_bdt * pulp.lpSum(y.values())
+            + V * c.short_share for c in use}
+    prob += (pulp.lpSum(unit[i] * x[i] for i in x)
+             + pulp.lpSum((params.fixed_cost_per_factory_bdt + loss * c.p_fail) * y[c.factory_id] for c in use))
     for s in order:
         prob += pulp.lpSum(v for (t, _), v in a.items() if t == s) == 1, f"one_{s}"           # whole style
         if s in params.locked_styles:
@@ -378,19 +426,23 @@ def search_buffer(world: World, order: OrderConstraints, params: OptimizerParams
         risk = (evaluate(plan, cands, world, shocks, n_sims, seed, partial_lots, events)
                 if plan.status == "optimal" else None)
         frontier.append(BufferPoint(buffer_pct=b, plan=plan, risk=risk))
-    return _pick(frontier, target_p)
+    return _pick(frontier, target_p, params)
 
 
-def _pick(frontier: list[BufferPoint], target_p: float) -> PlanResult:
-    """The cheapest plan that reaches the target, else the most likely one."""
+def _pick(frontier: list[BufferPoint], target_p: float, params: OptimizerParams | None = None) -> PlanResult:
+    """The cheapest plan that reaches the target, else the most likely one. Whole styles (D31): "cheapest" counts
+    the expected cost of short pieces and rejects as well as the cash cost, so the over-cut is priced."""
+    def cost(p: BufferPoint) -> float:
+        extra = quality_cost_bdt(p.risk, params) if params is not None and params.styles else 0.0
+        return p.plan.cost_total + extra
     ok = [p for p in frontier if p.risk and p.risk.p_meet_qty >= target_p]
     if ok:
-        rec, met = min(ok, key=lambda p: p.plan.cost_total), True
+        rec, met = min(ok, key=cost), True
     else:
         solved = [p for p in frontier if p.risk]
         if not solved:
             return PlanResult(recommended=frontier[0], frontier=frontier, target_p=target_p, target_met=False)
-        rec, met = max(solved, key=lambda p: (p.risk.p_meet_qty, -p.plan.cost_total)), False
+        rec, met = max(solved, key=lambda p: (round(p.risk.p_meet_qty, 3), -cost(p))), False
     return PlanResult(recommended=rec, frontier=frontier, target_p=target_p, target_met=met)
 
 
@@ -522,7 +574,7 @@ def replan_from_reply(world: World, order: OrderConstraints, params: OptimizerPa
              else fc.fill_mean * max(0.0, (c.window_days + slack) / c.window_days)) * fc.good_share
     changed = c.model_copy(update={"slack_days": slack, "window_capacity_risk_adj": agreed,
                                    "window_capacity_declared": agreed, "min_batch": min(c.min_batch, agreed),
-                                   "q_effective": q_eff})
+                                   "q_effective": q_eff, **risk_terms(fc, slack)})
     cands = ([changed] + [original[f] for f in locked if f != factory_id and f in original]
              + [x for f, x in later.items() if f not in locked])
     new = search_buffer(world, order, p2, target_p, shocks=shocks, partial_lots=partial_lots, cands=cands).recommended
@@ -576,7 +628,8 @@ def adjust_for_events(cands: list[Candidate], world: World, events: list[ShockEv
         cap = int(c.window_capacity_risk_adj * cap_share) // 100 * 100
         if cap < c.min_batch:
             continue  # cannot produce a minimum batch any more
-        out.append(c.model_copy(update={"slack_days": slack, "window_capacity_risk_adj": cap, "q_effective": q}))
+        out.append(c.model_copy(update={"slack_days": slack, "window_capacity_risk_adj": cap, "q_effective": q,
+                                        **risk_terms(fc, slack, mult)}))
     return out
 
 
@@ -594,7 +647,7 @@ def search_with_events(world: World, order: OrderConstraints, params: OptimizerP
     frontier = [BufferPoint(buffer_pct=pt.buffer_pct, plan=pt.plan,
                             risk=evaluate(pt.plan, cands, world, shocks, partial_lots=partial_lots, events=events)
                             if pt.plan.status == "optimal" else None) for pt in res.frontier]
-    return _pick(frontier, target_p), adj
+    return _pick(frontier, target_p, params), adj
 
 
 def assess_news(world: World, order: OrderConstraints, params: OptimizerParams, current: BufferPoint,

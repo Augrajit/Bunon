@@ -17,7 +17,7 @@ pytestmark = pytest.mark.skipif(not C.PUBLIC_DB.exists(), reason="run `python -m
 
 @pytest.fixture(scope="module")
 def world():
-    return op.load_world()
+    return op.load_world(C.PIECE_REGRESSION_DB, calibrated=False)
 
 
 @pytest.fixture(scope="module")
@@ -203,7 +203,7 @@ def test_replan_can_be_infeasible_and_says_so():
     January order has a shorter window, so the case is now: max 4 factories, the largest factory declines
     on day 12. No plan covers the order; the result must carry no risk (the app shows 'No feasible
     re-plan' instead of crashing)."""
-    w = op.load_world()
+    w = op.load_world(C.PIECE_REGRESSION_DB, calibrated=False)
     order = op.piece_demo_order()
     p = op.default_params(order, max_factories=4)
     rec = op.compare_three(w, order, p)["ours"].recommended

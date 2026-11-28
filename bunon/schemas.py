@@ -97,6 +97,7 @@ class StyleOrder(_Strict):
     item: str = ""
     ranges: list[str] = []
     colours: list[str] = []
+    qty_by_range: dict[str, int] = {}   # pieces per size range (from the delivery order's breakdown)
 
 
 class OrderConstraints(_Strict):
@@ -217,6 +218,14 @@ class Candidate(_Strict):
     min_batch: int
     proven: bool
     q_effective: float
+    # D31, whole styles: the chance this factory is late beyond its slack or fails outright (either cancels the
+    # programme), and the expected share of its pieces that are short or rejected (a cost).
+    p_fail: float = 0.0
+    short_share: float = 0.0
+    # D31 ranking inputs (capacity, then workers, then capability, then quality)
+    workers: int = 0
+    capability: int = 0       # in-house printing + knitting + dyeing (0-3)
+    qc_defect: float = 0.0
 
 
 class OptimizerParams(_Strict):
@@ -237,6 +246,8 @@ class OptimizerParams(_Strict):
     # factory and the buffer is an over-cut within each style. Empty = the piece split.
     styles: list[tuple[str, int]] = []
     locked_styles: dict[str, str] = {}   # style_id -> factory_id it must stay at (re-plans)
+    style_material_bdt: dict[str, float] = {}  # D31: exporter-supplied material per piece of each style
+    short_piece_value_bdt: float = 0.0         # D31: revenue lost per good piece short (FOB x exchange rate)
 
 
 class AllocationLine(_Strict):
@@ -256,7 +267,8 @@ class AllocationPlan(_Strict):
     lines: list[AllocationLine]
     target_qty: int
     min_good_qty: int | None = None   # success threshold: good pieces >= this (None = target_qty)
-    style_min_good: dict[str, int] = {}  # whole-style mode: every style needs good pieces >= this (D30)
+    style_min_good: dict[str, int] = {}  # whole-style mode: per-style tolerance threshold (D30; not a gate since D31)
+    style_qty: dict[str, int] = {}       # whole-style mode: each style's order quantity
     total_allocated: int
     buffer_qty: int
     cost_production: float     # CM (cut-make) price paid to subcontractors
@@ -288,6 +300,10 @@ class BundleRisk(_Strict):
     histogram: list[tuple[int, int]]
     fail_contribution: dict[str, float]
     correlation_mode: Literal["independent", "shocks"]
+    # Whole styles, D31: success = every factory ships by its date (lateness cancels the programme); short pieces
+    # and rejects are a COST. Expected over the successful runs (the programme ships), per programme.
+    expected_short_pcs: float = 0.0    # good pieces below each style's order quantity, summed over styles
+    expected_reject_pcs: float = 0.0   # pieces rejected at QC (whole lots included), sold at the salvage value
 
 
 class BufferPoint(_Strict):

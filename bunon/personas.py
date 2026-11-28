@@ -42,6 +42,8 @@ class Expected(_Strict):
     ship_date: date | None = None                       # a calendar date stated in the message
     pieces_done: int | None = Field(None, ge=0)         # progress_update: cumulative pieces finished
     delay_days: int | None = Field(None, ge=0)          # progress_update / offer: days late
+    workers_present: int | None = Field(None, ge=0)     # progress_update: workers who came (D31)
+    workers_planned: int | None = Field(None, ge=0)     # progress_update: workers planned (D31)
     cause: str | None = None                            # free words: "power cut", "fabric late", ...
     note: str | None = None                             # anything else the parser should notice
 
@@ -106,7 +108,8 @@ def validate(pf: PersonaFile) -> list[str]:
     for p in pf.personas:
         for m in p.messages:
             e = m.expected
-            for name in ("qty", "price_bdt_per_piece", "pieces_done", "delay_days"):
+            for name in ("qty", "price_bdt_per_piece", "pieces_done", "delay_days", "workers_present",
+                         "workers_planned"):
                 v = getattr(e, name)
                 if v is not None and not tn.states_number(m.text, float(v)):
                     out.append(f"{m.msg_id}: expected.{name} = {v} is not written in the text "

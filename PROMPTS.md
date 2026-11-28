@@ -143,7 +143,10 @@ Source: `bunon/agent.py` (`NEWS_PROMPT`, schema `NewsLLM`). The prompt lists the
 - **Optional facts (D22):** with several updates `warn.others` and `warn.order_shortfall`; after an earlier forecast `warn.p_prev`. They are required when present and absent otherwise, so the one-update prompt is unchanged.
 - **Checks in code:** `check_text`, required placeholders, a vague-amount list ("some", "a few", "several", "many") → one retry → the fixed template in placeholder form.
 
-### A2e. `update_v1`: a factory's daily progress update → pieces finished, days late, reason
+### A2e. `update_v1` → `update_v2`: a factory's daily progress update → pieces finished, days late, workers present / planned, reason
+
+`update_v2` (D31) adds `workers_present` and `workers_planned`. They are read under the same quote rule, and the Banglish hints "jon", "aisilo", "ashe nai" and "kom" were added. An answer without them still parses (both null).
+
 
 - **Where:** `agent.parse_update` (SPEC.md D14). Input: the update text and the factory's allocated pieces (as context).
 - **Output (JSON schema):** status (`on_track` / `delayed` / `unclear`) with a quote; `pieces_done` and `delay_days`, each a number with a quote, or null; `cause` in plain English with a quote.

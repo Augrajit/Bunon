@@ -39,8 +39,8 @@ def test_jump_to_the_second_update_shows_the_combined_forecast(monkeypatch, tmp_
     assert not r.problems, "\n".join(r.problems)
     assert any("Day 14 · Daily updates" in h.value for h in at.header)
     table = next(df.value for df in at.dataframe if "Pieces by its ship-by day" in df.value.columns)
-    assert list(table["Factory"]) == ["F2427", "F0288"], table  # both late; the order's chance is simulated once
-    assert list(table["Short"]) == ["2,280", "2,184"]
+    assert list(table["Factory"]) == ["F0288", "F1558"], table  # both late; the order's chance is simulated once
+    assert list(table["Short"]) == ["3,840", "1,320"]
     assert any("2 factories sent updates" in m.value for m in at.markdown)
     assert any(h.value.startswith("Day 14 · Rescue") for h in at.header)
     log = _log(at)

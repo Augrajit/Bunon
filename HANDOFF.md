@@ -126,11 +126,26 @@ Real order documents (27 Nov 2026, DOCS_PROPOSAL.md, approved order §a → §f 
     - The memo and the warning do not mention styles yet. They cite factories and pieces, which is correct but less clear.
     - "Show the maths" scripted factory replies (`factory_replies.json`) are for the old factories and are skipped (not in the plan).
     - QC and the track record work per factory, not per style.
-    - **Open question:** a 2-factory cap gives 41.7% against the default plan's 32.0% (SPEC D30 finding): the optimiser takes the cheapest plan per over-cut, not the most likely. Ask the product owner whether to change that when the target cannot be met.
+    - ~~Open question (cheapest vs most likely plan)~~: superseded by D31; the default plan now meets the target.
   - **Known behaviour:**
     - If the largest factory declines, the split over the remaining repliers can be infeasible because of the district cap; the re-plan step (new factories) handles it.
     - The renegotiate-date chance assumes the buyer agrees.
 - **Then §b intake, §c cross-document checks, §d evaluation, §g past-order library.**
+
+Interview calibration (28 Nov 2026, SPEC.md D31; done and merged):
+- **Success rule (whole styles):** ship by the buyer's date. Short pieces and rejects are a cost. Tolerance is not a gate.
+- **Calibration:** lateness is calibrated so the naive plan succeeds 90% of the time (placeholder anchor).
+  - Re-run `python -m bunon.calibrate --target <T>` when the interviewee gives a figure, then `python -m bunon.sensitivity`, re-pin `test_published_demo_numbers`, update README/VIDEO_NOTES/SPEC and re-warm the cache.
+  - `BUNON_CALIBRATION=0` switches it off.
+- **Interview values:** QC 3.5% and lot rejection 0.5% are set in the generator (DB regenerated; only the QC columns changed). Material per style comes from the delivery orders' fabric rates.
+- **Daily update:** attendance (`update_v2`), the output-vs-target warning signal, and the **floor representative** role (cannot approve) with the mismatch flag.
+- **Ranking and new entrants:** ranking by capacity, workers, capability, quality. New entrant F0882 (simulated profile) with a priced trial style.
+- **Piece-split regression:** these tests run on `tests/fixtures/bunon_pre_d31.db`, uncalibrated.
+- **Open:**
+  - the team's persona text (brief at the top of `PERSONAS_GUIDE.md`, including the floor count and F0882's profile);
+  - research asks 24–29 (the failure base rate first);
+  - at a 95% anchor Bunon is 0.3 points below the naive plan, because correlated shocks are not in the optimiser's per-factory risk term (reported in SPEC D31; a possible next step is to add shock exposure to the risk term);
+  - the memo still does not mention styles or the quality cost.
 
 Open questions for the product owner:
 - Gemini tier of the current key (AI Studio); paid tier needed for any real-user test with real messages.

@@ -60,7 +60,7 @@
   },
   {
    "persona_id": "quick_banglish",
-   "factory_id": "F2427",
+   "factory_id": "F1558",
    "label": "Banglish, fast, over-promises",
    "language": "Banglish",
    "profile": "over_promises",
@@ -71,10 +71,10 @@
      "story_day": 2,
      "kind": "offer_reply",
      "placeholder": true,
-     "text": "Bhai 8,280 pcs nibo, sob style, kono tension nai, time moto dibo.",
+     "text": "Bhai 6,720 pcs nibo, sob style, kono tension nai, time moto dibo.",
      "expected": {
       "decision": "accept",
-      "qty": 8280
+      "qty": 6720
      }
     },
     {
@@ -82,11 +82,13 @@
      "story_day": 12,
      "kind": "progress_update",
      "placeholder": true,
-     "text": "Bhai update: aj porjonto 2,000 pcs ready hoise. Line e current nai, 1 din late hobe.",
+     "text": "Bhai update: aj porjonto 1,800 pcs ready hoise. 60 jon operator er moddhe 42 jon aisilo, productivity kom, 1 din late hobe.",
      "expected": {
-      "pieces_done": 2000,
+      "pieces_done": 1800,
       "delay_days": 1,
-      "cause": "power cut"
+      "workers_present": 42,
+      "workers_planned": 60,
+      "cause": "worker absence and low productivity"
      }
     }
    ]
@@ -146,10 +148,10 @@
      "story_day": 2,
      "kind": "offer_reply",
      "placeholder": true,
-     "text": "ok. 8,424 pcs confirmed.",
+     "text": "ok. 10,080 pcs confirmed.",
      "expected": {
       "decision": "accept",
-      "qty": 8424
+      "qty": 10080
      }
     },
     {
@@ -168,7 +170,7 @@
   },
   {
    "persona_id": "standby_en",
-   "factory_id": "F2829",
+   "factory_id": "F2314",
    "label": "English, standby factory outside the first plan",
    "language": "English",
    "profile": "reliable",
@@ -179,11 +181,10 @@
      "story_day": 2,
      "kind": "offer_reply",
      "placeholder": true,
-     "text": "Hello, we can take up to 15,200 pcs basic tee for this order and deliver on time. Rate 60 BDT per piece.",
+     "text": "Hello, we can take up to 15,300 pcs of kids tees for this order and deliver on time.",
      "expected": {
       "decision": "accept",
-      "qty": 15200,
-      "price_bdt_per_piece": 60
+      "qty": 15300
      }
     },
     {
@@ -197,6 +198,26 @@
      }
     }
    ]
+  },
+  {
+   "persona_id": "rescue_en",
+   "factory_id": "F2829",
+   "label": "English, takes rescue work",
+   "language": "English",
+   "profile": "reliable",
+   "style_notes": "PLACEHOLDER (developer, D31): the factory the day-12 move goes to.",
+   "messages": [
+    {
+     "msg_id": "rescue_en_rescue",
+     "story_day": 13,
+     "kind": "rescue_reply",
+     "placeholder": true,
+     "text": "Yes, we can take both styles you asked for and finish them on time.",
+     "expected": {
+      "decision": "accept"
+     }
+    }
+   ]
   }
  ],
  "qc_script": [
@@ -204,28 +225,28 @@
    "factory_id": "F0288",
    "story_day": 25,
    "delivered_share": 0.97,
-   "reject_share": 0.015,
+   "reject_share": 0.035,
    "placeholder": true
   },
   {
-   "factory_id": "F2427",
+   "factory_id": "F1558",
    "story_day": 26,
    "delivered_share": 1.0,
-   "reject_share": 0.031,
+   "reject_share": 0.04,
    "placeholder": true
   },
   {
-   "factory_id": "F2786",
-   "story_day": 25,
+   "factory_id": "F2314",
+   "story_day": 24,
    "delivered_share": 1.0,
-   "reject_share": 0.018,
+   "reject_share": 0.03,
    "placeholder": true
   },
   {
    "factory_id": "F2829",
    "story_day": 24,
    "delivered_share": 1.0,
-   "reject_share": 0.009,
+   "reject_share": 0.03,
    "placeholder": true
   }
  ]

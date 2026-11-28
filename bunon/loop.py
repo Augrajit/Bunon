@@ -53,7 +53,8 @@ def sourcing_list(b, n_standby: int = 1) -> list[Request]:
             for ln in sorted(b.rec.plan.lines, key=lambda ln: (-ln.qty, ln.factory_id))]
     planned = {r.factory_id for r in reqs}
     spare = sorted((c for c in b.cands if c.factory_id not in planned and c.proven),
-                   key=lambda c: (-(c.q_effective * c.window_capacity_risk_adj), c.factory_id))
+                   key=rank_key if b.params.styles else
+                   (lambda c: (-(c.q_effective * c.window_capacity_risk_adj), c.factory_id)))
     reqs += [Request(c.factory_id, c.window_capacity_risk_adj, finish(c), "standby") for c in spare[:n_standby]]
     return reqs
 
@@ -154,7 +155,8 @@ def split_from_offers(world: op.World, b, offers: list[OfferTerms]) -> tuple[Pla
         q_eff = (fc.fill_mean * rl.p_on_time(fc, slack) if slack >= 0
                  else fc.fill_mean * max(0.0, (c.window_days + slack) / c.window_days)) * fc.good_share
         upd = {"window_capacity_risk_adj": cap, "window_capacity_declared": cap,
-               "min_batch": min(c.min_batch, cap), "slack_days": slack, "q_effective": q_eff}
+               "min_batch": min(c.min_batch, cap), "slack_days": slack, "q_effective": q_eff,
+               **op.risk_terms(fc, slack)}
         if o.price is not None:  # the factory's quoted rate replaces our synthetic rate for it
             upd["unit_price_bdt"] = float(o.price)
         cands.append(c.model_copy(update=upd))
@@ -189,6 +191,21 @@ class Forecast:
     days_left: int = 0        # production days left at the rate seen (after the stated delay)
     # other factories with an update, taken as certain at their projection too: (factory_id, projected, shortfall)
     others: tuple[tuple[str, int, int], ...] = ()
+    # D31: every updated factory's output against its daily target (rate seen / rate planned), and attendance
+    output_ratios: tuple[tuple[str, float], ...] = ()
+    workers_present: int | None = None
+    workers_planned: int | None = None
+    whole_styles: bool = False   # D31: the plan assigns whole styles (the warning signal is output vs target)
+
+    @property
+    def output_ratio(self) -> float:
+        return self.rate_seen / self.rate_plan if self.rate_plan > 0 else 1.0
+
+    @property
+    def behind_target(self) -> bool:
+        """D31 warning signal: some updated factory makes less than OUTPUT_WARN_RATIO of its planned daily output."""
+        ratios = dict(self.output_ratios) or {self.factory_id: self.output_ratio}
+        return any(r < C.OUTPUT_WARN_RATIO - 1e-12 for r in ratios.values())
 
     @property
     def projections(self) -> dict[str, int]:
@@ -217,6 +234,9 @@ class Update:
     pieces_done: int
     delay_days: int | None
     day: int
+    workers_present: int | None = None   # D31: attendance, when reported
+    workers_planned: int | None = None
+    reporter: str = "factory"            # "factory" or "floor_rep" (the exporter's floor representative)
 
 
 def _project(world: op.World, b, point: BufferPoint, cands: list[Candidate], u: Update, start_day: int):
@@ -257,9 +277,11 @@ def forecast_from_updates(world: op.World, b, point: BufferPoint, cands: list[Ca
     out = []
     for f, (u, (planned, rate_plan, rate_seen, projected, shortfall, days_left)) in proj.items():
         others = tuple((g, v[1][3], v[1][4]) for g, v in sorted(proj.items()) if g != f)
+        ratios = tuple((g, v[1][2] / v[1][1] if v[1][1] > 0 else 1.0) for g, v in sorted(proj.items()))
         out.append(Forecast(f, planned, u.pieces_done, day, rate_plan, rate_seen, projected, shortfall,
                             point.risk.p_meet_qty, risk.p_meet_qty, risk.expected_good, risk.min_good_qty,
-                            days_left, others))
+                            days_left, others, ratios, u.workers_present, u.workers_planned,
+                            bool(point.plan.style_qty)))
     return sorted(out, key=lambda fc: (-fc.shortfall, fc.factory_id))
 
 
@@ -302,7 +324,7 @@ def surge_pieces(fc: Forecast) -> int:
 
 def last_style_rescue_day(world: op.World, b, point: BufferPoint, fc: Forecast, exclude: set[str],
                           today: int = 0) -> tuple[int | None, str | None]:
-    """Whole styles (SPEC.md D30): the latest day on which a factory outside the plan could still take the smallest
+    """Whole styles (SPEC.md D30): the latest day on which a factory outside the plan could still take one
     unstarted style of the late factory whole, by the same rule the move uses (a new factory starts that day; its
     risk-adjusted capacity window must hold the style, and the style must reach its minimum batch)."""
     if fc.order_shortfall <= 0:
@@ -310,12 +332,14 @@ def last_style_rescue_day(world: op.World, b, point: BufferPoint, fc: Forecast, 
     left = unstarted_styles(point, fc.factory_id, fc.pieces_done)
     if not left:
         return None, None
-    q = min(c for _, c in left)
+    sizes = [c for _, c in left]
+    # a new factory may take several unstarted styles together (that is how a small style reaches a minimum batch)
+    sums = sorted({sum(q for i, q in enumerate(sizes) if mask >> i & 1) for mask in range(1, 1 << len(sizes))})
     p = b.params.model_copy(update={"excluded_ids": sorted(set(b.params.excluded_ids) | set(exclude))})
     best: tuple[int, str] | None = None
     for d in range(today, deadline_day(b.order) + 1):
         ok = sorted(c.factory_id for c in op.build_candidates(world, b.order, p, as_of=C.AS_OF + timedelta(days=d))
-                    if c.window_capacity_risk_adj >= q and c.min_batch <= q)
+                    if any(c.min_batch <= q <= c.window_capacity_risk_adj for q in sums))
         if not ok:
             break  # windows only shrink with time
         best = (d, ok[-1])
@@ -343,6 +367,17 @@ def last_rescue_day(world: op.World, b, shortfall: int, exclude: set[str],
     return best if best else (None, None)
 
 
+def point_is_styles(fc: Forecast) -> bool:
+    """Whole-style forecasts carry output ratios (D31); piece-split ones keep the shortfall signal."""
+    return fc.whole_styles
+
+
+def rank_key(c: Candidate) -> tuple:
+    """D31 (interview) factory ranking: capacity first, then workers, then capability (in-house printing,
+    knitting, dyeing), then quality (lower QC defect rate). Ties by id."""
+    return (-c.window_capacity_risk_adj, -c.workers, -c.capability, c.qc_defect, c.factory_id)
+
+
 def chance_dropped(fc: Forecast, prev_p: float | None) -> bool:
     """The order's chance fell by at least WARN_DROP_PP (PLACEHOLDER) since the previous forecast from updates."""
     return prev_p is not None and prev_p - fc.p_after >= C.WARN_DROP_PP - 1e-12
@@ -353,7 +388,10 @@ def warning_level(fc: Forecast, target: float, prev_p: float | None = None) -> s
     of several updated factories: the shortfall counted is the order's (all updated factories). `prev_p`: the
     order's chance at the previous forecast from updates (None on the first), so a drop between two updates
     is a warning even when nobody is short yet."""
-    if fc.order_shortfall <= 0 and not chance_dropped(fc, prev_p):
+    if point_is_styles(fc):  # D31: the signal is output against the daily target
+        if not fc.behind_target and not chance_dropped(fc, prev_p):
+            return "on track"
+    elif fc.order_shortfall <= 0 and not chance_dropped(fc, prev_p):
         return "on track"
     return "below target" if fc.p_after < target else "watch"
 
@@ -369,6 +407,9 @@ class RescueOption:
     replan: ReplanResult | None
     allowed: bool
     note: str
+    # D31: expected cost of short pieces and rejects if the programme ships (lost FOB less salvage), and pieces
+    quality_cost_bdt: float | None = None
+    short_pcs: float | None = None
 
 
 def rescue_move(world: op.World, b, point: BufferPoint, split_cands: list[Candidate], fc: Forecast,
@@ -390,7 +431,8 @@ def rescue_move(world: op.World, b, point: BufferPoint, split_cands: list[Candid
                 continue
             cands.append(c.model_copy(update={"window_capacity_risk_adj": k, "window_capacity_declared": k,
                                               "min_batch": min(c.min_batch, k), "slack_days": 10_000,
-                                              "q_effective": world.forecasts[f].good_share}))
+                                              "q_effective": world.forecasts[f].good_share,
+                                     "p_fail": 0.0, "short_share": 1 - world.forecasts[f].good_share}))
             locked[f] = k
         else:
             cands.append(c)
@@ -460,7 +502,8 @@ def rescue_move_style(world: op.World, b, point: BufferPoint, split_cands: list[
             cap = max(proj[f], started)
             c = c.model_copy(update={"window_capacity_risk_adj": cap, "window_capacity_declared": cap,
                                      "min_batch": min(c.min_batch, cap), "slack_days": 10_000,
-                                     "q_effective": world.forecasts[f].good_share})
+                                     "q_effective": world.forecasts[f].good_share,
+                                     "p_fail": 0.0, "short_share": 1 - world.forecasts[f].good_share})
         cands.append(c)
     excl = sorted(set(b.params.excluded_ids) | set(excluded))
     later = op.build_candidates(world, b.order, b.params.model_copy(update={"excluded_ids": excl}),
@@ -503,11 +546,13 @@ def _style_rescue_options(world: op.World, b, point: BufferPoint, split_cands: l
     movable = unstarted_styles(point, fc.factory_id, fc.pieces_done)
     rp = rescue_move_style(world, b, point, split_cands, fc, excluded, day) if movable else None
     title = "Move an unstarted style to another factory"
+    qc = lambda r: (op.quality_cost_bdt(r, b.params), r.expected_short_pcs)  # noqa: E731
     if rp is not None and any(d["styles_in"] for d in rp.diff):
         moved = [d for d in rp.diff if d["styles_in"]]
         out.append(RescueOption("move", title, rp.new.risk.p_meet_qty, rp.new.plan.cost_total - point.plan.cost_total,
                                 rp, True, "; ".join(f"{', '.join(d['styles_in'])} to {d['factory_id']} "
-                                                    f"(+{d['new_qty'] - d['old_qty']:,} pcs)" for d in moved)))
+                                                    f"(+{d['new_qty'] - d['old_qty']:,} pcs)" for d in moved),
+                                *qc(rp.new.risk)))
     else:
         why = ("every style at " + fc.factory_id + " is already in production" if not movable
                else "no style needs to move" if rp is not None
@@ -519,17 +564,20 @@ def _style_rescue_options(world: op.World, b, point: BufferPoint, split_cands: l
         risk = _risk_with(world, b, point, split_cands, {**fc.projections, fc.factory_id: fc.projected + extra})
         out.append(RescueOption("surge", "Overtime at the same factory", risk.p_meet_qty,
                                 extra * price * (C.SURGE_PRICE_FACTOR - 1), None, True,
-                                f"{fc.factory_id} +{extra:,} with overtime ({extra:,} of {fc.shortfall:,} short)"))
+                                f"{fc.factory_id} +{extra:,} with overtime ({extra:,} of {fc.shortfall:,} short)",
+                                *qc(risk)))
     else:
         out.append(RescueOption("surge", "Overtime at the same factory", None, None, None, False,
                                 "no production days left for overtime"))
+    # D31: tolerance is not a gate. Shipping short on the date is always possible; the short pieces are a cost.
+    now = _risk_with(world, b, point, split_cands, fc.projections)
     rows = projected_by_style(point, fc.projections)
-    short = [(f, s, got, need) for f, s, got, need in rows if got < need]
-    ok = not short
+    short = [(f, s, got, q) for f, s, got, q in
+             ((f, s, got, point.plan.style_qty.get(s, 0)) for f, s, got, _ in rows) if got < q]
     out.append(RescueOption(
-        "accept_shortfall", "Accept the shortfall (within tolerance)", fc.p_after, 0.0, None, ok,
-        "every style is still within its tolerance" if ok else
-        "; ".join(f"{s} at {f}: {got:,} projected, {need:,} needed" for f, s, got, need in short)))
+        "accept_shortfall", "Ship short on the date", now.p_meet_qty, 0.0, None, True,
+        "no style is projected short" if not short else
+        "; ".join(f"{s} at {f}: {got:,} of {q:,} projected" for f, s, got, q in short), *qc(now)))
     days = renegotiate_days(fc)
     if days is not None:
         later = min(fc.planned, fc.projected + int(fc.rate_seen * days))
@@ -537,7 +585,7 @@ def _style_rescue_options(world: op.World, b, point: BufferPoint, split_cands: l
         new_date = b.order.deadline + timedelta(days=days)
         out.append(RescueOption("renegotiate_date", "Renegotiate the date with the buyer", risk.p_meet_qty, None,
                                 None, True, f"ask for {days} more days (to {new_date:%d %b %Y}); the chance holds "
-                                "only if the buyer agrees"))
+                                "only if the buyer agrees", *qc(risk)))
     else:
         out.append(RescueOption("renegotiate_date", "Renegotiate the date with the buyer", None, None, None, True,
                                 "no production rate seen yet; the date is the buyer's to change"))

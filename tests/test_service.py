@@ -11,14 +11,14 @@ from bunon import decisions as dl
 from bunon import optimizer as op
 from bunon import service as sv
 from bunon.data_gen import load_public
-from bunon.store import EXPORTER_ROLES, FACTORY_ROLES, ROLES, Store, session_db_path
+from bunon.store import EXPORTER_ROLES, FACTORY_ROLES, FLOOR_REP_ROLE, ROLES, Store, session_db_path
 
 pytestmark = pytest.mark.skipif(not C.PUBLIC_DB.exists(), reason="run `python -m bunon.data_gen` first")
 
 
 @pytest.fixture(scope="module")
 def world():
-    return op.load_world()
+    return op.load_world(C.PIECE_REGRESSION_DB, calibrated=False)
 
 
 @pytest.fixture(scope="module")
@@ -49,7 +49,7 @@ def test_schema_has_every_plan_v2_table(tmp_path):
 
 
 def test_roles_and_session_paths():
-    assert ROLES == EXPORTER_ROLES + FACTORY_ROLES and dl.ROLES == ROLES
+    assert ROLES == EXPORTER_ROLES + (FLOOR_REP_ROLE,) + FACTORY_ROLES and dl.ROLES == ROLES
     vid = "0123456789abcdef0123456789abcdef"
     assert session_db_path(vid).name == f"{vid}.db"
     for bad in ("../escape", "abc123", "١٢٣" * 11):

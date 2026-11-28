@@ -165,3 +165,8 @@ def test_an_answer_in_another_script_without_facts_is_retried_then_template(ctx,
     prov = FakeToolProvider([GOOD[0], junk, junk], final="သမ")
     run = an.answer("What if?", toolbox(ctx), LLMClient(provider=prov, mode="live", cache_dir=tmp_path))
     assert run.source == "template" and any("cites at least one tool fact" in e for e in run.errors)
+
+
+def test_junk_before_a_good_answer_is_still_rejected():
+    assert not an._is_answer("သမft\nWe checked {{c1.p_meet}} for the plan and a human decides.")
+    assert an._is_answer("We checked {{c1.p_meet}} for the plan and a human decides.")

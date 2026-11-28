@@ -1,15 +1,16 @@
-"""Sensitivity of the whole-style programme's chance of success (SPEC.md D30). No default is changed here:
-each row varies ONE placeholder or synthetic input and re-scores, everything else at its default.
+"""Sensitivity of the whole-style programme (SPEC.md D30, D31). No default is changed here: each row varies ONE
+input and re-scores, everything else at its default (calibrated world). A second table re-runs the calibration
+(`bunon.calibrate`) at other anchors, so the headline's dependence on the anchor is visible.
 
-    python -m bunon.sensitivity      # writes SENSITIVITY.md
+    python -m bunon.sensitivity      # writes SENSITIVITY.md (several minutes)
 """
 from __future__ import annotations
 
 import dataclasses
 
+from bunon import calibrate as cal
 from bunon import config as C
 from bunon import optimizer as op
-from bunon import programme as pg
 
 OUT = C.ROOT / "SENSITIVITY.md"
 
@@ -22,7 +23,7 @@ def _scale_beta(a: float, b: float, mean: float) -> tuple[float, float]:
 
 def _world_with(world: op.World, **change) -> op.World:
     """defect_mult: QC defect rate x; lot_reject: whole-lot rejection chance set to this value; full_mult: chance of
-    a full delivery moved toward 1 (1 - (1 - p_full) x mult); no_late: lateness off."""
+    a short delivery x; late_mult: chance of being late x."""
     fs = {}
     for fid, f in world.forecasts.items():
         upd = {}
@@ -37,81 +38,91 @@ def _world_with(world: op.World, **change) -> op.World:
             p = 1 - (1 - f.p_full) * change["full_mult"]
             a, b = _scale_beta(f.p_full_a, f.p_full_b, p)
             upd.update(p_full=p, p_full_a=a, p_full_b=b)
-        if change.get("no_late"):
-            upd.update(p_late=0.0)
+        if "late_mult" in change:
+            upd.update(p_late=min(1.0, f.p_late * change["late_mult"]))
         fs[fid] = f.model_copy(update=upd) if upd else f
     return dataclasses.replace(world, forecasts=fs)
 
 
 def report() -> str:
     world = op.load_world()
-    order = pg.as_programme(op.demo_order())
+    order = op.demo_order()
     params = op.default_params(order)
     cands = op.build_candidates(world, order, params)
-    res = op.search_buffer(world, order, params, cands=cands)
-    rec = res.recommended
+    rec = op.search_buffer(world, order, params, cands=cands).recommended
     plan = rec.plan
-    p0 = rec.risk.p_meet_qty
+    r0 = rec.risk
+    p0, q0 = r0.p_meet_qty, op.quality_cost_bdt(r0, params)
 
     def score(w=world, pl=plan):
-        return op.evaluate(pl, cands, w, True).p_meet_qty
+        r = op.evaluate(pl, cands, w, True)
+        return r.p_meet_qty, op.quality_cost_bdt(r, params)
 
     f = [world.forecasts[ln.factory_id] for ln in plan.lines]
     mean = lambda xs: sum(xs) / len(xs)  # noqa: E731
-    rows: list[tuple[str, str, float]] = []
+    rows: list[tuple[str, str, tuple[float, float]]] = []
     d0 = mean([x.qc_defect_mean for x in f])
     for m in (0.0, 0.5, 2.0):
-        rows.append(("QC defect rate (synthetic history)", f"x{m:g} (mean {d0 * m:.1%})",
+        rows.append(("QC defect rate (interview 3-4%)", f"x{m:g} (plan factories' mean {d0 * m:.1%})",
                      score(_world_with(world, defect_mult=m))))
     l0 = mean([x.p_lot_reject for x in f])
-    for v in (0.0, 0.01, 0.04):
-        rows.append(("Whole-lot rejection (PLACEHOLDER, ask 11)", f"{v:.0%} (default about {l0:.1%})",
+    for v in (0.0, 0.02, 0.05):
+        rows.append(("Whole-lot rejection (PLACEHOLDER: rare)", f"{v:.0%} (default about {l0:.1%})",
                      score(_world_with(world, lot_reject=v))))
-    for tol in (0.0, 0.05, 0.10):
+    for tol in (0.0, 0.05):
         p2 = params.model_copy(update={"tolerance_pct": tol})
-        rows.append(("Per-style tolerance (PLACEHOLDER)", f"{tol:.0%} (default {params.tolerance_pct:.0%})",
+        rows.append(("Per-style tolerance (research ask; not a gate since D31)", f"{tol:.0%}",
                      score(pl=plan.model_copy(update={"style_min_good": op.style_min_good(p2)}))))
-    for b in (0.0, 0.01, 0.02, 0.03, 0.04, 0.05):
+    for b in (0.0, 0.025, 0.05, 0.10):
         pl = op.solve_mip(cands, order.subcontract_qty, params.model_copy(update={"buffer_pct": b}))
-        rows.append(("Per-style over-cut (plan re-solved)", f"{b:.0%}", score(pl=pl) if pl.status == "optimal" else 0.0))
-    pf0 = mean([x.p_full for x in f])
+        rows.append(("Per-style over-cut (plan re-solved)", f"{b:.1%}",
+                     score(pl=pl) if pl.status == "optimal" else (0.0, 0.0)))
     for m in (0.5, 0.0):
-        rows.append(("Chance of a full delivery (synthetic history)",
-                     f"shortfall chance x{m:g} (default full {pf0:.0%})", score(_world_with(world, full_mult=m))))
-    rows.append(("Lateness (synthetic history)", "never late", score(_world_with(world, no_late=True))))
+        rows.append(("Short deliveries (synthetic history)", f"x{m:g}", score(_world_with(world, full_mult=m))))
+    for m in (0.5, 2.0):
+        rows.append(("Lateness (synthetic history, calibrated)", f"x{m:g} of the calibrated value",
+                     score(_world_with(world, late_mult=m))))
 
     lines = [
-        "# Sensitivity of the whole-style programme (SPEC.md D30)",
+        "# Sensitivity of the whole-style programme (SPEC.md D30, D31)",
         "",
         "Generated by `python -m bunon.sensitivity`. **No default is changed:** each row varies one input, with "
-        "everything else at its default. Seeded simulation, so the rows are comparable.",
+        "everything else at its default (the calibrated world). Seeded simulation, so the rows are comparable.",
         "",
         f"- **Programme:** 10 styles, {order.subcontract_qty:,} pieces.",
-        "- **Success rule:** every style has good pieces at least (1 - tolerance) x its quantity by the deadline.",
+        "- **Success rule (D31):** every factory ships its styles by its date (lateness cancels the programme). "
+        "Short pieces and QC rejects are a cost: lost FOB on each good piece short, less what rejects fetch as "
+        "salvage.",
         f"- **Recommended plan:** over-cut {rec.buffer_pct:.1%}, factories "
         f"{', '.join(f'{ln.factory_id} ({len(ln.styles)} styles)' for ln in plan.lines)}.",
-        f"- **Chance at the defaults:** {p0:.1%}.",
+        f"- **At the defaults:** chance {p0:.1%}; expected cost of short pieces and rejects {q0:,.0f} BDT.",
         "",
         "Over-cut rows re-solve the plan at that over-cut. All other rows keep the recommended plan.",
         "",
-        "| Input varied | Value | Chance | Change |",
-        "|---|---|---|---|",
+        "| Input varied | Value | Chance | Change | Expected cost of short pieces (BDT) |",
+        "|---|---|---|---|---|",
     ]
-    lines += [f"| {k} | {v} | {p:.1%} | {(p - p0) * 100:+.1f} pts |" for k, v, p in rows]
-    by_input: dict[str, float] = {}
-    for k, _, p in rows:
-        by_input[k] = max(by_input.get(k, 0.0), abs(p - p0))
-    top = sorted(by_input.items(), key=lambda kv: -kv[1])
-    lines += ["", "**Largest effect, per input (within the ranges tried):**"]
-    lines += [f"{i}. {k}: up to {v * 100:.1f} pts" for i, (k, v) in enumerate(top, 1)]
+    lines += [f"| {k} | {v} | {p:.1%} | {(p - p0) * 100:+.1f} pts | {q:,.0f} ({q - q0:+,.0f}) |"
+              for k, v, (p, q) in rows]
     lines += [
         "",
-        "**What drives the low figure.** It is not one of the labelled placeholders but the synthetic delivery "
-        "history: about 30% of jobs deliver short, and with whole styles a short factory leaves its last style "
-        "short, which one style's over-cut cannot cover. Among the placeholders, the per-style tolerance matters "
-        "most; defect and whole-lot rejection rates move the chance by a point or two. Research asks 20–23 ask "
-        "for the real values; nothing here is tuned.",
+        "**Reading it.** Since D31 only lateness (and catastrophic failure) decides the chance, so defects, lot "
+        "rejection, tolerance and short deliveries move the cost, not the chance. Lateness is the input the "
+        "calibration sets (below).",
+        "",
+        "## Calibration at other anchors (`python -m bunon.calibrate --target T --dry-run`)",
+        "",
+        "The interviewee says failures are rare; the 90% anchor for the naive plan is a PLACEHOLDER until a figure "
+        "is given. The calibration moves only the synthetic lateness (then the shock frequency, if needed).",
+        "",
+        "| Anchor: naive plan's chance | Lateness multiplier chosen | Naive plan | Bunon's plan | Bunon's over-cut |",
+        "|---|---|---|---|---|",
     ]
+    for t in (0.80, 0.90, 0.95):
+        c = cal.solve(t)
+        bp, bb = cal.bunon_p(c)
+        lines.append(f"| {t:.0%} | x{c['late_mult']:.3f} (shocks x{c['shock_mult']:.2f}) | {c['naive_p']:.1%} | "
+                     f"{bp:.1%} | {bb:.1%} |")
     return "\n".join(lines) + "\n"
 
 

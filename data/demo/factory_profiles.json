@@ -1,0 +1,19 @@
+{
+ "format_version": 1,
+ "simulated_notice": "SIMULATED factory profiles for the Bunon demo (SPEC.md D31). Not a real factory's details; the factory ID is pseudonymous. Every text marked placeholder: true is the developer's stand-in until the team writes it.",
+ "profiles": [
+  {
+   "factory_id": "F0882",
+   "placeholder": true,
+   "owner_background": "Owner worked eight years as a production manager at a large knit exporter before opening this unit in 2026; about 650 workers, mostly from the owner's previous line.",
+   "vouches": [
+    {"who": "Merchandiser at an exporter the owner supplied as a line manager (simulated)", "date": "2026-10-14",
+     "note": "Knows the owner's lines from earlier orders; vouches for planning and on-time habits."}
+   ],
+   "site_visits": [
+    {"date": "2026-11-10", "by": "Exporter's floor representative (simulated)",
+     "findings": "Machines running, cutting table and finishing in-house, fire exits clear, attendance sheet kept."}
+   ]
+  }
+ ]
+}

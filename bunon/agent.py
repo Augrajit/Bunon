@@ -735,6 +735,13 @@ def warning_facts(fc, delay: int | None, target: float, last_day: int | None, la
     }
     if delay:
         fs["warn.delay"] = Fact(delay, "days", "days late the factory reports")
+    if getattr(fc, "whole_styles", False):  # D31: output against the daily target is the signal; attendance
+        fs["warn.output_pct"] = Fact(min(fc.output_ratio, 9.99), "pct", "its daily output as a share of the target")
+        fs.pop("warn.expected_good", None)
+        fs.pop("warn.min_good", None)
+        if fc.workers_present is not None and fc.workers_planned:
+            fs["warn.workers_present"] = Fact(fc.workers_present, "qty", "workers who came to work")
+            fs["warn.workers_planned"] = Fact(fc.workers_planned, "qty", "workers planned")
     if getattr(fc, "others", ()):
         fs["warn.others"] = Fact(len(fc.others), "qty", "other factories that also sent an update")
         fs["warn.order_shortfall"] = Fact(fc.order_shortfall, "qty",
@@ -970,7 +977,7 @@ def parse_reply(reply: str, planned_qty: int, client: LLMClient | None = None,
 # Daily progress update from a factory (English, Bangla, Banglish) -> pieces done, delay, cause
 # =============================================================================
 
-UPDATE_VERSION = "update_v1"
+UPDATE_VERSION = "update_v2"  # D31: attendance (workers present / planned)
 
 
 class UpdateLLM(BaseModel):
@@ -978,12 +985,17 @@ class UpdateLLM(BaseModel):
     status_span: str = Field(description="Exact words copied from the update that show whether it is on track")
     pieces_done: IntField = Field(description="Total pieces finished so far, only if the update states a number")
     delay_days: IntField = Field(description="Days late the factory says it will be, only if it states a number")
+    workers_present: IntField = Field(default_factory=lambda: IntField(value=None, source_span=None),
+                               description="Workers (operators) who came to work, only if it states a number")
+    workers_planned: IntField = Field(default_factory=lambda: IntField(value=None, source_span=None),
+                               description="Workers planned or on the line's roll, only if it states a number")
     cause: TextField = Field(description="Reason given for a delay, in plain English, with the exact words quoted")
 
 
 UPDATE_PROMPT = """You read a garment factory's short daily progress update on a subcontracted order.
 The update may be in English, Bangla, or Banglish (Bangla in Latin letters, e.g. "ready hoise" = is ready,
-"current nai" = no electricity, "din" = days, "late hobe" = will be late, "hajar" = thousand).
+"current nai" = no electricity, "din" = days, "late hobe" = will be late, "hajar" = thousand,
+"jon" = persons, "aisilo" / "ashche" = came, "ashe nai" = did not come, "kom" = less).
 
 Order at this factory: {qty_text} pieces of basic T-shirts.
 
@@ -992,6 +1004,8 @@ Rules:
 - status: "on_track", "delayed" (it says it will be late or is stopped), or "unclear".
 - pieces_done: only if the update states how many pieces are finished; delay_days: only if it states a number
   of days. Otherwise null for both value and source_span.
+- workers_present / workers_planned: only if the update states how many workers came and how many were planned
+  (or are on the roll); otherwise null.
 - cause: the reason it gives for a delay, in plain English (e.g. "power cut"), with the exact words as the
   source_span. Null if no reason is given.
 - For every value, copy the exact words from the update into the source_span, unchanged (keep the original
@@ -1012,6 +1026,8 @@ class UpdateResult:
     cause: FieldCheck
     notes: list[str]
     meta: CallMeta | None
+    workers_present: FieldCheck = field(default_factory=lambda: FieldCheck(None, None, "missing"))
+    workers_planned: FieldCheck = field(default_factory=lambda: FieldCheck(None, None, "missing"))
 
 
 def validate_update(update: str, out: UpdateLLM) -> UpdateResult:
@@ -1045,7 +1061,8 @@ def validate_update(update: str, out: UpdateLLM) -> UpdateResult:
     elif status == "on_track" and delay.status == "ok" and delay.value > 0:
         status = "delayed"
         notes.append("The update says it is on track but states a delay: treated as delayed.")
-    return UpdateResult(status, out.status_span, done, delay, cause, notes, None)
+    return UpdateResult(status, out.status_span, done, delay, cause, notes, None,
+                        num(out.workers_present, "workers_present"), num(out.workers_planned, "workers_planned"))
 
 
 def parse_update(update: str, planned_qty: int, client: LLMClient | None = None) -> UpdateResult:

@@ -32,7 +32,7 @@ from bunon import personas as ps
 from bunon import optimizer as op
 from bunon import reliability as rl
 from bunon.schemas import BufferPoint, Candidate, OptimizerParams, OrderConstraints, ReplanResult
-from bunon.store import EXPORTER_ROLES, FACTORY_ROLES, Store
+from bunon.store import EXPORTER_ROLES, FACTORY_ROLES, FLOOR_REP_ROLE, Store
 
 DECLINE_DAY = 3  # the scripted decline and the demo replies arrive on story day 3
 
@@ -105,6 +105,33 @@ def compute_plans(world: op.World, order: OrderConstraints, s: PlanSettings, n_c
 def _late_candidates(world: op.World, b: PlanBundle, excluded_id: str, days: int) -> list[Candidate]:
     p_late = b.params.model_copy(update={"excluded_ids": [excluded_id]})
     return op.build_candidates(world, b.order, p_late, as_of=C.AS_OF + timedelta(days=days))
+
+
+def new_entrants(b: PlanBundle) -> list:
+    """D31: candidates with no past jobs that are eligible through a vouch and a recent site visit."""
+    from bunon import profiles as pf
+    profs = pf.load()
+    return [c for c in b.cands if c.factory_id in profs and pf.eligible_new_entrant(profs[c.factory_id])]
+
+
+def trial_style(world: op.World, b: PlanBundle, factory_id: str):
+    """D31: the recommended plan with ONE style given to an eligible new entrant as a trial (the smallest style it
+    can take whole, within its capacity, minimum batch and the unproven cap), every other choice left to the
+    optimiser at the same over-cut. Returns (style_id, BufferPoint) or None. Shown for comparison; nothing is
+    chosen automatically."""
+    c = next((x for x in b.cands if x.factory_id == factory_id), None)
+    if c is None or not b.params.styles:
+        return None
+    bpct = b.rec.buffer_pct
+    cap = min(c.window_capacity_risk_adj, b.params.unproven_cap_pct * sum(op.cut_qty(q, bpct) for _, q in b.params.styles))
+    fits = sorted((op.cut_qty(q, bpct), s) for s, q in b.params.styles if c.min_batch <= op.cut_qty(q, bpct) <= cap)
+    for _, s in fits:
+        p = b.params.model_copy(update={"buffer_pct": bpct, "locked_styles": {s: factory_id}})
+        plan = op.solve_mip(b.cands, b.order.subcontract_qty, p)
+        if plan.status == "optimal":
+            risk = op.evaluate(plan, b.cands, world, b.settings.shocks, partial_lots=b.settings.partial)
+            return s, BufferPoint(buffer_pct=bpct, plan=plan, risk=risk)
+    return None
 
 
 def replan_after_decline(world: op.World, b: PlanBundle, days: int = DECLINE_DAY) -> tuple[ReplanResult, list]:
@@ -418,7 +445,7 @@ class OrderBook:
         return decision
 
     def factory_update(self, order_id: str, factory_id: str, pieces_done: int, delay_days: int, cause_text: str,
-                       role: str) -> None:
+                       role: str, workers_present: int | None = None, workers_planned: int | None = None) -> None:
         """A factory posts its daily update in the app (once per factory per story day)."""
         _require_factory(role, "post a daily update")
         if factory_id not in self.requests(order_id):
@@ -430,14 +457,17 @@ class OrderBook:
         if any(m["msg_id"] == mid for m in self.store.messages(order_id)):
             return
         cause = cause_text.strip() or None
-        text = f"{pieces_done:,} pieces finished" + (f", {delay_days} days late" if delay_days else ", on time")             + (f": {cause}" if cause else "")
+        att = (f", {workers_present} of {workers_planned} workers present" if workers_present is not None
+               and workers_planned else "")
+        text = f"{pieces_done:,} pieces finished{att}" + (f", {delay_days} days late" if delay_days else ", on time")             + (f": {cause}" if cause else "")
         self.store.insert("messages", {"msg_id": mid, "order_id": order_id, "factory_id": factory_id,
                                        "direction": "in", "kind": "progress_update", "author_role": role,
                                        "text": text, "draft_of": FACTORY_FORM, "story_day": d, "is_simulated": 0})
         self.store.insert("progress_updates", {
             "update_id": mid, "order_id": order_id, "factory_id": factory_id, "story_day": d, "text": text,
             "pieces_done_cum": pieces_done, "delay_days": delay_days, "cause_text": cause, "cause_category": cause,
-            "quotes": "{}", "parse_status": "typed by factory", "is_simulated": 0})
+            "quotes": "{}", "parse_status": "typed by factory", "is_simulated": 0,
+            "workers_present": workers_present, "workers_planned": workers_planned})
         self._event(order_id, "progress_update_received", f"{factory_id} posted an update in the app", role,
                     subject=factory_id)
 
@@ -467,17 +497,69 @@ class OrderBook:
             "delay_days": res.delay_days.value if res.delay_days.status == "ok" else None,
             "cause_text": res.cause.source_span if res.cause.status == "ok" else None,
             "cause_category": res.cause.value if res.cause.status == "ok" else None,
-            "quotes": json.dumps({"pieces_done": res.pieces_done.source_span, "delay": res.delay_days.source_span},
-                                 ensure_ascii=False),
+            "quotes": json.dumps({"pieces_done": res.pieces_done.source_span, "delay": res.delay_days.source_span,
+                                  "workers_present": res.workers_present.source_span,
+                                  "workers_planned": res.workers_planned.source_span}, ensure_ascii=False),
+            "workers_present": res.workers_present.value if res.workers_present.status == "ok" else None,
+            "workers_planned": res.workers_planned.value if res.workers_planned.status == "ok" else None,
             "parse_status": res.meta.source if res.meta else "unavailable", "is_simulated": 1})
+
+    def floor_report(self, order_id: str, factory_id: str, pieces_done: int, workers_present: int | None,
+                     workers_planned: int | None, note: str, role: str) -> None:
+        """D31: the exporter's floor representative posts the day's count from inside the factory (typed numbers,
+        no LLM). Once per factory per story day. The forecast prefers it over the factory's own report."""
+        if role != FLOOR_REP_ROLE:
+            raise PermissionError(f"only the {FLOOR_REP_ROLE.lower()} posts a floor report (got {role!r})")
+        if factory_id not in self.requests(order_id):
+            raise ValueError(f"{factory_id} has no work on this order")
+        if pieces_done < 0 or (workers_present or 0) < 0 or (workers_planned or 0) < 0:
+            raise ValueError("counts cannot be negative")
+        d = self.day(order_id)
+        uid = f"{order_id}:floor-{factory_id}-day{d}"
+        if any(u["update_id"] == uid for u in self.store.rows("progress_updates", order_id)):
+            return
+        att = (f", {workers_present} of {workers_planned} workers present" if workers_present is not None
+               and workers_planned else "")
+        text = f"{pieces_done:,} pieces counted on the floor{att}" + (f": {note.strip()}" if note.strip() else "")
+        self.store.insert("progress_updates", {
+            "update_id": uid, "order_id": order_id, "factory_id": factory_id, "story_day": d, "text": text,
+            "pieces_done_cum": pieces_done, "delay_days": None, "cause_text": note.strip() or None,
+            "quotes": "{}", "parse_status": "floor representative", "is_simulated": 0,
+            "workers_present": workers_present, "workers_planned": workers_planned, "reporter": "floor_rep"})
+        self._event(order_id, "floor_report_posted", f"floor representative counted {pieces_done:,} at {factory_id}",
+                    role, subject=factory_id)
+
+    def report_mismatches(self, order_id: str) -> list[dict]:
+        """D31: where the floor representative and the factory both reported on the same day, every difference in
+        pieces above REPORT_MISMATCH_PCT (placeholder) of the larger count. Both are shown; nobody is overruled."""
+        rows = [u for u in self.store.rows("progress_updates", order_id)
+                if u["parse_status"] != "from offer" and u["pieces_done_cum"] is not None]
+        out = []
+        for u in rows:
+            if u["reporter"] != "floor_rep":
+                continue
+            for f in rows:
+                if f["reporter"] != "floor_rep" and f["factory_id"] == u["factory_id"] and \
+                        f["story_day"] == u["story_day"]:
+                    big = max(u["pieces_done_cum"], f["pieces_done_cum"], 1)
+                    diff = abs(u["pieces_done_cum"] - f["pieces_done_cum"]) / big
+                    out.append({"factory_id": u["factory_id"], "day": u["story_day"],
+                                "factory_count": f["pieces_done_cum"], "floor_count": u["pieces_done_cum"],
+                                "diff_pct": diff, "flagged": diff > C.REPORT_MISMATCH_PCT + 1e-12})
+        return out
 
     def updates(self, order_id: str) -> list[lp.Update]:
         """Every daily update with a verified (or typed) piece count, oldest first; delays stated with an offer
         are not updates. `loop.latest_updates` keeps the latest per factory."""
         rows = [u for u in self.store.rows("progress_updates", order_id)
                 if u["parse_status"] != "from offer" and u["pieces_done_cum"] is not None]
-        return [lp.Update(u["factory_id"], u["pieces_done_cum"], u["delay_days"] or None, u["story_day"])
-                for u in sorted(rows, key=lambda u: u["story_day"])]
+        # D31: on the same day the floor representative's count comes last, so it is the one the forecast uses;
+        # a delay the factory stated that day still counts.
+        delay = {(u["factory_id"], u["story_day"]): u["delay_days"] for u in rows if u["delay_days"]}
+        rows = sorted(rows, key=lambda u: (u["story_day"], u["reporter"] == "floor_rep"))
+        return [lp.Update(u["factory_id"], u["pieces_done_cum"],
+                          u["delay_days"] or delay.get((u["factory_id"], u["story_day"])) or None, u["story_day"],
+                          u["workers_present"], u["workers_planned"], u["reporter"]) for u in rows]
 
     def previous_p(self, order_id: str, day: int) -> float | None:
         """The order's chance at the latest forecast from updates made before `day` (None if there was none)."""

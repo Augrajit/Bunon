@@ -26,7 +26,7 @@ def _reload_bunon_if_changed() -> None:
 
     import bunon
     order = ["config", "schemas", "textnum", "llm", "data_gen", "reliability", "simulation",
-             "programme", "optimizer", "agent", "analyst", "store", "decisions", "personas", "loop", "attribution", "service"]
+             "programme", "profiles", "calibrate", "optimizer", "agent", "analyst", "store", "decisions", "personas", "loop", "attribution", "service"]
     src = Path(bunon.__file__).parent
     digest = hashlib.sha1(b"".join((src / f"{m}.py").read_bytes() for m in order)).hexdigest()
     if getattr(bunon, "_source_digest", None) != digest:
@@ -53,7 +53,8 @@ from bunon import service as sv
 from bunon.data_gen import load_public
 from bunon.llm import LLMClient, budget_status, current_mode, set_visitor
 from bunon.schemas import OrderConstraints, ReplanResult
-from bunon.store import EXPORTER_ROLES, FACTORY_ROLES, ROLES, Store, cleanup_sessions, session_db_path
+from bunon import profiles as fprof  # noqa: E402
+from bunon.store import EXPORTER_ROLES, FACTORY_ROLES, FLOOR_REP_ROLE, ROLES, Store, cleanup_sessions, session_db_path
 from bunon.textnum import literal_numbers
 
 st.set_page_config(page_title="Bunon: subcontracting you can trust", page_icon="🧵", layout="wide")
@@ -537,7 +538,7 @@ st.session_state.setdefault("role", "Merchandiser")
 with st.sidebar:
     st.markdown(f'<div class="bn-brand">{BRAND}</div>', unsafe_allow_html=True)
     role = st.selectbox("Acting as (demo role switcher)", ROLES, key="role",
-                        format_func=lambda r: f"{'Exporter' if r in EXPORTER_ROLES else 'Factory'} · {r}",
+                        format_func=lambda r: f"{'Factory' if r in FACTORY_ROLES else 'Exporter'} · {r}",
                         help="No accounts: pick a role to see that person's view. Decisions are recorded by role, "
                              "never by name.")
     if role in FACTORY_ROLES:
@@ -619,6 +620,7 @@ def view_factory() -> None:
             ids = [p.factory_id for p in personas.load().personas if p.factory_id != "TBD"]
         except Exception:
             ids = []
+    ids += [f for f in fprof.load() if f not in ids]  # D31: new entrants with a profile
     if not ids:
         st.info("No factory to show yet. Confirm an order and look at the plan first (switch to an exporter role).")
         return
@@ -629,6 +631,16 @@ def view_factory() -> None:
         st.markdown(f"**{fid}** · {row['district']} · <span class='bn-badge'>Simulated</span>",
                     unsafe_allow_html=True)
         book().record_persona_choices(persona_file())
+        prof = fprof.load().get(fid)
+        if prof is not None:
+            st.markdown("**My profile** <span class='bn-badge'>Simulated</span>", unsafe_allow_html=True)
+            st.caption(prof.owner_background)
+            for v in prof.vouches:
+                st.caption(f"Vouch: {v['who']}, {v['date']}")
+            for v in prof.site_visits:
+                st.caption(f"Site visit: {v['date']}, {v['by']}")
+            st.caption("Eligible for a trial style: a vouch and a recent site visit." if
+                       fprof.eligible_new_entrant(prof) else "Not yet eligible: needs a vouch and a recent site visit.")
         if book().record_shared(fid) is None:  # joining: the factory must choose; there is no silent default
             st.markdown("**Welcome to Bunon. Who may see your record?**")
             st.caption(sv.OrderBook.SHARE_BENEFIT + " Exporters you work with always see the events from their "
@@ -725,9 +737,13 @@ def factory_forms(oid: str, fid: str, msgs: list[dict]) -> None:
     with st.form(f"update_{fid}", border=False):
         done = st.number_input("Pieces finished so far", 0, 200_000, 0, step=100)
         late = st.number_input("Days late (0 if on time)", 0, 30, 0, key=f"late_upd_{fid}")
+        wc = st.columns(2)
+        present = wc[0].number_input("Workers present today", 0, 10_000, 0, key=f"present_{fid}")
+        planned = wc[1].number_input("Workers planned", 0, 10_000, 0, key=f"planned_{fid}")
         why = st.text_input("Reason, if late (optional)")
         if st.form_submit_button(f"Post update for day {book().day(oid)}", type="primary"):
-            book().factory_update(oid, fid, int(done), int(late), why, st.session_state["role"])
+            book().factory_update(oid, fid, int(done), int(late), why, st.session_state["role"],
+                                  int(present) if planned else None, int(planned) if planned else None)
             st.rerun()
     for row in [a for a in book().store.rows("attributions", oid) if a["factory_id"] == fid and a["human_decision"]]:
         st.markdown(f"**Cause recorded for your delay:** {at.LABELS[row['category']]}")
@@ -798,9 +814,10 @@ def view_maths() -> None:
         "Past jobs": w.forecasts[c.factory_id].n_jobs,
         "Thin history": "yes" if w.forecasts[c.factory_id].thin_history else "",
         "CM price (BDT/pc)": round(c.unit_price_bdt, 1),
-    } for c in sorted(cands, key=lambda c: -c.window_capacity_risk_adj)[:15]]), hide_index=True, width="stretch")
-    st.caption("Top 15 candidates by forecast deliverable quantity. Thin-history factories get the population "
-               "prior, so their forecasts are wider.")
+        "Workers": c.workers, "In-house printing / knitting / dyeing": c.capability,
+    } for c in sorted(cands, key=lp.rank_key)[:15]]), hide_index=True, width="stretch")
+    st.caption("Top 15 candidates, ranked as the interviewee does: capacity first, then workers, then capability, "
+               "then quality. Thin-history factories get the population prior, so their forecasts are wider.")
 
     st.header("Plans compared", anchor="plans_compared")
     if not b.feasible:
@@ -947,6 +964,39 @@ def section_intake() -> None:
                 for k in [k for k in st.session_state if k.startswith(("decision_", "replan"))]:
                     del st.session_state[k]
                 st.rerun()  # redraw the sidebar with the story clock
+
+
+@st.cache_data(show_spinner="Pricing a trial style for the new factory…")
+def _trial(args: tuple, factory_id: str):
+    return sv.trial_style(world(), run_plans(*args), factory_id)
+
+
+def section_new_entrant(args) -> None:
+    """D31: a factory with no history, eligible through a vouch and a recent site visit, may take one trial style
+    under the unproven-factory cap. Shown with its price; the plan is not changed automatically."""
+    b = run_plans(*args)
+    profs = fprof.load()
+    for c in sv.new_entrants(b):
+        p = profs[c.factory_id]
+        with st.container(border=True):
+            st.markdown(f"**New entrant: {c.factory_id}** ({c.district}) · no past jobs · "
+                        "<span class='bn-badge'>Simulated profile</span>", unsafe_allow_html=True)
+            st.caption(f"Owner: {p.owner_background}")
+            for v in p.vouches:
+                st.caption(f"Vouched for by {v['who']} on {v['date']}: {v['note']}")
+            for v in p.site_visits:
+                st.caption(f"Site visit on {v['date']} by {v['by']}: {v['findings']}")
+            t = _trial(args, c.factory_id)
+            if t is None:
+                st.caption("Eligible, but no style fits its capacity, minimum batch and the unproven cap.")
+                continue
+            sid, bp = t
+            st.markdown(f"Eligible for **one trial style** under the {b.params.unproven_cap_pct:.0%} unproven-factory "
+                        f"cap: giving it **{sid}** gives a chance of {bp.risk.p_meet_qty:.1%} "
+                        f"({(bp.risk.p_meet_qty - b.rec.risk.p_meet_qty) * 100:+.1f} pts) and costs "
+                        f"{bdt(bp.plan.cost_total - b.rec.plan.cost_total)} more, plus "
+                        f"{bdt(op.quality_cost_bdt(bp.risk, b.params) - op.quality_cost_bdt(b.rec.risk, b.params))} "
+                        "expected for short pieces. The plan above does not include it; a person decides.")
 
 
 def show_replan(args, rp, rmemo, cands_late, key: str, what: str, label: str):
@@ -1407,6 +1457,7 @@ def section_update(args, oid: str, offers: tuple, split_pt) -> tuple | None:
             latest[m["factory_id"]] = m
     for m in latest.values():
         _show_update(oid, m, qty)
+    _floor_reports(oid, qty, upto)
     # Numbers from the recorded updates only (typed by the factory, or read under the quote rule); an update
     # without a verified piece count is not used.
     ups = tuple(lp.latest_updates([u for u in book().updates(oid) if u.factory_id in qty and u.day <= upto]))
@@ -1423,13 +1474,21 @@ def section_update(args, oid: str, offers: tuple, split_pt) -> tuple | None:
                     "chance is simulated once with all of them.")
         st.dataframe(pd.DataFrame([{"Factory": f.factory_id, "Planned": f"{f.planned:,}",
                                     "Finished so far": f"{f.pieces_done:,}",
+                                    "Output vs daily target": f"{f.output_ratio:.0%}",
                                     "Pieces by its ship-by day": f"{f.projected:,}", "Short": f"{f.shortfall:,}"}
                                    for f in fcs]), hide_index=True, width="stretch")
     k = st.columns(4)
     k[0].metric(f"{fc.factory_id}: pieces by its ship-by day", f"{fc.projected:,}", f"{-fc.shortfall:,} vs plan",
                 delta_color="normal")
     k[1].metric("Chance of success", f"{fc.p_after:.1%}", f"{(fc.p_after - fc.p_before) * 100:+.1f} pts")
-    k[2].metric("Expected good pieces", f"{fc.expected_good_after:,.0f}", help=f"Needed: {fc.min_good:,}")
+    if fc.whole_styles:  # D31: the signal is output against the daily target; attendance alongside
+        att = (f"{fc.workers_present} of {fc.workers_planned} workers present" if fc.workers_present is not None
+               and fc.workers_planned else "attendance not reported")
+        k[2].metric(f"{fc.factory_id}: output vs daily target", f"{fc.output_ratio:.0%}", att,
+                    delta_color="off", help=f"{fc.rate_seen:,.0f} pieces a day against {fc.rate_plan:,.0f} planned; "
+                    f"a warning below {C.OUTPUT_WARN_RATIO:.0%} (placeholder).")
+    else:
+        k[2].metric("Expected good pieces", f"{fc.expected_good_after:,.0f}", help=f"Needed: {fc.min_good:,}")
     k[3].metric("Last day to rescue", f"day {last}" if last is not None else "—",
                 help=f"{book().date_of(last):%d %b %Y}" if last is not None else "No factory outside the plan can "
                      "still make the shortfall in time.")
@@ -1449,6 +1508,52 @@ def section_update(args, oid: str, offers: tuple, split_pt) -> tuple | None:
                "LLM writes only the words around placeholders, and the manager chooses what to do.")
     _more_updates(oid)
     return fc, last, opts
+
+
+def _floor_reports(oid: str, qty: dict, upto: int) -> None:
+    """D31: the exporter's floor representative posts the day's count from inside the factory. Both reports are
+    shown; a difference above the placeholder threshold is flagged; the forecast uses the representative's count."""
+    reps = [u for u in book().store.rows("progress_updates", oid)
+            if u["reporter"] == "floor_rep" and u["story_day"] <= upto]
+    for u in reps:
+        st.markdown(f"**{u['factory_id']}** (exporter's floor representative, day {u['story_day']}): “{u['text']}”")
+    for mm in [x for x in book().report_mismatches(oid) if x["flagged"] and x["day"] <= upto]:
+        st.warning(f"**Reports differ at {mm['factory_id']}** (day {mm['day']}): the factory reports "
+                   f"{mm['factory_count']:,} pieces, the floor representative counted {mm['floor_count']:,} "
+                   f"({mm['diff_pct']:.0%} apart; flagged above {C.REPORT_MISMATCH_PCT:.0%}, a placeholder). The "
+                   "forecast uses the floor representative's count.")
+    if st.session_state["role"] != FLOOR_REP_ROLE:
+        if not reps:
+            st.caption(f"Switch to **Exporter · {FLOOR_REP_ROLE}** to post the day's count from inside a factory.")
+        return
+    script = _floor_script()
+    d = book().day(oid)
+    done = {(u["factory_id"], u["story_day"]) for u in reps}
+    opts = [f for f in qty if (f, d) not in done]
+    if not opts:
+        return
+    with st.form("floor_report", border=True):
+        st.markdown(f"**Floor report for day {d}** (typed by you; no AI reads it)")
+        fid = st.selectbox("Factory", opts, key="floor_fid",
+                           index=next((i for i, f in enumerate(opts) if (f, d) in script), 0))
+        dflt = script.get((fid, d), {})
+        c = st.columns(3)
+        done_n = c[0].number_input("Pieces counted", 0, 200_000, int(dflt.get("pieces_done", 0)), step=100)
+        present = c[1].number_input("Workers present", 0, 10_000, int(dflt.get("workers_present", 0)))
+        planned = c[2].number_input("Workers planned", 0, 10_000, int(dflt.get("workers_planned", 0)))
+        note = st.text_input("What you saw (optional)", dflt.get("note", ""))
+        if st.form_submit_button("Post floor report", type="primary") or _pressed("post_floor_report"):
+            book().floor_report(oid, fid, int(done_n), int(present) if planned else None,
+                                int(planned) if planned else None, note, FLOOR_REP_ROLE)
+            st.rerun()
+
+
+def _floor_script() -> dict:
+    """The demo's scripted floor-representative counts (developer placeholders), as form defaults."""
+    p = C.ROOT / "data" / "demo" / "floor_reports.json"
+    if not p.exists():
+        return {}
+    return {(r["factory_id"], r["story_day"]): r for r in json.loads(p.read_text(encoding="utf-8"))["reports"]}
 
 
 def _more_updates(oid: str) -> None:
@@ -1580,6 +1685,9 @@ def section_rescue(args, oid: str, fc, opts) -> bool:
     b = run_plans(*args)
     st.dataframe(pd.DataFrame([{"Option": o.title, "Chance of success": "" if o.p_after is None else f"{o.p_after:.1%}",
                                 "Extra cost": "" if o.cost_delta_bdt is None else bdt(o.cost_delta_bdt),
+                                **({"Expected cost of short pieces": "" if o.quality_cost_bdt is None
+                                    else bdt(o.quality_cost_bdt)} if any(x.quality_cost_bdt is not None
+                                                                          for x in opts) else {}),
                                 "Details": o.note, "Possible": "yes" if o.allowed else "no"} for o in opts]),
                  hide_index=True, width="stretch")
     chosen = book().chosen_rescue(oid)
@@ -1814,6 +1922,12 @@ def view_timeline() -> None:
     } for ln in rec.plan.lines]), hide_index=True, width="stretch")
     st.caption("This plan decides whom to ask. The full comparison, reliability forecasts and the buffer curve "
                "are under **Show the maths**.")
+    if b.params.styles:
+        st.caption(f"Success means every factory ships its styles by its date (lateness cancels the programme). "
+                   f"Short pieces and QC rejects are a cost: about {rec.risk.expected_short_pcs:,.0f} pieces short "
+                   f"and {rec.risk.expected_reject_pcs:,.0f} rejects expected, "
+                   f"{bdt(op.quality_cost_bdt(rec.risk, b.params))} (lost FOB less salvage; placeholders).")
+        section_new_entrant(args)
     st.subheader("Decision memo")
     memo = memo_for(*args)
     if memo is None:

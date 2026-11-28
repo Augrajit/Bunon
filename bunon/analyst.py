@@ -238,10 +238,10 @@ class Toolbox:
 
 
 def _is_answer(text: str) -> bool:
-    """An answer cites at least one fact and is mostly Latin-script words (the analyst answers in English)."""
+    """An answer cites at least one fact and is written in English letters only (the analyst answers in English;
+    seen live twice, D30/D31: a few characters of another script, once before an otherwise good answer)."""
     letters = [ch for ch in text if ch.isalpha()]
-    latin = sum(1 for ch in letters if ch.isascii())
-    return "{{" in text and len(text.split()) >= 5 and bool(letters) and latin / len(letters) >= 0.9
+    return "{{" in text and len(text.split()) >= 5 and bool(letters) and all(ch.isascii() for ch in letters)
 
 
 def _template(calls: list[ToolCallLog]) -> str:

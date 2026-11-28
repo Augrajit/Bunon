@@ -33,5 +33,11 @@ Put answers in the team chat or straight into this file. I'll copy them into `co
 | 21 | **Extra pieces cut per style**: how many extra pieces does a factory cut per style to cover rejects and shortages (the "over-cut")? Is there a usual percentage, and does the buyer pay for them? | % of the style's quantity | Bunon searches 0–25% and recommends one | The buffer in whole-style plans |
 | 22 | **Real defect and whole-lot rejection rates** for subcontracted kids' screen-print tees: the share of pieces rejected at final QC, and how often a whole lot fails | % of pieces; % of lots | synthetic history (defects about 0.5%); lot rejection about 1.7% (ask 11/12 placeholders) | Good pieces counted |
 | 23 | **How often a subcontractor delivers short, and by how much** (suggested by `SENSITIVITY.md`: the largest driver of the low chance) | % of jobs; % of pieces | synthetic history: about 30% of jobs short | The chance that every style is complete |
+| 24 | **How rare are failures?** In how many subcontracted programmes out of 100 does the programme miss the buyer's date (and get cancelled or penalised)? | % of programmes | the naive plan is calibrated to 90% success (PLACEHOLDER anchor, D31) | Sets the lateness calibration; see `SENSITIVITY.md` for 80% and 95% |
+| 25 | **Salvage value of a rejected piece** (or a rejected lot) when it is sold at a loss | BDT per piece | 30 (Bunon placeholder) | Cost of rejects |
+| 26 | **Whole-lot rejection**: how often a whole delivered lot fails final QC ("rare") | % of lots | 0.5% (Bunon placeholder) | Cost of rejects |
+| 27 | **When does output against the daily target need action?** Below what share of the planned daily output does a production manager want a warning? | % of target | 90% (Bunon placeholder) | The day-12 warning |
+| 28 | **Floor count vs the factory's report**: what difference between the floor representative's count and the factory's report should be flagged? | % of pieces | 5% (Bunon placeholder) | The mismatch flag |
+| 29 | **New entrants**: how recent must a site visit be, and who counts as a voucher? | days; who | 90 days; anyone named (Bunon placeholder) | Which factories with no history may get a trial style |
 
 **Not needed:** anything about rumours, news, weather, maps or ERP systems. Those are out of scope for 20 Nov.

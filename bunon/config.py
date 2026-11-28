@@ -66,6 +66,11 @@ BASE_CM_PRICE_BDT = SEWING_PRICE_BDT_PER_SET_REF * TEE_SHARE_OF_SET_PRICE  # = 6
 FABRIC_BDT_PER_KG = 350.0             # PLACEHOLDER: midpoint of the interview's stated 300-400 BDT/kg
 FABRIC_KG_PER_TEE = 0.19              # PLACEHOLDER (Bunon estimate): ~1.2 m2 of 160 GSM jersey incl. cutting waste
 TRIMS_BDT_PER_PIECE = 10.0            # PLACEHOLDER (Bunon assumption, no source): label, thread, poly bag
+# D31: fabric per piece from the anonymised delivery orders (exporter supplies the fabric, confirmed in the interview):
+# 1 kg per dozen in size range 4/6X and 1.40 kg per dozen in 7/16 in nine of the ten orders (S01's .1 kg is a known
+# error and is not used), 2% fabric waste. The flat FABRIC_KG_PER_TEE stays for orders without styles.
+FABRIC_KG_PER_PIECE_BY_RANGE = {"4/6X": 1.0 / 12, "7/16": 1.40 / 12}
+FABRIC_WASTE_PCT = 0.02
 # Exporter-supplied material, charged on every piece made, buffer pieces included.
 MATERIAL_COST_BDT_PER_PIECE = FABRIC_BDT_PER_KG * FABRIC_KG_PER_TEE + TRIMS_BDT_PER_PIECE  # = 76.5 BDT, PLACEHOLDER derived by Bunon (DATA_PROVENANCE.md 6.1)
 SURPLUS_SALVAGE_BDT_PER_PIECE = 0.0  # PLACEHOLDER: conservative, buffer pieces carry full cost
@@ -141,11 +146,12 @@ SAFETY_MARGIN_DEFAULT_PCT = 0.0      # interview: optional, default 0%; the mana
 # Default PLACEHOLDER = two weeks of the demo email's penalty (5%/week of FOB 2.40 USD x 150,000 pcs).
 DEFAULT_LOSS_ON_FAILURE_BDT = 4_400_000.0
 # QC (PLACEHOLDERS until the interview gives figures): per-factory defect rate and whole-lot rejection.
-QC_DEFECT_MEAN = 0.02                # mean share of delivered pieces rejected at QC
+QC_DEFECT_MEAN = 0.035               # INTERVIEW (D31, single source): 3-4% of pieces rejected at QC; midpoint
 QC_DEFECT_FACTORY_CONC = 40.0        # spread between factories (Beta concentration)
 QC_DEFECT_JOB_CONC = 200.0           # spread between jobs of one factory
 QC_DEFECT_THETA_COEF = -0.3          # more reliable factories reject slightly fewer pieces (logit shift per sd)
-QC_LOT_REJECT_MEAN = 0.02            # chance a whole delivered lot fails final QC (counts as 0 good pieces)
+QC_LOT_REJECT_MEAN = 0.005           # PLACEHOLDER (D31: interview says "rare"; no figure): a whole lot fails final QC
+REJECT_SALVAGE_BDT_PER_PIECE = 30.0  # PLACEHOLDER (D31): a rejected piece (or lot) is sold at a loss, not thrown away
 QC_LOT_REJECT_CONC = 50.0
 QC_LOT_PRIOR_STRENGTH = 50.0         # reliability model: pooled Beta prior strength for lot rejection
 
@@ -186,6 +192,8 @@ LLM_MODE_ENV = "BUNON_LLM_MODE"  # "offline" (default: cache only) or "live"
 LIVE_CALLS_PER_VISITOR = 40
 LIVE_CALLS_PER_DAY = 400
 LLM_BUDGET_PATH = ROOT / "data" / "runtime" / "llm_budget.json"  # gitignored; daily counter
+# The pre-D31 database (QC 2%, lot rejection 2%), frozen for the piece-split regression tests, run uncalibrated.
+PIECE_REGRESSION_DB = ROOT / "tests" / "fixtures" / "bunon_pre_d31.db"
 PIECE_DEMO_EMAIL_PATH = ROOT / "data" / "demo" / "buyer_email_en.txt"
 DEMO_EMAIL_PATH = ROOT / "data" / "demo" / "buyer_email_programme_en.txt" if DEMO_PROGRAMME else PIECE_DEMO_EMAIL_PATH
 
@@ -196,6 +204,10 @@ SURGE_PRICE_FACTOR = 1.25      # PLACEHOLDER: CM premium paid on overtime pieces
 # Whole styles (SPEC.md D30): "move part of a running style" is NOT built until the interviewee confirms it ever
 # happens; it is listed as a disabled rescue option. Do not switch this on without that confirmation.
 RESCUE_SPLIT_RUNNING_STYLE = False
+# D31 (interview): the warning signal is output against the daily target; attendance is reported with it.
+OUTPUT_WARN_RATIO = 0.90       # PLACEHOLDER: warn when a factory makes less than 90% of its planned daily output
+REPORT_MISMATCH_PCT = 0.05     # PLACEHOLDER: flag when the floor representative's count and the factory's differ by more
+NEW_ENTRANT_VISIT_DAYS = 90    # PLACEHOLDER: a site visit at most this many days old makes a new factory eligible
 PRICE_MATCH_TOLERANCE = 0.02   # PLACEHOLDER: a quoted rate within 2% of our planned CM rate counts as the same rate
 PRICE_RANGE_BDT = (30.0, 120.0)  # PLACEHOLDER: quoted CM rates outside this range are flagged for a human, not dropped
 WARN_DROP_PP = 0.05            # PLACEHOLDER: a drop of 5 points in the order's chance since the last forecast is a warning (research ask 19)

@@ -36,7 +36,7 @@ def fake(tmp_path, response):
 
 @pytest.fixture(scope="module")
 def world():
-    return op.load_world()
+    return op.load_world(C.PIECE_REGRESSION_DB, calibrated=False)
 
 
 @pytest.fixture(scope="module")

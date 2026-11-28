@@ -1,0 +1,85 @@
+{
+ "task": "analyst",
+ "prompt_version": "analyst_v1",
+ "provider": "gemini",
+ "model": "gemini-3.5-flash-lite",
+ "created_utc": "2026-11-28T09:00:13+00:00",
+ "conversation": [
+  {
+   "system": "You are Bunon's procurement analyst for a garment exporter in Bangladesh. A manager asks a what-if\nquestion about the current subcontracting plan. Answer it by calling tools; the tools do all calculations.\n\nRules:\n- Call only the tools you need (at most 6 calls). Do not repeat a call with the same arguments.\n- Never compute, estimate or invent a number yourself.\n- To repeat a setting from the question (a cap, an exclusion, a number of days), cite the fact that the tool\n  echoes back (for example the cap used); never restate it in words.\n- FINAL ANSWER RULES (an automatic checker enforces them; violating answers are discarded):\n  1. No digits and no number words (two, five, hundred, percent, half, double ...) in the text.\n  2. Every number is a placeholder with a key from the facts, wrapped in double braces, e.g. {{c2.p_meet}}.\n     Never write a key without braces.\n  3. Refer to factories as {{fac:F0123}}.\n  4. Two to five short sentences: what you checked, what it shows, and a recommendation. Say that a human\n     decides and nothing is sent automatically. Mention that the data is synthetic.\n\nFACTS ABOUT THE CURRENT PLAN (key = value: meaning):\norder.total_qty = 16,800: buyer order quantity\norder.own_capacity = 0: exporter's own capacity\norder.subcontract_qty = 16,800: quantity to subcontract (Q)\norder.deadline = 31 Jan 2027: fixed delivery deadline\nfunnel.compliant = 442: T-shirt factories that are RSC-covered or hold a valid BSCI audit\nfunnel.candidates = 199: of those, with spare capacity that fits the deadline\nplan.target_p = 90%: target probability of on-time delivery within tolerance\nplan.slack_days = 4 days: planned slack before the latest finish date\nplan.tolerance = 2%: accepted shortfall: success means good pieces of at least (1 - this) of Q\nplan.min_good = 16,464: good pieces (after QC) needed by the deadline for success\nplan.p_meet = 92.1%: recommended plan: probability that the subcontracted quantity (order.subcontract_qty) arrives on time as good pieces, within the delivery tolerance\nplan.buffer_pct = 0%: recommended plan: over-allocation buffer\nplan.pieces = 16,800: recommended plan: pieces allocated\nplan.buffer_pieces = 0: recommended plan: buffer pieces above Q\nplan.cost_total = 1,765,173 BDT: recommended plan: total cost\nplan.buffer_cost = 0 BDT: recommended plan: price of the buffer\nplan.n_factories = 2: recommended plan: number of factories\nplan.target_met = yes: does the plan reach the target\nbase.p_meet = 90%: naive plan (declared capacity + lowest price): probability that the subcontracted quantity arrives on time as good pieces, within the delivery tolerance\nbase.cost_total = 1,618,480 BDT: naive plan: total cost\nbasebuf.p_meet = 90%: naive plan with the same buffer: probability that the subcontracted quantity arrives on time as good pieces, within the delivery tolerance\nbasebuf.cost_total = 1,618,480 BDT: naive plan with the same buffer: total cost\nline.F0288.qty = 10,080: F0288: pieces allocated\nline.F0288.share = 60%: F0288: share of allocation\nline.F0288.district = gazipur: F0288: district\nline.F0288.fail_share = 55.6%: F0288: share of failed simulations in which it was short, late or had its lot rejected at QC\nline.F1558.qty = 6,720: F1558: pieces allocated\nline.F1558.share = 40%: F1558: share of allocation\nline.F1558.district = ashulia_savar: F1558: district\nline.F1558.fail_share = 48.5%: F1558: share of failed simulations in which it was short, late or had its lot rejected at QC\ndistrict.gazipur.share = 60%: share of pieces in district gazipur\ndistrict.ashulia_savar.share = 40%: share of pieces in district ashulia_savar\n",
+   "question": "Should we stop using F2184 and keep any district under 50%? Compare that with the current plan."
+  },
+  {
+   "model": {
+    "calls": [
+     {
+      "id": "call_9992981781594125198",
+      "name": "solve_plan",
+      "args": {
+       "max_district_share": 0.5,
+       "exclude_factories": [
+        "F2184"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "solve_plan",
+     "response": {
+      "ok": true,
+      "call_id": "c1",
+      "facts": {
+       "c1.excluded": "F2184",
+       "c1.max_district_share": "50%",
+       "c1.p_meet": "91.6%",
+       "c1.cost_total": "1,753,473 BDT",
+       "c1.cost_delta": "-11,700 BDT",
+       "c1.buffer_pct": "2.5%",
+       "c1.n_factories": "2",
+       "c1.factories": "F0288, F1064",
+       "c1.target_met": "yes"
+      },
+      "cite_as": "write each value as {{key}}, e.g. {{c1.excluded}}"
+     }
+    }
+   ]
+  },
+  {
+   "model": {
+    "calls": [
+     {
+      "id": "call_14366496859992062277",
+      "name": "compare_plans",
+      "args": {
+       "first": "current",
+       "second": "c1"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "tools": [
+    {
+     "name": "compare_plans",
+     "response": {
+      "ok": true,
+      "call_id": "c2",
+      "facts": {
+       "c2.p_diff": "-0.5 percentage points",
+       "c2.cost_diff": "-11,700 BDT"
+      },
+      "cite_as": "write each value as {{key}}, e.g. {{c2.p_diff}}"
+     }
+    }
+   ]
+  }
+ ],
+ "step": {
+  "text": "သမارft\nWe evaluated removing {{c1.excluded}} and capping district share at {{c1.max_district_share}}. This setup achieves a delivery probability of {{c1.p_meet}} with a cost difference of {{c2.cost_diff}}. A human decision-maker will review these synthetic data figures before final approval, as no automated orders are transmitted."
+ }
+}

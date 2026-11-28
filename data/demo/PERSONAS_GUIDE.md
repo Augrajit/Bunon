@@ -2,35 +2,33 @@
 
 The demo shows Bunon talking to six **simulated** subcontract factories. You write what each factory says; Bunon's AI only reads it. Your words are frozen in `personas.json` so the live demo always shows the same messages. The app labels every persona and message as **simulated**.
 
-## NEW (27 Nov 2026, SPEC.md D30): the demo is now a programme of whole styles
+## NEW (28 Nov 2026, SPEC.md D31): the programme story after the interview calibration
 
-This replaces the 50,000-piece story further down. Please write the persona messages for this one.
+This replaces the D30 brief and the older 50,000-piece story further down. Please write the persona messages for
+this one.
 
-- **Order:**
-  - A fictional buyer's kids' T-shirt programme of **10 styles, 16,800 pieces**, all subcontracted.
-  - Styles S01–S10, modelled on the anonymised delivery orders in `data/demo/docs/`. They are kids' boyfriend and screen-print tees in sizes 4/6X and 7/16, one or two colours each, 6 pieces per prepack.
-  - **A style is never split:** each style goes whole to one factory.
+- **Order:** a fictional buyer's kids' T-shirt programme of **10 styles, 16,800 pieces**, all subcontracted (styles S01–S10 from the anonymised delivery orders in `data/demo/docs/`). A style is never split.
 - **Dates:**
   - Day 0 is Sunday 3 January 2027.
-  - The deadline is Sunday 31 January 2027 (day 28).
-  - Each factory is asked to finish by **22 January 2027**.
-- **What the app asks each factory:** the pieces include the 20% over-cut the plan recommends.
+  - The deadline is Sunday 31 January 2027 (day 28). Late means cancelled.
+  - Each factory finishes by 22 January 2027.
+- **What the app asks each factory** (no over-cut):
 
-| Factory | Persona (suggested) | Styles asked | Pieces asked |
+| Factory | Persona | Styles asked | Pieces asked |
 |---|---|---|---|
-| F0288 | `slow_en` (English) | S01, S02, S04, S10 | 8,424 |
-| F2427 | `quick_banglish` (Banglish): says yes, then runs late | S05, S06, S07, S08 | 8,280 |
-| F2786 | `price_banglish` (Banglish): bargains on the rate | S03, S09 | 3,456 |
-| F2829 | `standby_en` (English): standby, asked for its spare capacity | none at first | 15,200 |
+| F0288 | `slow_en` (English) | S02, S04, S05, S07, S08, S10 | 10,080 |
+| F1558 | `quick_banglish` (Banglish): says yes, then falls behind | S01, S03, S06, S09 | 6,720 |
+| F2314 | `standby_en` (English): standby, asked for its spare capacity | none at first | 15,300 |
+| F2829 | `rescue_en` (English): takes the rescue | S03 and S09 on day 12 | 2,880 |
 
-- **Day 2 replies (suggested):** F0288 and F2427 accept. F2786 accepts the styles but counters on the rate. F2829 says it can stand by.
-- **Day 12, F2427's update:** for example "2,000 pcs sewn, lost 1 day". The engine then:
-  - projects 6,000 of 8,280 pieces;
-  - offers to **move the unstarted style S07 (2,304 pcs) to F2829**.
-- **Rescue reply, F2829:** accepts S07, 2,304 pcs.
-- **Day 14, F0288's update:** keep the late-fabric story (D25/D28: the exporter's side). For example "2,600 pcs sewn, fabric from the dyeing unit came late, 2 days behind".
-- **Not used in this story:** `steady_en` and `declines_bn`. Tell the developer if you want a decline in the story; that needs a second standby.
-- **Quantities in your text:** if a message names pieces, use the numbers above. The rule below still holds: every number in `expected` must be written in the text.
+- **Day 2:** F0288 and F1558 accept. F2314 says it can stand by. Please don't name a rate unless it is the factory's real asking rate: a rate more than 2% from the plan's reads as a counter.
+- **Day 12, F1558's update:** the cause is **worker absence and low productivity** (interview), with attendance. For example "1,800 ready, 42 of 60 operators came, productivity low, 1 day late".
+- **Day 12, the exporter's floor representative** (a new exporter role) counts on the floor. For example 1,600 pieces, 42 of 60 present, "two lines short of operators". The scripted values are in `data/demo/floor_reports.json`.
+- **Rescue reply, F2829:** accepts the two styles.
+- **Day 14, F0288's update:** keep the late-fabric story (the exporter's side). For example "2,600 sewn, fabric from the dyeing unit came late, 2 days behind".
+- **New entrant F0882** (`data/demo/factory_profiles.json`): an owner background, who vouches and when, and a site visit and its findings. No history; it is shown with a trial style.
+- **Not used:** `steady_en`, `declines_bn` and `price_banglish`.
+- **Quantities in your text:** if a message names pieces, use the numbers above. Every number in `expected` must be written in the text; `workers_present` and `workers_planned` are new fields.
 
 ## The story the messages must fit (before D30, kept for reference)
 

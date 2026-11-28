@@ -654,3 +654,73 @@ The click-throughs are unchanged: F0288 starts as shared and hides its record. F
 **Tests:** 226 unit tests; full sweep 30 passed (28 Nov 2026).
 
 **Finding (sweep, 28 Nov 2026):** with the programme, a cap of 2 factories gives a plan at 41.7%, above the default 32.0% with up to 5 factories. The optimiser finds the cheapest plan at each over-cut and, as no plan reaches the target, recommends the most likely of those. It does not search for the most likely plan overall. Nothing changed; it is an open question for the product owner whether to recommend the most likely plan when the target cannot be met. The sweep now expects "no feasible plan" only with 1 factory (2 and 3 are feasible for 16,800 pcs).
+
+### D31: 28 Nov 2026: interview calibration (success = ship by the date; calibration to an observed base rate)
+
+**Source:** a follow-up interview with the same single source, anonymised (DATA_PROVENANCE.md §6.0). It is applied as one change.
+
+**1. Success rule (whole styles).** The programme succeeds when every factory ships its styles by its date. Lateness causes cancellation, and a catastrophic failure counts as late.
+- **Short pieces and QC rejects are a cost, not a failure:** the FOB lost on each good piece short of a style's quantity, less the salvage the rejects fetch (`REJECT_SALVAGE_BDT_PER_PIECE`, PLACEHOLDER 30 BDT).
+- **Tolerance is a research ask, not a gate** (asks 11, 20).
+- **The optimiser follows the rule, so this is not calibration.** Each factory used costs its chance of being late or failing × the loss on failure, because one late factory cancels everything. Each piece costs its expected shortfall at lost FOB. The over-cut is chosen on cash cost plus expected quality cost.
+- **The piece split keeps the D12 rule.**
+
+**2. Calibration to an observed base rate, not tuning.**
+- **The anchor.** The interviewee says failures are rare but gave no figure. The anchor is a PLACEHOLDER: the naive plan ships on time about 90% of the time.
+- **What it changes.** `python -m bunon.calibrate --target 0.90` moves only the least-evidenced synthetic inputs, in a fixed order:
+  1. The short-delivery rate. Under rule 1 it has no effect on success, so it is left unchanged.
+  2. The lateness of the synthetic history, scaled by `late_mult`.
+  3. The shock frequency, only if lateness alone cannot reach the anchor.
+- **What it never touches.** It chooses using only the naive plan. It never touches Bunon's optimiser, simulation, success rule, interview values or the labelled placeholders, and it never looks at Bunon's plan.
+- **Result:** `late_mult = 0.183`, shocks unchanged.
+- **How it is applied.** The values are written to `data/calibration.json`, which `load_world` applies; `BUNON_CALIBRATION=0` switches it off. Bunon's chance is reported afterwards.
+- **Other anchors (`SENSITIVITY.md`):**
+
+| Anchor | Naive | Bunon |
+|---|---|---|
+| 80% | 80.0% | 86.8% |
+| 90% | 90.0% | 92.1% |
+| 95% | 95.0% | 94.7% |
+
+At 95% the remaining failures come mostly from correlated shocks, which the optimiser's per-factory risk term does not price; Bunon is 0.3 points below the naive plan there, and this is reported, not fixed by tuning.
+
+**3. QC.**
+- Defect rate 3.5%, set in the synthetic-history generator; the DB was regenerated, and only the QC columns changed (checked).
+- Whole-lot rejection is rare: PLACEHOLDER 0.5%, salvaged.
+
+**4. Fabric per shirt** comes from the delivery orders: 1 kg per dozen for 4/6X and 1.40 kg per dozen for 7/16, plus 2% waste. Material per style follows its size mix (`programme.material_bdt_per_piece`, 45.7–51.6 BDT, against 76.5 before).
+
+**5. Daily update.**
+- `update_v2` reads workers present and planned under the quote rule.
+- The warning signal for whole styles is output against the daily target (`OUTPUT_WARN_RATIO`, PLACEHOLDER 90%).
+- The demo's delay cause is worker absence and low productivity.
+
+**6. Floor representative** (`Floor representative`): exporter staff who posts a typed count from inside the factory.
+- It is not in `EXPORTER_ROLES`, so it cannot approve.
+- The forecast uses its count. A difference from the factory's own report above `REPORT_MISMATCH_PCT` (PLACEHOLDER 5%) is flagged, with both shown.
+
+**7. Ranking.** Standbys and the "Show the maths" table rank by capacity, then workers, then capability (in-house printing, knitting, dyeing), then quality (`loop.rank_key`).
+
+**8. Roadmap only:** photo of a handwritten production register, a WhatsApp channel, factories posting free capacity, a site-visit checklist and who vouches for a factory, exporter search across profiles.
+
+**9. New entrant.**
+- A factory with no past jobs is a candidate only with a vouch and a site visit at most `NEW_ENTRANT_VISIT_DAYS` (PLACEHOLDER 90) old. It is unproven, so the unproven-factory cap limits it.
+- The demo's F0882 (simulated profile) is eligible. The plan shows its priced trial style (S10: 88.8%, +33,840 BDT) without choosing it.
+- The factory app shows its profile.
+
+**Before / after (demo programme):**
+
+| | D30 | D31 |
+|---|---|---|
+| Success rule | every style ≥ 98% good pieces | every factory ships by its date; short pieces a cost |
+| Naive plan | 1.2% | 90.0% (the anchor) |
+| Bunon plan | 3 factories, 20% over-cut, 32.0% | 2 factories (F0288 6 styles, F1558 4), 0% over-cut, **92.1%**; cost 1,765,173 BDT + expected quality cost 233,571 BDT |
+| Day 12 | F2427 2,280 short, 0% | F1558 64% of daily target (42 of 60 workers), 5,400 of 6,720, chance 95.6% (watch) |
+| Rescue | move S07: 43.1% | move S03 + S09 to F2829: 91.8%, +29,928 BDT, expected quality cost 191,070 BDT; against shipping short at 541,303 BDT |
+| Last rescue day | 13 | 12 (today) |
+
+**Why the over-cut is 0%:** short deliveries also hit the extra pieces. A 2.5% over-cut costs about 43,000 BDT and saves about 20,000 BDT of expected shortfall.
+
+**Piece-split regression:** these tests now run on the frozen pre-D31 database, uncalibrated (`config.PIECE_REGRESSION_DB`), so their old numbers still hold.
+
+**Live LLM:** a second junk analyst answer had a few characters of another script before a good answer. `analyst._is_answer` now requires English letters only. Test added.

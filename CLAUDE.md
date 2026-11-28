@@ -20,6 +20,8 @@ Windows, Python 3.11, venv in `.venv`.
 .venv/Scripts/python.exe -m bunon.warm_cache               # refill cached LLM answers for the scripted demo (needs GEMINI_API_KEY)
 .venv/Scripts/python.exe -m bunon.personas                 # check the hand-written persona fixture (data/demo/personas.json)
 .venv/Scripts/python.exe -m bunon.checkpoint               # regenerate CHECKPOINT_DAY2.md
+.venv/Scripts/python.exe -m bunon.calibrate --target 0.90  # calibrate lateness to the base rate (writes data/calibration.json)
+.venv/Scripts/python.exe -m bunon.sensitivity              # regenerate SENSITIVITY.md (one input at a time; anchors 0.80/0.90/0.95)
 ```
 
 No linter or formatter is configured. Tests that need the private raw CSV or name mapping skip on a clean clone (5 skips is normal).
@@ -28,7 +30,7 @@ No linter or formatter is configured. Tests that need the private raw CSV or nam
 
 PLAN_V2.md (approved 26 Nov 2026) is the current plan: Bunon becomes the trust layer for subcontracting, organised around one order's timeline (sourcing → follow-up → warning → rescue → record), on Streamlit with all order logic in a `bunon/service.py` free of Streamlit imports. Its decisions block at the top overrides the rest of it.
 
-Success (SPEC.md D12, D30): **good pieces after QC delivered by the deadline ≥ (1 − tolerance) × Q**, not all on-time pieces ≥ Q. Since D30 the demo is a programme of 10 whole styles (16,800 pcs, from the anonymised delivery orders in `data/demo/docs/`): a style always goes whole to one factory, the buffer is an over-cut within each style, and **every style** must meet its own threshold. The piece split stays for orders without styles (regression tests on `op.piece_demo_order()`). QC defects and whole-lot rejection come from the reliability model (`eb-3`). Factory personas in the demo are hand-written by the team and labelled simulated; never generate them with the LLM.
+Success (SPEC.md D31, interview): **in the whole-style programme, success = every factory ships its styles by the buyer's date** (lateness cancels the programme); short pieces and QC rejects are a **cost** (lost FOB less salvage), not a failure, and tolerance is a research ask, not a gate. The synthetic lateness is **calibrated** to the interview's base rate (`python -m bunon.calibrate --target 0.90` writes `data/calibration.json`, applied in `load_world`; it moves only the least-evidenced inputs, never Bunon's logic). The piece split keeps the D12 rule (good pieces after QC ≥ (1 − tolerance) × Q). Since D30 the demo is a programme of 10 whole styles (16,800 pcs, from the anonymised delivery orders in `data/demo/docs/`): a style always goes whole to one factory, the buffer is an over-cut within each style, and **every style** must meet its own threshold. The piece split stays for orders without styles (regression tests on `op.piece_demo_order()`). QC defects and whole-lot rejection come from the reliability model (`eb-3`). Factory personas in the demo are hand-written by the team and labelled simulated; never generate them with the LLM.
 
 ## The rule everything is built around
 

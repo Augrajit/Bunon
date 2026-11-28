@@ -762,3 +762,11 @@ At 95% the remaining failures come mostly from correlated shocks, which the opti
 - **Fix:** a re-plan memo requires only `{{new.short_cost}}`, and the styles rule applies only when style facts exist. The re-plan template cites the short-piece cost.
 - **Test:** both fallback memos must pass their own checks.
 - **Cache:** the re-plan memo was re-warmed live.
+
+### D34: 29 Nov 2026: costing sheets and challans recorded as research input
+
+**What:** two real costing workbooks and photos of supplier delivery challans and delivery orders are recorded as research input (RESEARCH_ASKS.md "Evidence received", asks 30-31; DATA_PROVENANCE.md §9). No figure from them is in the repo, and no engine or `config.py` value changes.
+
+**Why the fabric price barely matters:** the exporter supplies the fabric, so it costs the same whichever factory sews. It does not change the plan; the over-cut is 0% and a higher price would only make an over-cut less attractive; the short-piece cost uses lost FOB. It moves cash cost totals only.
+
+**Next (HANDOFF §4):** fabric delivery evidence together with §c, then §b, then items 9-10, with the release check in the final week.

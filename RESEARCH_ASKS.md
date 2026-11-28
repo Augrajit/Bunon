@@ -39,5 +39,24 @@ Put answers in the team chat or straight into this file. I'll copy them into `co
 | 27 | **When does output against the daily target need action?** Below what share of the planned daily output does a production manager want a warning? | % of target | 90% (Bunon placeholder) | The day-12 warning |
 | 28 | **Floor count vs the factory's report**: what difference between the floor representative's count and the factory's report should be flagged? | % of pieces | 5% (Bunon placeholder) | The mismatch flag |
 | 29 | **New entrants**: how recent must a site visit be, and who counts as a voucher? | days; who | 90 days; anyone named (Bunon placeholder) | Which factories with no history may get a trial style |
+| 30 | **Fabric price per kg** for the kids' knit programme (cotton spandex), as the exporter pays it | BDT/kg | 350 (interview: 300-400) | Cash cost totals only (see below); the real costing sheets suggest a much higher figure |
+| 31 | **Waste allowance on trims and accessories**: one real delivery order books 2%, another 3% | % | 2% (fabric, from the delivery orders) | Booking checks in §c |
+
+## Evidence received (29 Nov 2026, D34)
+
+The team shared two real costing workbooks and photos of supplier delivery challans and delivery orders. They are kept only on the developer's machine in the ignored `data/Documents/` and are **not** in this repo. Below is what they suggest, without their figures. They are research input: no value in `config.py` changes from them.
+
+| Source | What it suggests | Asks |
+|---|---|---|
+| Two costing workbooks: kids' knit polos (2017-2018) and kids' denim trousers | **CM:** the polo rate per piece is close to Bunon's tee placeholder; the trouser rate is much higher, as expected for a heavier, washed garment. **Fabric price per kg:** about twice the interview's range, but for different fabrics, years and products. **FOB:** the polos' FOB per piece brackets the demo's. The sheets also show a finance cost and itemised trims and accessories. | 8, 14, 16, 30 |
+| Supplier delivery challans (fabric, cartons, accessories) to the subcontractor, made out to the exporter | The exporter supplies the fabric and trims, in rolls and kg by colour and pack. The challans carry the delivery date and handwritten corrections. This is the evidence for the planned "fabric delivery" check. | 23 (cause of short or late output), HANDOFF item 1 |
+| A second, Excel-made delivery-order layout, and a printed delivery order with a handwritten booking total | Delivery orders come in more than one layout; trims waste differs (2% vs 3%); people annotate printed orders by hand. | 31; §b and §c test cases |
+
+**Why the fabric price barely matters now.**
+- **Who pays:** the exporter supplies the fabric, so it costs the same whichever factory sews.
+- **The plan:** the optimiser's choice of factories and styles does not change with it.
+- **The over-cut:** it is 0% (D31), and a higher fabric price would only make an over-cut less attractive.
+- **The short-piece cost:** it uses lost FOB, not fabric cost.
+- **Net effect:** it changes the cash cost totals shown, not the decision. Ask 30 is therefore low priority.
 
 **Not needed:** anything about rumours, news, weather, maps or ERP systems. Those are out of scope for 20 Nov.

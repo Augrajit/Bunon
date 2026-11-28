@@ -126,7 +126,7 @@ The login page has a "Continue as demo exporter" button; nothing typed there is 
 - **Older asks 11–23:** placeholders such as overtime, payment terms, salvage, mismatch threshold and output threshold. Never tune them.
 - **The interviewee:** whether "move part of a running style" ever happens. It stays disabled until then (`config.RESCUE_SPLIT_RUNNING_STYLE`).
 
-**The order of remaining work (agreed 28 Nov 2026):**
+**The order of remaining work (agreed 28 Nov 2026, updated 29 Nov):**
 1. **Now, done (D33):**
    - persona label "written by the developer";
    - the memo and the warning name the styles and the short-piece cost;
@@ -134,11 +134,15 @@ The login page has a "Continue as demo exporter" button; nothing typed there is 
    - a Bangla-safe junk filter for the analyst;
    - the old scripted factory replies removed from "Show the maths";
    - this docs tidy-up.
-2. **After the renewal, in this order:**
-   1. **§b document intake** (DOCS_PROPOSAL.md): the AI reads an anonymised delivery order into a structured order, every value quoted, with new `textnum` cases for sizes such as "10/12" and ".1 KG".
-   2. **§c cross-document checks** in code: totals within a delivery order, fabric rate per dozen against similar styles (S01's 0.1 kg/dzn), style sheet against delivery order. The style-sheet values come from the teammate's hand-made answer key, not from the online OCR.
-   3. **Item 9:** QC and the track record per style.
-   4. **Item 10:** capacity windows start on day 2 (known issue 2). This changes the pinned numbers: re-pin and re-warm.
+   - **D34 (29 Nov):** the costing sheets and challans are recorded as research input (RESEARCH_ASKS.md "Evidence received", asks 30-31; DATA_PROVENANCE.md §9). No engine change and no real values in the repo.
+2. **After the renewal, in this order (set 29 Nov 2026):**
+   1. **Fabric delivery evidence, built together with §c cross-document checks.** Use hand-typed, anonymised values from the challans (a person types them into a private file; the existing anonymiser mapping gives the same companies the same fakes).
+      - **A typed "inputs delivered" record per factory:** date, kg, rolls, style and colour.
+      - **Fabric received against the delivery order's booking,** so fabric short or late shows before production.
+      - **In delay attribution:** a factory's "fabric came late" is checked against the challan date by code.
+      - **§c checks:** totals within a delivery order; net + waste = booking (including handwritten totals); fabric rate per dozen against similar styles (S01's 0.1 kg/dzn); the style sheet against the delivery order (from the teammate's hand-made answer key, not the online OCR); trims waste 2% vs 3% (research ask 31).
+   2. **§b document intake** (DOCS_PROPOSAL.md): the AI reads an anonymised delivery order into a structured order, every value quoted, with new `textnum` cases for sizes such as "10/12" and ".1 KG". It must handle both delivery-order layouts (the generator's and the Excel-made one).
+   3. **Items 9-10:** QC and the track record per style; capacity windows start on day 2 (known issue 2). Item 10 changes the pinned numbers: re-pin and re-warm.
 3. **The final week:** the release check (HANDOFF 5.5): a clean clone, `pytest -q`, `pytest -m sweep`, a privacy scan of every published file (database, cache, `data/demo/docs/`, fixtures), live timing on Streamlit Cloud, then tag. Also record the video (`VIDEO_NOTES.md`, under 181 s).
 4. **Optional, if time is left:** §d accuracy evaluation, §g learn-from-past-orders library, the real-user test (5.3).
 

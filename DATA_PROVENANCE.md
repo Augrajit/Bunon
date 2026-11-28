@@ -208,3 +208,10 @@ The material cost is the same at every factory (the exporter supplies it), so it
 - `data/demo/floor_reports.json`: the floor representative's scripted day-12 count (form defaults only; a person posts it). Developer placeholder.
 - `data/calibration.json`: the lateness multiplier chosen by `python -m bunon.calibrate --target 0.90`.
 - `tests/fixtures/bunon_pre_d31.db`: the pre-D31 synthetic database (QC 2%, lot rejection 2%), frozen for the piece-split regression tests. Same public, pseudonymous, synthetic content as `data/processed/bunon.db`.
+
+## 9. Costing sheets, challans and a second delivery-order layout (D34; research input only, not published)
+
+- **What:** two real costing workbooks (kids' knit polos 2017-2018, kids' denim trousers), and photos of supplier delivery challans (fabric, cartons, accessories) and of two delivery orders (an Excel-made layout and a printed one with a handwritten total). Shared by a teammate.
+- **Where:** only on the developer's machine, in the ignored `data/Documents/`. They hold real company names, addresses, phone numbers, a tax ID, PO numbers, SKUs and a brand name. They are never committed, never uploaded, never sent to an LLM, and images are never sent at all (text replacement cannot anonymise a photo).
+- **How they are used:** as research input only (RESEARCH_ASKS.md, "Evidence received"). No figure from them is in the repo and no `config.py` value changes. A later feature (fabric delivery evidence, HANDOFF §4) will use values a person types by hand and anonymises with the existing mapping, so the same companies get the same fakes.
+- **Read with:** `openpyxl` / `xlrd` installed in a scratch folder (not project requirements); the photos were viewed locally.

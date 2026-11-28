@@ -105,7 +105,7 @@ Remaining open items (27 Nov 2026, after D28; feature work paused for the polish
 - **Milestone 5:** 5.3 real-user test, 5.4 docs pass and video, 5.5 release check.
 
 Real order documents (27 Nov 2026, DOCS_PROPOSAL.md, approved order §a → §f → §b, §c, §d, §g):
-- **Privacy:** the real PDFs live only in the ignored `data/Documents/` on the developer's machine. Never commit them, never send them (raw or as images) to the LLM, never use them raw in the demo or tests. `tests/test_no_documents.py` guards this.
+- **Privacy:** the real PDFs live only in the ignored `data/Documents/` on the developer's machine. Never upload them (or OCR output of them) to online notebooks, cloud drives or AI tools; process them only on the local machine. An OCR archive of the style sheet exists in `data/Documents/` (ignored) and has not been anonymised. Never commit them, never send them (raw or as images) to the LLM, never use them raw in the demo or tests. `tests/test_no_documents.py` guards this.
 - **§a done (D29):** `python -m bunon.anonymise data/Documents` (local only) rewrites `data/demo/docs/S01–S10.txt` and `programme.json`. Its mapping is in `data/private/doc_mapping.json`; keep it, or the fakes change on the next run. The style sheet is out of scope (no OCR); a teammate hand-enters its values as the answer key.
 - **§f whole-style engine, in progress (SPEC.md D30):**
   - **Product owner's decisions:**

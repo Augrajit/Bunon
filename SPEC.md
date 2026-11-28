@@ -724,3 +724,16 @@ At 95% the remaining failures come mostly from correlated shocks, which the opti
 **Piece-split regression:** these tests now run on the frozen pre-D31 database, uncalibrated (`config.PIECE_REGRESSION_DB`), so their old numbers still hold.
 
 **Live LLM:** a second junk analyst answer had a few characters of another script before a good answer. `analyst._is_answer` now requires English letters only. Test added.
+
+### D32: 28 Nov 2026: the programme's fabric is cotton spandex, with no fabric weight
+
+**Why:** the style sheets of the real programme (read on the local machine only) give the fabric of every style as cotton spandex and state no fabric weight. The fictional programme email said "100% cotton single jersey, 160 GSM", copied from the old 50,000-piece demo.
+
+**What:**
+- `buyer_email_programme_en.txt` now says "Fabric: cotton spandex".
+- The programme demo order has `fabric="cotton spandex"` and `gsm=None`, so the intake leaves GSM empty and the request drafts no longer cite a weight.
+- The old piece-split email is unchanged.
+
+**Numbers:** unchanged. The fabric text and GSM enter no calculation, and fabric per piece comes from the delivery orders' kg per dozen (D31).
+
+**Cache:** the intake and the request drafts were re-warmed live; the memos and what-ifs were unaffected.

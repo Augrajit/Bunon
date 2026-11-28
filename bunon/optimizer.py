@@ -55,7 +55,8 @@ def demo_order() -> OrderConstraints:
     """The demo order: the 10-style programme (SPEC.md D30), or the pre-D30 piece-split order with the flag off."""
     if C.DEMO_PROGRAMME:
         from bunon import programme as pg
-        return pg.as_programme(piece_demo_order())
+        # D32: the style sheets give the fabric as cotton spandex and state no fabric weight
+        return pg.as_programme(piece_demo_order().model_copy(update={"fabric": "cotton spandex", "gsm": None}))
     return piece_demo_order()
 
 

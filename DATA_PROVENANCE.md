@@ -200,6 +200,7 @@ The material cost is the same at every factory (the exporter supplies it), so it
   `tests/test_anonymise.py` checks the published files hold only fakes, and against the private mapping where it
   exists.
 - **Not included:** the scanned 22-page style sheet. A teammate enters its values by hand as the answer key.
+- **Fabric (D32):** the style sheet gives the fabric of every style as cotton spandex and states no weight. The demo's buyer email follows it.
 
 ## 8. Demo fixtures added in D31
 

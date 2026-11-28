@@ -217,3 +217,17 @@ def test_published_demo_numbers():
     sid, bp = sv.trial_style(world, b, "F0882")
     assert sid == "S10" and bp.risk.p_meet_qty == pytest.approx(0.8884, abs=0.0005)
     assert round(bp.plan.cost_total - b.rec.plan.cost_total) == 33_840
+
+
+def test_programme_memo_templates_pass_their_own_checks():
+    """D33: the fallback memos (initial and re-plan) satisfy the whole-style memo rules, so an offline cache miss
+    never breaks the app (the 28 Nov sweep caught a re-plan memo that could not)."""
+    from bunon import agent as ag
+    from bunon import service as sv
+    world = op.load_world()
+    b = sv.compute_plans(world, op.demo_order(), sv.PlanSettings(), n_compliant=442)
+    assert not ag.validate_memo(ag.template_memo("initial", b.facts), b.facts)
+    rp, _ = sv.replan_after_decline(world, b)
+    fs = ag.factsheet_for_replan(b.facts, rp)
+    assert ag.memo_required(fs) == ["new.short_cost"]
+    assert not ag.validate_memo(ag.template_memo("replan", fs), fs)

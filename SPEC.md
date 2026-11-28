@@ -757,3 +757,8 @@ At 95% the remaining failures come mostly from correlated shocks, which the opti
 **Numbers:** unchanged (no engine change). The memo and warning were re-warmed live; the app walks are clean.
 
 **About an earlier request:** the product owner asked whether four fixes from an earlier message are done: the expected total cost per option, a shortage warning, a Bangla-safe filter and the memo. That message is not in this session's record. The four were read as the total-cost column, the warning naming the short styles and their cost, the Bangla-safe analyst filter and the style-aware memo above.
+
+**D33 fix (same day):** the first full sweep failed 21 of 31 cases. The new memo rule also applied to the re-plan memo, whose facts carry no per-factory styles, so its fallback template could not pass the check.
+- **Fix:** a re-plan memo requires only `{{new.short_cost}}`, and the styles rule applies only when style facts exist. The re-plan template cites the short-piece cost.
+- **Test:** both fallback memos must pass their own checks.
+- **Cache:** the re-plan memo was re-warmed live.

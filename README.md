@@ -80,7 +80,7 @@ python -m bunon.data_gen
 | Whole-style engine (D30): a binary style-to-factory MIP, over-cut per style, per-style success in the simulation, rescue by moving an unstarted style / overtime / accepting a shortfall within tolerance / renegotiating the date | done |
 | Real delivery orders anonymised on the local machine (`bunon/anonymise.py`, D29); the raw PDFs are never committed or sent to the LLM | done |
 | Interview calibration (D31): ship-by-date success, quality as a cost, attendance in the daily update, the floor representative, ranking, new entrants; `python -m bunon.calibrate` | done |
-| Tests: 239 (`pytest -q`) + 31 app click-throughs: 24 extreme settings, the factory app, the floor representative, the story-clock jumps (`pytest -m sweep`) | passing |
+| Tests: 240 (`pytest -q`) + 31 app click-throughs: 24 extreme settings, the factory app, the floor representative, the story-clock jumps (`pytest -m sweep`) | passing |
 | Real values for the placeholder assumptions (fill/lateness, costs; see RESEARCH_ASKS.md) | waiting for research |
 
 **The 3-minute demo** (branch `v2`; numbers in [VIDEO_NOTES.md](VIDEO_NOTES.md)):

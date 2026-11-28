@@ -471,14 +471,16 @@ def validate_memo(memo: MemoLLM, fs: FactSheet) -> list[str]:
     for k in memo_required(fs):
         if k not in used:
             errors.append(f"missing required placeholder {{{{{k}}}}}")
-    if "plan.n_styles" in fs and not any(k.startswith("line.") and k.endswith(".styles") for k in used):
+    if any(k.startswith("line.") and k.endswith(".styles") for k in fs) and             not any(k.startswith("line.") and k.endswith(".styles") for k in used):
         errors.append("name the styles each factory makes, as {{line.F0123.styles}}")
     return errors
 
 
 def memo_required(fs: FactSheet) -> list[str]:
     """D33: a whole-style programme's memo must say how many styles there are and what short pieces cost."""
-    return [k for k in ("plan.n_styles", "plan.short_cost", "new.short_cost") if k in fs]
+    if "replan.reason" in fs:  # a re-plan memo: the new plan's short-piece cost
+        return [k for k in ("new.short_cost",) if k in fs]
+    return [k for k in ("plan.n_styles", "plan.short_cost") if k in fs]
 
 
 def render_text(t: str, fs: FactSheet) -> str:
@@ -525,7 +527,9 @@ def template_memo(kind: Literal["initial", "replan"], fs: FactSheet) -> MemoLLM:
                      "{{new.cost_total}} ({{new.cost_delta}})."),
             recommendation="Approve the re-plan with {{new.n_factories}} factories and a {{new.buffer_pct}} buffer.",
             rejected_alternatives=["Keeping the original plan unchanged ignores the factory's reply and leaves the order at risk."],
-            risks=["The deadline is fixed: any further decline must be re-planned immediately."],
+            risks=["The deadline is fixed: any further decline must be re-planned immediately."]
+            + (["Short pieces and rejects are a cost, not a failure: {{new.short_cost}} expected with the new plan."]
+               if "new.short_cost" in fs else []),
             human_actions=["Confirm the changed quantities with each factory: " + "; ".join(changes) + ".",
                            "Nothing has been sent. A person must approve and send every purchase order."],
         )
@@ -578,6 +582,10 @@ def _memo_extra(fs: FactSheet) -> str:
     if "plan.n_styles" not in fs:
         return ""
     req = ", ".join("{{" + k + "}}" for k in memo_required(fs))
+    if "replan.reason" in fs:
+        return ("7. This order is a programme of whole styles. Success means the programme ships by the buyer's "
+                "date; short pieces and QC rejects are a cost, not a failure. Say what the new plan's short pieces "
+                f"are expected to cost. You must use these placeholders: {req}.\n")
     return ("7. This order is a programme of whole styles: each style goes whole to one factory. Success means the "
             "programme ships by the buyer's date; short pieces and QC rejects are a cost, not a failure. Say which "
             "styles each factory makes (cite {{line.F0123.styles}}) and what short pieces are expected to cost. "
